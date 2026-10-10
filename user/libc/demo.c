@@ -33,7 +33,9 @@ static void core(void) {
     memset(buffer,'q',31);CHECK(buffer[30]=='q');
     CHECK(snprintf(buffer,sizeof(buffer),"%s %d %08x %llu","NotOS",-42,0xa5u,18446744073709551615ull)==39);
     CHECK(!strcmp(buffer,"NotOS -42 000000a5 18446744073709551615"));
-    CHECK(snprintf(buffer,4,"abcdef")==6 && !strcmp(buffer,"abc"));
+    /* Runtime capacity keeps intentional truncation from becoming a compile-time diagnostic. */
+    volatile size_t truncation_capacity=4;
+    CHECK(snprintf(buffer,truncation_capacity,"abcdef")==6 && !strcmp(buffer,"abc"));
     errno=0;CHECK(strtol("  -123tail",&end,10)==-123 && !strcmp(end,"tail") && !errno);
     CHECK(strtol("0x7f",&end,0)==127 && !*end);
     errno=0;CHECK(strtol("999999999999999999999",&end,10)==LONG_MAX && errno==ERANGE);
