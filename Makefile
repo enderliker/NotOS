@@ -58,6 +58,7 @@ test: all build/lang-unit build/net-unit build/clock-unit build/physical-unit bu
 	python3 tests/heap.py
 	python3 tests/user.py
 	python3 tests/multitask.py
+	python3 tests/process.py
 	python3 tests/storage.py
 	python3 tests/network.py
 test-online: all

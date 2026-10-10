@@ -66,6 +66,10 @@ free 0
 heap-test
 ring3-test
 multitask-test
+spawn worker
+spawn spin
+ps
+kill 2
 mkfs
 write hello.txt Hola
 cat hello.txt
@@ -92,7 +96,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 ## Límites importantes
 
 - Solo PC BIOS/x86 y hardware emulado especificado; no UEFI ni soporte comprobado en equipos reales.
-- Lotes síncronos de hasta cuatro tareas ring 3, con round-robin por IRQ0 y espacios/pilas privados; sin gestor persistente, carga de aplicaciones externas, instalador. El heap es fijo de 1 MiB y el gestor físico administra como máximo 64 MiB, según E820; no hay crecimiento automático.
+- Lotes síncronos de hasta cuatro tareas ring 3, con round-robin por IRQ0 y espacios/pilas privados; gestor de cuatro procesos background; sin carga de aplicaciones externas ni instalador. El heap es fijo de 1 MiB y el gestor físico administra como máximo 64 MiB, según E820; no hay crecimiento automático.
 - Los fallos comprobados de las demos user terminan la ejecución y regresan a la shell; los fallos del kernel siguen siendo fatales. No hay pila independiente para double fault. Las IRQ de timer y teclado están activas, pero no hay APIC, SMP ni preemption del kernel. FPU/MMX/SSE no están soportados en tareas.
 - Interfaz gráfica mínima, sin ratón, navegador ni gestor completo de ventanas.
 - NotLang es un intérprete pequeño, sin bucles, funciones ni acceso a archivos.
@@ -104,6 +108,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - [Arquitectura y convenciones](docs/ARCHITECTURE.md)
 - [Ejecución de usuario](docs/USERSPACE.md)
 - [Multitarea y planificador](docs/TASKS.md)
+- [Procesos en segundo plano](docs/PROCESSES.md)
 - [Memoria](docs/MEMORY.md)
 - [Almacenamiento](docs/STORAGE.md)
 - [NotLang](docs/NOTLANG.md)

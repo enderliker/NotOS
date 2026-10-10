@@ -30,6 +30,8 @@ with socketserver.TCPServer(('127.0.0.1',0),Handler) as server:
             assert b'NET: RTL8139 ready; IPv4 10.0.2.15\n' in m.output
             m.command('ring3-test','USER: private-CR3/TSS/syscall/cleanup PASS\nnotos> ')
             m.command('multitask-run fault','SCHED: preemptive multitask/contexts/cleanup PASS\nnotos> ')
+            m.p.stdin.write(b'spawn spin\nspawn spin\nspawn spin\nspawn spin\n'); m.p.stdin.flush()
+            m.expect('PROCESS: started pid=4')
             port=server.server_address[1]
             for iteration in range(3):
                 m.command(f'http 10.0.2.2:{port}', f'HTTP: received {len(RESPONSE)} bytes\n',timeout=20)
@@ -38,6 +40,7 @@ with socketserver.TCPServer(('127.0.0.1',0),Handler) as server:
                     m.command('multitask-run budget','SCHED: preemptive multitask/contexts/cleanup PASS\nnotos> ')
                 if iteration==0:
                     m.command('user-run io','USER: private-CR3/TSS/syscall/cleanup PASS\nnotos> ')
+            m.expect('PROCESS: pid=4 exit=124')
             assert len(requests)==3, requests
             for request in requests:
                 assert request.startswith(b'GET / HTTP/1.0\r\n')

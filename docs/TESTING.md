@@ -189,3 +189,9 @@ No se han comprobado CI remota ni hardware real. Los budgets son muestras CPL3, 
 ## Almacenamiento ATA / NotFS
 
 `make test` — PASS en QEMU 9.2.4. Nuevo test storage: disco ausente, formato explícito del primary-slave, CRUD, reinicio, recuperación del snapshot anterior al corromper el último, límite de ocho archivos y formato persistente. Imagen de arranque sin modificar. Todas las regresiones previas pasan. Logs `build/storage-*.log`; no se han probado fallos eléctricos ni discos físicos.
+
+## Procesos background
+
+Tests `process.py` y `multitask.py` — PASS: cuatro slots ocupados a la vez, PID monotónico, shell responde, kill con estado 143, fallo user no afecta otro proceso, salida normal y presupuesto, recolección automática y restauración de frames/heap. Las regresiones batch siguen pasando. Se añadió integración HTTP con cuatro spins activos; ver resultado de regresión del commit. Los procesos no sobreviven al reinicio.
+
+`make test` del avance background — PASS en QEMU 9.2.4, incluyendo tres respuestas HTTP por NAT mientras se ejecutan spins background; todas las regresiones previas y persistencia pasan.

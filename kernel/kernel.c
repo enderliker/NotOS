@@ -12,6 +12,7 @@
 #include "user.h"
 #include "multitask.h"
 #include "fs.h"
+#include "process.h"
 static char line[160];
 static unsigned used;
 static int dropped;
@@ -48,7 +49,7 @@ static void clock_command(const char *kind,const char *argument) {
     console_puts(" ms ticks=");console_uint(after_ticks-ticks);console_putc('\n');
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nmultitask-test  multitask-run SCENARIO\nmkfs  ls  cat NAME  write NAME TEXT  rm NAME\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nmultitask-test  multitask-run SCENARIO\nmkfs  ls  cat NAME  write NAME TEXT  rm NAME\nspawn worker/spin/fault  ps  kill PID\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
@@ -105,6 +106,9 @@ static void command(const char *s) {
     else if(starts(s,"user-run ")) user_command(s+9);
     else if(equal(s,"multitask-test")) multitask_command("workers");
     else if(starts(s,"multitask-run ")) multitask_command(s+14);
+    else if(equal(s,"ps")) process_command("ps", "");
+    else if(starts(s,"spawn ")) process_command("spawn",s+6);
+    else if(starts(s,"kill ")) process_command("kill",s+5);
     else if(equal(s,"mkfs") || equal(s,"ls")) fs_command(s, "");
     else if(starts(s,"write ")) fs_command("write",s+6);
     else if(starts(s,"cat ")) fs_command("cat",s+4);
@@ -200,8 +204,10 @@ void kernel_main(void) {
     console_puts("notos> ");
     for(;;) {
         net_poll(clock_ms());
-        if(inb(0x3fd)&1) input((char)inb(0x3f8));
+        for (unsigned budget=0;budget<160 && (inb(0x3fd)&1);++budget)
+            input((char)inb(0x3f8));
         keyboard();
+        process_poll();
         __asm__ volatile("pause");
     }
 }

@@ -16,6 +16,7 @@ static struct {
     unsigned current;
     unsigned slice_ticks;
     int active;
+    int pulse;
     struct scheduler_statistics statistics;
     struct schedule_event trace[TRACE_CAPACITY];
     unsigned trace_count;
@@ -92,6 +93,12 @@ static struct interrupt_frame *handoff(struct interrupt_frame *frame, enum sched
     }
     task->context = frame;
     unsigned previous = runtime.current;
+    if (runtime.pulse) {
+        record(previous, SCHEDULER_NO_TASK, cause);
+        runtime.active = 0;
+        arch_reset_kernel_stack();
+        arch_return_to_caller();
+    }
     unsigned next = choose(previous);
     if (next == SCHEDULER_NO_TASK) {
         record(previous, next, cause);
@@ -107,7 +114,7 @@ static struct interrupt_frame *handoff(struct interrupt_frame *frame, enum sched
     return activate(next, previous, cause);
 }
 
-int scheduler_run(struct task *const tasks[], unsigned count) {
+static int run_batch(struct task *const tasks[], unsigned count, int pulse) {
     if (runtime.active || !tasks || !count || count > SCHEDULER_CAPACITY) {
         return 0;
     }
@@ -122,6 +129,7 @@ int scheduler_run(struct task *const tasks[], unsigned count) {
             }
         }
     }
+    runtime.pulse = pulse;
     runtime.count = count;
     runtime.current = SCHEDULER_NO_TASK;
     runtime.trace_count = 0;
@@ -131,8 +139,8 @@ int scheduler_run(struct task *const tasks[], unsigned count) {
     }
     /* Prepare the first TSS/frame without changing the caller's CR3. */
     struct task *first = tasks[0];
-    first->first_tick = clock_ticks();
-    first->statistics.dispatches = 1;
+    if (!first->statistics.dispatches) first->first_tick = clock_ticks();
+    first->statistics.dispatches++;
     first->state = TASK_RUNNING;
     runtime.current = 0;
     runtime.slice_ticks = 0;
@@ -144,12 +152,21 @@ int scheduler_run(struct task *const tasks[], unsigned count) {
     __asm__ volatile("mov %0,%%cr0" :: "r"(control | 8u) : "memory");
     runtime.active = 1;
     arch_run_context(first->context, first->space.root);
+    if (pulse) return first->state == TASK_READY || first->state == TASK_FINISHED;
     for (unsigned i = 0; i < count; ++i) {
         if (tasks[i]->state != TASK_FINISHED) {
             return 0;
         }
     }
     return 1;
+}
+
+int scheduler_run(struct task *const tasks[], unsigned count) {
+    return run_batch(tasks, count, 0);
+}
+int scheduler_pulse(struct task *task) {
+    struct task *tasks[] = {task};
+    return run_batch(tasks, 1, 1);
 }
 
 struct interrupt_frame *scheduler_tick(struct interrupt_frame *frame) {

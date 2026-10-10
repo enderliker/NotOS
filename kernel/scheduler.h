@@ -20,6 +20,8 @@ struct scheduler_statistics {
 
 /* Synchronous batch. Reject invalid input before changing any task state. */
 int scheduler_run(struct task *const tasks[], unsigned count);
+/* Resume one task; return to the event loop on quantum, yield, exit or fault. */
+int scheduler_pulse(struct task *task);
 struct task *scheduler_current(void);
 /* IRQ/syscall paths return the frame assembly must restore; may leave this stack. */
 struct interrupt_frame *scheduler_tick(struct interrupt_frame *frame);
