@@ -9,6 +9,7 @@ elf-run nx-heap
 elf-run nx-stack
 elf-run stack-guard
 elf-run readonly
+elf-run sleep
 ps
 ```
 
@@ -58,3 +59,8 @@ Esto **no** es ABI Linux, ni mmap POSIX completo, ni errno/stdio/malloc de una l
 - OOM al crear root/tablas, al crecer heap/mmap después de cruzar una tabla PAE y al reservar pila kernel. Frames/breaks originales restaurados.
 
 No se afirma soporte para binarios arbitrarios, libc, señales, FDs/sockets, curl, kernel preemptivo ni hardware físico.
+
+## Espera por syscall
+
+NotOS 0.13 agrega SYS_SLEEP=9 para procesos gestionados: 0..60000 ms, cero yield y retorno 0 al despertar.
+TASK_BLOCKED conserva el frame privado y no es seleccionado hasta vencer el timeout. Ver PROCESSES.md para restricciones de lotes síncronos y el trabajo pendiente de poll/sockets.

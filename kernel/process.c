@@ -3,6 +3,8 @@
 #include "task.h"
 #include "scheduler.h"
 #include "user_test_abi.h"
+#include "clock.h"
+#include "wait_policy.h"
 #define PROCESS_NAME_BYTES 24u
 struct process_slot { struct task task; char name[PROCESS_NAME_BYTES]; };
 static struct process_slot slots[SCHEDULER_CAPACITY];
@@ -45,6 +47,14 @@ static void collect(struct process_slot *slot) {
     slot->name[0] = 0;
 }
 void process_poll(void) {
+    u32 now=clock_ms();
+    for (unsigned i=0;i<SCHEDULER_CAPACITY;i++) {
+        struct task *task=&slots[i].task;
+        if (task->state==TASK_BLOCKED && wait_due(task->wait_started,task->wait_duration,now)) {
+            task->wait_duration=0;
+            task->state=TASK_READY;
+        }
+    }
     for (unsigned offset = 0; offset < SCHEDULER_CAPACITY; ++offset) {
         unsigned index = (cursor + offset) % SCHEDULER_CAPACITY;
         struct task *task = &slots[index].task;
@@ -61,6 +71,10 @@ void process_command(const char *command, const char *argument) {
             console_puts("PROCESS: pid="); console_uint(slots[i].task.id);
             console_puts(" name="); console_puts(slots[i].name);
             console_puts(" ticks="); console_uint(slots[i].task.statistics.cpu_ticks); console_putc('\n');
+            if (slots[i].task.state==TASK_BLOCKED) {
+                console_puts("PROCESS WAIT: pid=");console_uint(slots[i].task.id);
+                console_puts(" timeout_ms=");console_uint(slots[i].task.wait_duration);console_putc('\n');
+            }
         }
         console_puts("PROCESS: list complete\n"); return;
     }

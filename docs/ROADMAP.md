@@ -43,7 +43,7 @@ Se subió en dos avances comprobados: `feat(ring3)` y `feat(aislamiento)`. Las d
 
 Se subió en tres avances comprobados: `feat(tareas)`, `feat(planificador)` y `feat(multitarea)`. Ver [contratos, pruebas y límites](TASKS.md).
 
-## Hitos posteriores — estado en NotOS 0.12
+## Hitos posteriores — estado en NotOS 0.13
 
 - **Completado en QEMU:** gestor con cuatro slots, PID, spawn/ps/kill, ejecución en segundo plano y recolección automática. Integrado: exec de programas fuente NotLang; no cargador ELF.
 - **Completado básico en QEMU:** ratón PS/2 IRQ12, cursor, toolbar clickable y minimizar/restaurar ventana. No es un escritorio completo.
@@ -71,3 +71,8 @@ Ver [CURL_PORT](CURL_PORT.md) para los gates de ELF, memoria user, libc, sockets
 - Ejecución y fallos recuperables en ring3, coexistencia con NotLang y cuatro procesos.
 
 Ver ELF.md. No es todavía startup/libc POSIX, sockets BSD ni curl upstream.
+
+## Esperas temporizadas de procesos gestionados
+
+TASK_BLOCKED y SYS_SLEEP: guardado del frame, devolución al event loop, despertar relativo, cancelación y recolección.
+Esto prepara el bloqueo de libc/poll, pero no incluye FDs, sockets ni un poll POSIX. Los lotes diagnósticos síncronos rechazan esta espera de forma explícita.

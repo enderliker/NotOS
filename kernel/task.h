@@ -43,6 +43,7 @@ struct task {
     struct task_statistics statistics;
     u32 expected_marker;
     u32 first_tick;
+    u32 wait_started,wait_duration;
     u8 *kernel_stack;
     struct interrupt_frame *context;
 };

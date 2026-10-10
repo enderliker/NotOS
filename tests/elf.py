@@ -42,7 +42,7 @@ for ram in ('16M','64M'):
         assert reply.count(b'ELF32 BSS/stack/brk/mmap PASS\n')==4,reply
         pid+=4
         assert free_frames(m)==before
-        m.command('elf-run missing','ELF ERROR: choose demo/nx-heap/nx-stack/stack-guard/readonly\nnotos> ')
+        m.command('elf-run missing','ELF ERROR: choose demo/nx-heap/nx-stack/stack-guard/readonly/sleep\nnotos> ')
         m.command('ps','PROCESS: list complete\nnotos> ')
         m.command('ring3-test','USER: private-CR3/TSS/syscall/cleanup PASS\nnotos> ')
         m.command('run-user repeat 2 { print 7 }',f'PROCESS: pid={pid} exit=0')

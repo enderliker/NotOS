@@ -12,7 +12,7 @@ build/boot.bin: build/boot.o boot/link.ld
 	$(LD) -m elf_i386 -T boot/link.ld --oformat binary $< -o $@
 build/entry.o: kernel/entry.S | build
 	$(CC) -m32 -c $< -o $@
-ELF_DEMOS := demo nx-heap nx-stack stack-guard readonly
+ELF_DEMOS := demo nx-heap nx-stack stack-guard readonly sleep
 ELF_DEMO_OBJS := $(addprefix build/elf-,$(addsuffix -blob.o,$(ELF_DEMOS)))
 KERNEL_OBJS := $(ELF_DEMO_OBJS) build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
 build/notlang_vm.o: user/notlang_vm.c kernel/notlang_bytecode.h kernel/syscall_numbers.h kernel/base.h | build
@@ -81,7 +81,8 @@ build/utc-unit: tests/utc_unit.c kernel/utc.c kernel/platform_tls.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/utc_unit.c kernel/utc.c -o $@
 build/certificate-unit: tests/certificate_unit.c kernel/certificate_policy.c kernel/certificate_policy.h build/tls-fixtures.ready | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/certificate_unit.c kernel/certificate_policy.c -o $@
-test: all build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+test: all build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+	./build/wait-unit
 	./build/elf-unit
 	./build/tls-port-unit
 	./build/integer-unit
@@ -108,6 +109,7 @@ test: all build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-
 	python3 tests/notlang.py
 	python3 tests/mouse.py
 	python3 tests/process.py
+	python3 tests/wait.py
 	python3 tests/storage.py
 	python3 tests/tls_platform.py
 	python3 tests/https.py
@@ -144,11 +146,16 @@ build/elf-stack-guard.o: user/elf_demo.c kernel/base.h kernel/syscall_numbers.h 
 	$(CC) $(CFLAGS) -DDEMO_FAULT=3 -c $< -o $@
 build/elf-readonly.o: user/elf_demo.c kernel/base.h kernel/syscall_numbers.h | build
 	$(CC) $(CFLAGS) -DDEMO_FAULT=4 -c $< -o $@
+build/elf-sleep.o: user/elf_demo.c kernel/base.h kernel/syscall_numbers.h | build
+	$(CC) $(CFLAGS) -DDEMO_FAULT=5 -c $< -o $@
 build/elf-%.elf: build/elf-%.o user/elf_link.ld
 	$(LD) -m elf_i386 --gc-sections -z max-page-size=16 -T user/elf_link.ld $< -o $@
 build/elf-%.bin: build/elf-%.elf
 	cp $< $@
 build/elf-%-blob.o: build/elf-%.bin
 	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.elfimage,alloc,load,readonly,data,contents --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=noload,readonly $< $@
-build/elf-unit: tests/elf_unit.c kernel/elf.c kernel/elf.h build/elf-demo.bin | build
+build/elf-unit: tests/elf_unit.c kernel/elf.c kernel/elf.h kernel/base.h build/elf-demo.bin | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/elf_unit.c kernel/elf.c -o $@
+
+build/wait-unit: tests/wait_unit.c kernel/wait_policy.h kernel/base.h | build
+	gcc -std=c11 -Wall -Wextra -Werror tests/wait_unit.c -o $@

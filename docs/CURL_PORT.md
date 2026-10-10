@@ -6,7 +6,7 @@ La arquitectura sigue siendo x86 de 32 bits: INT 0x80 es la entrada de syscall a
 ## Comprobado
 
 - PAE, páginas de 4 KiB, CR0.WP y EFER.NXE, texto RX, datos/pilas RW/NX y aislamiento ring3.
-- IRQ0, reloj, procesos básicos y cambio de contexto, todavía sin bloqueo de sockets.
+- IRQ0, reloj, procesos básicos, cambio de contexto y SYS_SLEEP bloqueante para procesos gestionados; todavía sin bloqueo de sockets.
 - RTL8139, ARP, IPv4, DNS UDP y un transporte TCP educativo de una conexión. No es API BSD sockets.
 - TLS1.2/1.3, CA/RTC/DRBG, SNI/SAN/EKU/firmas y pruebas negativas dentro del invitado.
 - NotFS propio persistente. No es un VFS POSIX.
@@ -20,7 +20,7 @@ Esto no completa un runtime de libc: falta startup argc/argv/envp/auxv, TLS de t
 
 1. Runtime ELF para libc: startup/argumentos/auxv/TLS de thread y carga desde VFS, conservando el parser/VM ya implementados.
 2. Adaptar brk/mmap existentes a libc y completar errno/ABI de retornos; malloc/free real en ring3.
-3. Planificador con estado bloqueado y despertar por timeout/evento sin congelar la shell.
+3. Extender TASK_BLOCKED/SYS_SLEEP y despertar por timeout ya implementados a eventos de sockets/FDs y poll/select; la shell sigue viva durante esperas temporizadas.
 4. Port de libc pequeña con syscalls: hello world y tests de asignación/stdio/strings/tiempo. Los headers freestanding de TLS no son esa libc.
 5. FDs por proceso, VFS RAM/NotFS y stdin/stdout/stderr.
 6. Transporte TCP general y API sockets, connect/send/recv/poll/options y getaddrinfo DNS.

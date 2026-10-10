@@ -17,6 +17,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Heap | kmalloc/kcalloc/kfree, split/coalesce y alineación de 16 bytes | 20000 operaciones nativas y asignaciones reales en el kernel |
 | ELF32 y VM user | Segmentos PT_LOAD W^X, BSS, pila 64 KiB, brk y mmap privado | Parser con sanitizadores, ring3, cruces PAE, NX, concurrencia y rollback OOM |
 | Aislamiento básico | GDT/TSS, CR3 privados, INT 0x80 y buffers validados | CPL3 real, datos separados, fallos user y timeout recuperables |
+| Espera de procesos | SYS_SLEEP, TASK_BLOCKED y despertar por tiempo | Shell/worker concurrentes, cancelación, slots bloqueados y clock wrap |
 | Archivos | ATA PIO y NotFS propio en disco de datos separado | Reinicios, CRC, rollback y CRUD persistente |
 | Multitarea básica | Round-robin por IRQ0, cuatro slots, pilas privadas y SYS_YIELD | Contextos/registros, lotes mixtos, presupuesto, FPU rechazada y rollback OOM |
 

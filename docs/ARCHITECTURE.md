@@ -55,3 +55,9 @@ PAE y NX reemplazan tablas de 32 bits: PDPT privado y directorio por tarea; BSS 
 `task_create_elf` utiliza el entry/stack del espacio; `process_spawn_elf` reutiliza slots y recolección existentes.
 `elf_command.*` es integración/diagnóstico, no código del parser. Las demos C se compilan y enlazan separadas del kernel.
 La validación de buffers recorre PDEs de 2 MiB; la propiedad se recupera caminando tablas, no con un array grande por tarea.
+
+## Bloqueo temporizado
+
+`wait_policy.h` contiene la comparación relativa pura (sin I/O ni asignación). SYS_SLEEP valida y registra duración; scheduler_block conserva el frame y devuelve el kernel para procesos gestionados.
+`process_poll` despierta vencidos antes del round-robin. Ningún handler IRQ asigna o libera procesos; kill/recolección siguen perteneciendo al event loop.
+Los lotes síncronos no registran una espera que no puedan despertar: devuelven un error definido.

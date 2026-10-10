@@ -7,7 +7,8 @@ enum task_state {
     TASK_UNUSED,
     TASK_READY,
     TASK_RUNNING,
-    TASK_FINISHED
+    TASK_FINISHED,
+    TASK_BLOCKED
 };
 
 /* Pure selection policy: no CPU registers, allocation, timers or output. */

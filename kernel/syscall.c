@@ -5,6 +5,7 @@
 #include "arch.h"
 #include "clock.h"
 #include "paging.h"
+#include "wait_policy.h"
 
 static void probe(struct task *task, struct interrupt_frame *frame) {
     const struct user_interrupt_tail *tail = (const struct user_interrupt_tail *)(frame + 1);
@@ -58,6 +59,23 @@ struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     case SYS_TICKS:
         frame->eax = clock_ms();
         break;
+    case SYS_SLEEP:
+        if (frame->ebx>WAIT_MAX_MS) {
+            frame->eax=(u32)-ERROR_INVALID_ARGUMENT;
+            break;
+        }
+        if (!frame->ebx) {
+            frame->eax=0;
+            return scheduler_yield(frame);
+        }
+        if (!scheduler_can_block()) {
+            frame->eax=(u32)-ERROR_UNSUPPORTED;
+            break;
+        }
+        task->wait_started=clock_ms();
+        task->wait_duration=frame->ebx;
+        frame->eax=0;
+        return scheduler_block(frame);
     case SYS_BRK:
         frame->eax=space_brk(&task->space,frame->ebx);
         break;

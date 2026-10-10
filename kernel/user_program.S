@@ -105,6 +105,12 @@ bad_buffers:
     reject_buffer 0xfffffff8, 16, -14
     reject_buffer 0x08001000, 161, -22
     reject_buffer 0xffffffff, 0, 0
+    /* Synchronous diagnostic batches cannot register a managed-process wait. */
+    mov $SYS_SLEEP, %eax
+    mov $1, %ebx
+    int $0x80
+    cmp $-ERROR_UNSUPPORTED, %eax
+    jne user_fail
     jmp user_success
 valid_write:
     mov $SYS_WRITE, %eax

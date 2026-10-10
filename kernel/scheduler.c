@@ -139,6 +139,8 @@ static int run_batch(struct task *const tasks[], unsigned count, int pulse) {
     }
     /* Prepare the first TSS/frame without changing the caller's CR3. */
     struct task *first = tasks[0];
+    /* Managed resumes must apply the same return-flags policy as batch switches. */
+    first->context->eflags=(first->context->eflags & ~(0x3000u | 0x4000u | 0x20000u)) | 0x202u;
     if (!first->statistics.dispatches) first->first_tick = clock_ticks();
     first->statistics.dispatches++;
     first->state = TASK_RUNNING;
@@ -152,7 +154,7 @@ static int run_batch(struct task *const tasks[], unsigned count, int pulse) {
     __asm__ volatile("mov %0,%%cr0" :: "r"(control | 8u) : "memory");
     runtime.active = 1;
     arch_run_context(first->context, first->space.root);
-    if (pulse) return first->state == TASK_READY || first->state == TASK_FINISHED;
+    if (pulse) return first->state == TASK_READY || first->state == TASK_FINISHED || first->state == TASK_BLOCKED;
     for (unsigned i = 0; i < count; ++i) {
         if (tasks[i]->state != TASK_FINISHED) {
             return 0;
@@ -197,6 +199,16 @@ struct interrupt_frame *scheduler_yield(struct interrupt_frame *frame) {
     runtime.statistics.yields++;
     task->state = TASK_READY;
     return handoff(frame, SCHEDULE_YIELD);
+}
+
+int scheduler_can_block(void) {
+    return runtime.active && runtime.pulse && scheduler_current()!=0;
+}
+struct interrupt_frame *scheduler_block(struct interrupt_frame *frame) {
+    struct task *task=scheduler_current();
+    if (!scheduler_can_block() || !task_context_valid(task,frame)) invariant_failed();
+    task->state=TASK_BLOCKED;
+    return handoff(frame,SCHEDULE_BLOCK);
 }
 
 const struct scheduler_statistics *scheduler_statistics(void) {

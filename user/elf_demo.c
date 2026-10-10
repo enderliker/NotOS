@@ -18,6 +18,23 @@ void _start(void) __attribute__((noreturn,section(".text._start")));
 void _start(void) {
     volatile u8 stack[12289];
     check(call(SYS_PROBE,0,0)==3 && initialized==0x12345678);
+    if (DEMO_FAULT==5) {
+        check(call(SYS_SLEEP,60001,0)==-ERROR_INVALID_ARGUMENT);
+        check(call(SYS_SLEEP,0,0)==0);
+        const char begin[]="ELF sleep begin\n",end[]="ELF sleep woke\n";
+        check(call(SYS_WRITE,(u32)begin,sizeof(begin)-1)==sizeof(begin)-1);
+        u32 now=(u32)call(SYS_TICKS,0,0);
+        u32 flags;
+        __asm__ volatile("pushfl; popl %0":"=r"(flags));
+        flags|=0x4000u; /* User NT must not survive a managed context restore. */
+        __asm__ volatile("pushl %0; popfl"::"r"(flags):"memory","cc");
+        check(call(SYS_SLEEP,600,0)==0);
+        __asm__ volatile("pushfl; popl %0":"=r"(flags));
+        check(!(flags&0x4000u));
+        check((u32)call(SYS_TICKS,0,0)-now>=600);
+        check(call(SYS_WRITE,(u32)end,sizeof(end)-1)==sizeof(end)-1);
+        exit_status(0);
+    }
     u8 salt=(u8)call(SYS_TICKS,0,0);
     initialized+=salt;
     for (unsigned i=0;i<sizeof(bss);i++) {

@@ -10,6 +10,8 @@
 #define SYS_BRK 6
 #define SYS_MMAP 7
 #define SYS_MUNMAP 8
+#define SYS_SLEEP 9
+#define ERROR_UNSUPPORTED 95
 #define ERROR_MEMORY 12
 #define SYSCALL_WRITE_LIMIT 160
 #define ERROR_PERMISSION 1

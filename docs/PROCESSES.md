@@ -17,3 +17,15 @@ El planificador puede reanudar un contexto durante un pulso: al vencer el quantu
 Las demos batch de fase 5 siguen siendo síncronas. Los procesos background esperan mientras se ejecuta un batch o comando kernel bloqueante. `process_spawn_image` es la interfaz usada por el cargador de la VM NotLang; no acepta imágenes mayores de una página.
 
 Pruebas reales: cuatro procesos, límite de slots, shell viva, kill, auto-reaping, fallo de uno y progreso de otro, restauración exacta de heap/frames y convivencia con batches. HTTP por NAT se prueba en la misma VM mientras cuatro spins background están activos. QEMU únicamente.
+
+## Esperas bloqueantes de procesos gestionados — NotOS 0.13
+
+`elf-run sleep` ejecuta un ELF que bloquea 600 ms y comprueba el tiempo monotónico al reanudarse. No hace busy wait: SYS_SLEEP guarda el frame, cambia a TASK_BLOCKED y devuelve el kernel al event loop. La política round-robin excluye bloqueados; el gestor despierta tareas vencidas antes de elegir un READY.
+
+INT 0x80, EAX=9 / SYS_SLEEP, EBX=0..60000 ms. Cero equivale a yield; longitud inválida devuelve -EINVAL. Al despertar se vuelve al syscall con EAX=0 y registros/pila conservados. El contador de presupuesto solo cuenta IRQ0 entregadas en CPL3; el tiempo bloqueado no se consume como CPU user.
+
+`ps` muestra PROCESS WAIT para estos estados. `kill` destruye también procesos bloqueados; reutilizar un slot empieza con timestamps limpios y no hereda un despertar antiguo. Los deadlines relativos usan resta unsigned, probada al envolver el reloj de 32 bits.
+
+**Alcance:** bloqueos por tiempo para procesos persistentes ejecutados mediante scheduler_pulse. Los lotes síncronos de diagnóstico no tienen event loop para despertar y devuelven -EOPNOTSUPP para esperas positivas; se prueba ese rechazo. No hay todavía poll/select de FDs, espera de sockets, señales/EINTR ni garantías de latencia mientras el kernel procesa un comando largo. No se declara completado el planificador POSIX de curl.
+
+Los retornos administrados aplican la misma sanitización de EFLAGS que los cambios de contexto de lotes (NT/IOPL/VM limpiados, IF activado). La demo de espera intenta conservar NT y comprueba su rechazo al reanudarse; las pruebas de registros/DF anteriores se conservan.

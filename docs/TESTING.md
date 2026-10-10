@@ -272,3 +272,17 @@ curl upstream sigue pendiente; no se presenta `https` como curl. Ver CURL_PORT.m
 - Todas las regresiones anteriores pasan. HTTPS público negoció TLSv1.3, HTTP200 y close_notify; TLS1.2 sigue cubierto por peers controlados.
 
 Logs `build/elf-16M.log`, `build/elf-64M.log`. CI remota y equipos físicos no verificados. libc, ABI POSIX, sockets y curl upstream siguen pendientes; ELF.md describe el alcance exacto.
+
+## NotOS 0.13: bloqueo temporizado
+
+`make clean test` y `make test-online` PASS. Después de endurecer el retorno de flags en scheduler_pulse se repitieron wait/ELF/user/multitask: PASS.
+
+- SYS_SLEEP conserva el frame y suspende un proceso gestionado 600 ms, sin consumir presupuesto durante el bloqueo.
+- Shell, INT3, estado de red y worker concurrente siguen disponibles; todos los slots pueden quedar bloqueados y despertar correctamente.
+- Cancelar un bloqueado libera frames/heap y no deja un timeout que despierte el slot reutilizado.
+- Intervalos inválidos rechazados, cero yield, lotes síncronos rechazan espera positiva; round-robin excluye TASK_BLOCKED.
+- Comparación relativa de deadlines probada al envolver el contador de 32 bits.
+- El ELF de espera intenta mantener NT; al reanudar se limpia NT/IOPL/VM igual que en los cambios de contexto de lotes. DF/registros siguen cubiertos por las regresiones anteriores.
+- HTTPS público sigue negociando TLSv1.3 y los peers controlados cubren 1.2/1.3.
+
+Log `build/blocked-wait.log`. No equivale a poll/select ni sockets bloqueantes de libc; ver PROCESSES.md. Sin verificación de CI remota/hardware físico.

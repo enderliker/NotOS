@@ -19,6 +19,10 @@ int main(void) {
     assert(round_robin_next(states, 4, 2) == 2);
     states[2] = TASK_FINISHED;
     assert(round_robin_next(states, 4, 0) == SCHEDULER_NO_TASK);
+    states[0]=TASK_BLOCKED;states[1]=TASK_READY;states[2]=TASK_BLOCKED;states[3]=TASK_FINISHED;
+    assert(round_robin_next(states,4,0)==1);
+    states[1]=TASK_BLOCKED;
+    assert(round_robin_next(states,4,0)==SCHEDULER_NO_TASK);
     assert(round_robin_next(0, 4, 0) == SCHEDULER_NO_TASK);
     assert(round_robin_next(states, 0, 0) == SCHEDULER_NO_TASK);
     assert(round_robin_next(states, 5, 0) == SCHEDULER_NO_TASK);

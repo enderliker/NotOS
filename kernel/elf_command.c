@@ -8,12 +8,12 @@
 #include "heap.h"
 #include <string.h>
 #define DECLARE_IMAGE(name) extern const u8 _binary_build_elf_##name##_bin_start[],_binary_build_elf_##name##_bin_end[]
-DECLARE_IMAGE(demo);DECLARE_IMAGE(nx_heap);DECLARE_IMAGE(nx_stack);DECLARE_IMAGE(stack_guard);DECLARE_IMAGE(readonly);
+DECLARE_IMAGE(demo);DECLARE_IMAGE(nx_heap);DECLARE_IMAGE(nx_stack);DECLARE_IMAGE(stack_guard);DECLARE_IMAGE(readonly);DECLARE_IMAGE(sleep);
 struct bundled_elf {const char *name;const u8 *start,*end;};
 #define IMAGE(name,label) {label,_binary_build_elf_##name##_bin_start,_binary_build_elf_##name##_bin_end}
 static const struct bundled_elf programs[]={
     IMAGE(demo,"demo"),IMAGE(nx_heap,"nx-heap"),IMAGE(nx_stack,"nx-stack"),
-    IMAGE(stack_guard,"stack-guard"),IMAGE(readonly,"readonly")
+    IMAGE(stack_guard,"stack-guard"),IMAGE(readonly,"readonly"),IMAGE(sleep,"sleep")
 };
 void elf_command(const char *name) {
     for (unsigned i=0;i<sizeof(programs)/sizeof(programs[0]);i++) {
@@ -23,7 +23,7 @@ void elf_command(const char *name) {
         else {console_puts("ELF: started pid=");console_uint(pid);console_putc('\n');}
         return;
     }
-    console_puts("ELF ERROR: choose demo/nx-heap/nx-stack/stack-guard/readonly\n");
+    console_puts("ELF ERROR: choose demo/nx-heap/nx-stack/stack-guard/readonly/sleep\n");
 }
 static unsigned hold_frames(u32 *held,u32 leave) {
     unsigned count=0;

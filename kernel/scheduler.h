@@ -9,7 +9,8 @@ enum schedule_cause {
     SCHEDULE_EXIT,
     SCHEDULE_FAULT,
     SCHEDULE_BUDGET,
-    SCHEDULE_YIELD
+    SCHEDULE_YIELD,
+    SCHEDULE_BLOCK
 };
 
 struct scheduler_statistics {
@@ -23,6 +24,9 @@ int scheduler_run(struct task *const tasks[], unsigned count);
 /* Resume one task; return to the event loop on quantum, yield, exit or fault. */
 int scheduler_pulse(struct task *task);
 struct task *scheduler_current(void);
+/* Blocking is supported for managed processes, not synchronous diagnostic batches. */
+int scheduler_can_block(void);
+struct interrupt_frame *scheduler_block(struct interrupt_frame *frame);
 /* IRQ/syscall paths return the frame assembly must restore; may leave this stack. */
 struct interrupt_frame *scheduler_tick(struct interrupt_frame *frame);
 struct interrupt_frame *scheduler_finish(struct interrupt_frame *frame, enum schedule_cause cause);
