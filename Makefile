@@ -38,12 +38,15 @@ build/physical-unit: tests/physical_unit.c kernel/physical_core.c kernel/physica
 	gcc -std=c11 -Wall -Wextra -Werror tests/physical_unit.c kernel/physical_core.c -o $@
 build/heap-unit: tests/heap_unit.c kernel/heap_core.c kernel/heap_core.h kernel/base.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/heap_unit.c kernel/heap_core.c -o $@
-test: all build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit
+build/user-unit: tests/user_unit.c kernel/user_memory.c kernel/user_memory.h kernel/base.h | build
+	gcc -std=c11 -Wall -Wextra -Werror tests/user_unit.c kernel/user_memory.c -o $@
+test: all build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit
 	./build/lang-unit
 	./build/net-unit
 	./build/clock-unit
 	./build/physical-unit
 	./build/heap-unit
+	./build/user-unit
 	python3 tests/smoke.py
 	python3 tests/exceptions.py
 	python3 tests/interrupts.py

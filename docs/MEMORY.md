@@ -15,7 +15,7 @@ frame-test
 
 El cargador ahora lee dos bloques de 32 KiB, en 0x10000 y 0x18000. Una firma al final de los 64 KiB verifica realmente la segunda lectura. La imagen del kernel está rellenada hasta 64 KiB; el linker y el generador rechazan contenido que exceda el límite. El sector BIOS sigue teniendo exactamente 512 bytes.
 
-No hay espacios de direcciones separados, ring 3, swapping ni recuperación de procesos.
+Desde NotOS 0.7 existen espacios privados y demos en ring 3 (ver USERSPACE.md); todavía no hay swapping ni un gestor de procesos de propósito general.
 
 ## Paginación implementada
 
@@ -38,7 +38,7 @@ fault unmapped
 
 Los comandos `fault` detienen deliberadamente la CPU y requieren reiniciar QEMU. Se comprueban #PF y CR2 reales: nulo (error 0, CR2 0), escritura en código (error 3, CR2 0x10000), guard virtual y acceso tras unmap. Este último toca el mapping antes de eliminarlo para comprobar la invalidación del TLB.
 
-`vm-test` verifica dos aliases de un mismo frame, traducción con offset, remapping a otro frame, limpieza y restauración del contador físico. Los mappings no tienen conteo de referencias: el llamador debe eliminar todos los aliases antes de liberar un frame. La ventana no es un API de usuario ni implica aislamiento de procesos. El identity mapping de los frames sigue existiendo y no hay NX, ASLR, demand paging, swapping ni espacios de direcciones por proceso.
+`vm-test` verifica dos aliases de un mismo frame, traducción con offset, remapping a otro frame, limpieza y restauración del contador físico. Los mappings no tienen conteo de referencias: el llamador debe eliminar todos los aliases antes de liberar un frame. La ventana del heap sigue siendo exclusivamente supervisor; las demos de usuario tienen directorios separados desde NotOS 0.7. El identity mapping de los frames sigue existiendo y no hay NX, ASLR, demand paging ni swapping. Los espacios privados de las demos user se documentan por separado.
 
 ## Heap dinámico implementado
 
@@ -68,4 +68,4 @@ Los comandos `alloc`/`free` ofrecen ocho slots de diagnóstico. `alloc` usa kcal
 
 Pruebas: 20000 operaciones de asignación/liberación con patrones en una arena nativa, más tres autopruebas en el invitado y ocho asignaciones simultáneas liberadas fuera de orden. Se verifica restauración de espacio/contadores y funcionamiento tras agotar frames libres. La validación de metadata corrupta se prueba nativamente; no se afirma recuperación segura de cualquier corrupción.
 
-Los guards protegen los bordes de la región virtual, no cada bloque individual. No hay detección completa de use-after-free, redzones, NX, aislamiento de aplicaciones ni crecimiento automático del heap. Todos los componentes siguen compartiendo el espacio supervisor.
+Los guards protegen los bordes de la región virtual, no cada bloque individual. No hay detección completa de use-after-free, redzones, NX, aislamiento de aplicaciones ni crecimiento automático del heap. Los componentes del kernel comparten el espacio supervisor; las demos en ring 3 utilizan sus propios directorios CR3 y no un heap de aplicación.

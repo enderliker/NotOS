@@ -140,3 +140,18 @@ Logs `build/heap.log` y `build/heap-guard.log`; captura `build/heap-guard.ppm`. 
 - Todas las regresiones anteriores pasan. La nueva GDT hace válido 0x20; el test #GP fue actualizado a selector inválido 0x30/error 0x30.
 
 Log `build/user-ring3.log`. No se afirma todavía aislamiento por CR3 ni recuperación de fallos user en este avance.
+
+## Fase 4, aislamiento y validación final de NotOS 0.7
+
+`make clean test` y `make test-online` — PASS en QEMU 9.2.4.
+
+- Dos espacios privados creados a la vez; CR3 real diferente y datos privados en la misma dirección virtual. Se ejecutan secuencialmente y se comprueba que A no escribe B.
+- Tres repeticiones de la demo normal restauran kernel CR3 y frames físicos.
+- Fallos reales de usuario recuperados: leer kernel (#PF/error 5), escribir código (#PF/error 7), usar puertos (#GP/error 0), escribir guard (#PF/error 6), invocar INT 0x20 (#GP/error 258) y leer el alias supervisor de datos ajenos (#PF/error 5). La shell y el timer siguen funcionando.
+- SYS_write acepta un buffer de código user y rechaza kernel, guard, span cruzado, overflow y longitud excesiva sin dereferenciarlos. Pruebas nativas de bounds y permisos de ambos niveles PDE/PTE.
+- Un bucle infinito se termina por IRQ0 con estado 124; timer y HLT siguen funcionando después (EOI correcto).
+- Heap/VM/frame-test y contador de frames intactos después de todas las demos. Pruebas adicionales de roots privados/fault recovery con 16 y 64 MiB.
+- Gráficos, NotLang, memoria, fallos kernel, IRQ y teclado siguen pasando. HTTP por NAT se comprueba en el mismo invitado después de ring3-test y de un fallo user I/O.
+- DNS e internet HTTP 200 OK/891 bytes pasan después de la demo de buffers inválidos en el mismo invitado.
+
+Logs `build/user-isolation.log`, `build/user-16M.log`, `build/user-64M.log`. CI remota y hardware real no se han verificado aquí. El kernel conserva el límite de payload de 64 KiB y el límite de BSS anterior al guard 0x80000, comprobados por el linker.

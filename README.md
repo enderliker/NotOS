@@ -15,7 +15,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Memoria física | Mapa BIOS E820 y frames de 4 KiB con bitmap | Agotamiento/liberación en QEMU con 16/32/64/128 MiB |
 | Paginación | CR0.PG/WP, código de solo lectura y ventana virtual | Aliases, TLB y fallos #PF reales con CR2 |
 | Heap | kmalloc/kcalloc/kfree, split/coalesce y alineación de 16 bytes | 20000 operaciones nativas y asignaciones reales en el kernel |
-| Ring 3 | GDT/TSS, pila ESP0 y puerta INT 0x80 | CPL3 real, IRQ/IRET, syscalls y restauración del kernel |
+| Aislamiento básico | GDT/TSS, CR3 privados, INT 0x80 y buffers validados | CPL3 real, datos separados, fallos user y timeout recuperables |
 
 Cada avance se sube en un commit `feat(alcance) mensaje` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
 
@@ -62,6 +62,10 @@ heap
 alloc 128
 free 0
 heap-test
+ring3-test
+user-run write
+user-run bad-buffer
+user-run kernel-read
 ```
 
 `F1` muestra ayuda y `F2` limpia la terminal. Se controla por teclado PS/2 o por COM1. La fuente inicial representa las minúsculas como mayúsculas; el intérprete conserva la entrada original. La red responde de forma asíncrona en la terminal.
@@ -75,8 +79,8 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 ## Límites importantes
 
 - Solo PC BIOS/x86 y hardware emulado especificado; no UEFI ni soporte comprobado en equipos reales.
-- Paginación supervisor activa, pero sin procesos, aislamiento, sistema de archivos persistente, instalador o multitarea. El heap es fijo de 1 MiB y el gestor físico administra como máximo 64 MiB, según E820; no hay crecimiento automático.
-- Las excepciones fatales muestran diagnóstico y detienen el sistema; no hay recuperación de fallos de aplicaciones ni pila independiente para double fault. Las IRQ de timer y teclado están activas, pero no hay APIC, SMP ni un planificador.
+- Demos síncronas en ring 3 con espacios privados; sin multitarea, planificador, carga de aplicaciones externas, sistema de archivos persistente o instalador. El heap es fijo de 1 MiB y el gestor físico administra como máximo 64 MiB, según E820; no hay crecimiento automático.
+- Los fallos comprobados de las demos user terminan la ejecución y regresan a la shell; los fallos del kernel siguen siendo fatales. No hay pila independiente para double fault. Las IRQ de timer y teclado están activas, pero no hay APIC, SMP ni un planificador.
 - Interfaz gráfica mínima, sin ratón, navegador ni gestor completo de ventanas.
 - NotLang es un intérprete pequeño, sin bucles, funciones ni acceso a archivos.
 - Red con IP estática para QEMU, una solicitud a la vez, IPv4 y HTTP sin cifrar. Sin DHCP, IPv6, TLS/HTTPS, retransmisión TCP propia ni reensamblado de fragmentos IP. El cliente muestra el estado HTTP y la cantidad de bytes, no renderiza páginas web.

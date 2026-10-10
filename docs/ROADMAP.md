@@ -27,16 +27,21 @@ Se subió en dos avances comprobados: `feat(excepciones)` y `feat(interrupciones
 
 Se subió en tres avances comprobados: `feat(memoria)`, `feat(paginacion)` y `feat(heap)`. Ver [diseño, pruebas y límites](MEMORY.md).
 
-## Fase 4: aislamiento básico (en curso)
+## Fase 4: aislamiento básico — completada en QEMU
 
 - **Completado:** GDT/TSS, CPL3 real, pila ESP0, INT 0x80 y retorno al kernel con limpieza de frames.
-- **Pendiente:** directorios CR3 privados, manejo recuperable de fallos user y validación de buffers.
+- **Completado:** directorios CR3 privados, datos user separados, terminación recuperable de fallos y validación completa de buffers.
+- **Completado:** presupuesto de ejecución por IRQ0 y pruebas de bucles infinitos, permisos I/O/IDT y regresión de red.
 
-La demo todavía es síncrona. Multitarea y planificador requieren hitos adicionales.
+Se subió en dos avances comprobados: `feat(ring3)` y `feat(aislamiento)`. Las demos son síncronas, no un sistema de procesos completo. Ver [alcance y límites](USERSPACE.md).
+
+## Fase 5 prevista: multitarea básica
+
+Planificador y cambio entre varias tareas user con sus propios contextos/pilas. Todavía no están implementados.
 
 ## Próximos hitos, aún no implementados
 
-- Aislamiento de ejecución y procesos, multitarea y planificador.
+- Multitarea, planificador y gestor de procesos persistentes.
 - Ratón y UI interactiva más allá de la terminal.
 - Almacenamiento persistente y archivos de programas.
 - Retransmisión TCP, configuración de red y, posteriormente, HTTPS.

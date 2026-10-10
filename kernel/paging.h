@@ -4,8 +4,8 @@
 #define VM_BASE 0xd0000000u
 #define VM_SIZE 0x00400000u
 int paging_init(void);
-int paging_user_map(u32 virtual_address,u32 physical_address,int writable);
-u32 paging_user_unmap(u32 virtual_address);
+u32 paging_current_root(void);
+int paging_copy_kernel_directory(u32 physical_address);
 int paging_map(u32 virtual_address,u32 physical_address,int writable);
 u32 paging_unmap(u32 virtual_address);
 u32 paging_translate(u32 virtual_address);

@@ -18,6 +18,10 @@ user_enter:
     pushal
     mov %esp, user_saved_sp
     cli
+    mov %cr3, %eax
+    mov %eax, user_kernel_root
+    mov 48(%esp), %eax
+    mov %eax, %cr3
     mov 40(%esp), %edx
     mov 44(%esp), %ecx
     mov $0x23, %ax
@@ -42,6 +46,8 @@ user_enter:
 .global user_return
 user_return:
     cli
+    mov user_kernel_root, %eax
+    mov %eax, %cr3
     mov $0x10, %ax
     mov %ax, %ds
     mov %ax, %es
@@ -55,4 +61,5 @@ user_return:
 .section .bss
 .align 4
 user_saved_sp: .skip 4
+user_kernel_root: .skip 4
 .section .note.GNU-stack,"",@progbits

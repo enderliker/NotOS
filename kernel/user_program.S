@@ -1,4 +1,3 @@
-/* Position-independent, real ring-3 program copied into a user read-only page. */
 .section .rodata.user,"a"
 .code32
 .global user_blob_start,user_blob_end
@@ -25,12 +24,84 @@ user_wait:
     cmp $20, %eax
     jb user_wait
     movl $0x12345678, 0x08001008
+    mov 0x0800100c, %ebx
+    mov $4, %eax
+    int $0x80
+    cmp $1, %eax
+    jne user_fail
     mov $255, %eax
     int $0x80
     cmp $-38, %eax
     jne user_fail
+    mov 0x08001000, %eax
+    cmp $1, %eax
+    je read_kernel
+    cmp $2, %eax
+    je write_code
+    cmp $3, %eax
+    je forbidden_io
+    cmp $4, %eax
+    je write_guard
+    cmp $5, %eax
+    je forbidden_gate
+    cmp $6, %eax
+    je bad_buffers
+    cmp $7, %eax
+    je foreign_read
+    cmp $8, %eax
+    je spin_forever
+    cmp $9, %eax
+    je valid_write
+user_success:
     mov $42, %ebx
     jmp user_exit
+read_kernel:
+    mov 0x00010000, %eax
+    jmp user_fail
+write_code:
+    movb $0, 0x08000000
+    jmp user_fail
+forbidden_io:
+    mov $0x3f8, %dx
+    mov $65, %al
+    out %al, %dx
+    jmp user_fail
+write_guard:
+    movl $1, 0x08002000
+    jmp user_fail
+forbidden_gate:
+    int $0x20
+    jmp user_fail
+foreign_read:
+    mov 0x08001014, %edx
+    mov (%edx), %eax
+    jmp user_fail
+spin_forever:
+    jmp spin_forever
+.macro reject_buffer pointer, length, expected
+    mov $3, %eax
+    mov $\pointer, %ebx
+    mov $\length, %ecx
+    int $0x80
+    cmp $\expected, %eax
+    jne user_fail
+.endm
+bad_buffers:
+    reject_buffer 0x10000, 4, -14
+    reject_buffer 0x08002000, 4, -14
+    reject_buffer 0x08001ffc, 8, -14
+    reject_buffer 0xfffffff8, 16, -14
+    reject_buffer 0x08001000, 161, -22
+    reject_buffer 0xffffffff, 0, 0
+    jmp user_success
+valid_write:
+    mov $3, %eax
+    mov $(0x08000000+user_text-user_blob_start), %ebx
+    mov $(user_text_end-user_text), %ecx
+    int $0x80
+    cmp $(user_text_end-user_text), %eax
+    jne user_fail
+    jmp user_success
 user_fail:
     cld
     mov $93, %ebx
@@ -38,5 +109,7 @@ user_exit:
     xor %eax, %eax
     int $0x80
     ud2
+user_text: .ascii "hello from ring3\n"
+user_text_end:
 user_blob_end:
 .section .note.GNU-stack,"",@progbits

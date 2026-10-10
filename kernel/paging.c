@@ -1,15 +1,13 @@
 #include "paging.h"
 #include "physical.h"
-#include "user.h"
 static u32 directory[1024] __attribute__((aligned(4096)));
 static u32 identity[PHYSICAL_LIMIT/(4096*1024)][1024] __attribute__((aligned(4096)));
 static u32 window[1024] __attribute__((aligned(4096)));
-static u32 user_table[1024] __attribute__((aligned(4096)));
 extern char __readonly_start[],__readonly_end[];
 static u32 control(void) {u32 v;__asm__ volatile("mov %%cr0,%0" : "=r"(v));return v;}
 static void invalidate(u32 address) {__asm__ volatile("invlpg (%0)" :: "r"(address) : "memory");}
 int paging_init(void) {
-    for(unsigned i=0;i<1024;i++) directory[i]=window[i]=user_table[i]=0;
+    for(unsigned i=0;i<1024;i++) directory[i]=window[i]=0;
     for(unsigned table=0;table<PHYSICAL_LIMIT/(4096*1024);table++) {
         directory[table]=(u32)identity[table]|3;
         for(unsigned i=0;i<1024;i++) {
@@ -22,7 +20,6 @@ int paging_init(void) {
         }
     }
     directory[VM_BASE>>22]=(u32)window|3;
-    directory[USER_BASE>>22]=(u32)user_table|7;
     __asm__ volatile("mov %0,%%cr3" :: "r"((u32)directory) : "memory");
     u32 cr0=control()|0x80010000u; /* PG + WP: supervisor writes honor read-only PTEs. */
     __asm__ volatile("mov %0,%%cr0" :: "r"(cr0) : "memory");
@@ -44,25 +41,19 @@ u32 paging_unmap(u32 v) {
     u32 physical=window[index]&0xfffff000u;
     window[index]=0;invalidate(v);irq_restore(flags);return physical;
 }
+u32 paging_current_root(void) {u32 root;__asm__ volatile("mov %%cr3,%0" : "=r"(root));return root;}
 u32 paging_translate(u32 address) {
-    u32 flags=irq_save(),entry=0;
-    if(address<PHYSICAL_LIMIT) entry=identity[address>>22][(address>>12)&1023];
-    else if(address>=USER_BASE && address<USER_BASE+USER_SIZE) entry=user_table[(address-USER_BASE)/4096];
-    else if(address>=VM_BASE && address<VM_BASE+VM_SIZE) entry=window[(address-VM_BASE)/4096];
+    u32 flags=irq_save(),root=paging_current_root();
+    const u32 *pd=(const u32 *)root;u32 pde=pd[address>>22],entry=0;
+    if(pde&1) {const u32 *pt=(const u32 *)(pde&0xfffff000u);entry=pt[(address>>12)&1023];}
     u32 physical=(entry&1)?((entry&0xfffff000u)|(address&4095)):0;
     irq_restore(flags);return physical;
 }
-int paging_user_map(u32 v,u32 physical,int writable) {
-    if(v<USER_BASE||v>=USER_BASE+USER_SIZE||(v&4095)) return 0;
-    u32 flags=irq_save();unsigned index=(v-USER_BASE)/4096;
-    if(user_table[index]&1||!physical_owned(physical)) {irq_restore(flags);return 0;}
-    user_table[index]=physical|5u|(writable?2u:0u);invalidate(v);irq_restore(flags);return 1;
-}
-u32 paging_user_unmap(u32 v) {
-    if(v<USER_BASE||v>=USER_BASE+USER_SIZE||(v&4095)) return 0;
-    u32 flags=irq_save();unsigned index=(v-USER_BASE)/4096;
-    u32 physical=user_table[index]&0xfffff000u;user_table[index]=0;
-    invalidate(v);irq_restore(flags);return physical;
+int paging_copy_kernel_directory(u32 physical) {
+    if(!physical_owned(physical)) return 0;
+    u32 flags=irq_save();u32 *copy=(u32 *)physical;
+    for(unsigned i=0;i<1024;i++) copy[i]=directory[i];
+    irq_restore(flags);return 1;
 }
 void paging_status(void) {
     u32 cr0=control();

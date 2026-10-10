@@ -1,8 +1,9 @@
 #ifndef NOTOS_USER_H
 #define NOTOS_USER_H
 #include "interrupt.h"
-#define USER_BASE 0x08000000u
-#define USER_SIZE 0x00400000u
-void user_command(void);
+#include "user_memory.h"
+void user_command(const char *scenario);
 void user_syscall(struct interrupt_frame *frame);
+void user_fault(struct interrupt_frame *frame);
+void user_timer(struct interrupt_frame *frame);
 #endif

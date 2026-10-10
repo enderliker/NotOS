@@ -46,7 +46,7 @@ static void clock_command(const char *kind,const char *argument) {
     console_puts(" ms ticks=");console_uint(after_ticks-ticks);console_putc('\n');
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
@@ -99,7 +99,8 @@ static void command(const char *s) {
     else if(starts(s,"alloc ")) heap_command("alloc",s+6);
     else if(starts(s,"free ")) heap_command("free",s+5);
     else if(equal(s,"fault heap-end")) heap_fault_guard_end();
-    else if(equal(s,"ring3-test")) user_command();
+    else if(equal(s,"ring3-test")) user_command("demo");
+    else if(starts(s,"user-run ")) user_command(s+9);
     else if(*s) console_puts("ERROR: unknown command\n");
 }
 static void input(char c) {
@@ -177,7 +178,7 @@ void kernel_main(void) {
     pic_unmask(0);pic_unmask(2);
     if(keyboard_ready) pic_unmask(1);
     __asm__ volatile("sti" ::: "memory");
-    console_puts("NotOS 0.7-ring3\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
+    console_puts("NotOS 0.7\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
     console_puts("IDT: 256 gates installed\n");
     console_puts("IRQ: PIC remapped; PIT ~1000 Hz\n");
     console_puts(keyboard_ready?"KEYBOARD: IRQ1 ready\n":"KEYBOARD: unavailable; use serial\n");
