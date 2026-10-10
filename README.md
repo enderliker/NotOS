@@ -12,6 +12,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Red | Driver RTL8139, ARP, IPv4, UDP/DNS y TCP/HTTP | Servidor de prueba por NAT y DNS/HTTP de internet |
 | Excepciones | IDT propia de 256 entradas, frame x86 y pantalla de panic | INT3 recuperable y fallos reales #DE, #UD y #GP |
 | Interrupciones | PIC 8259, PIT por IRQ0 y teclado por IRQ1 | HLT, reloj durante trabajo en primer plano y cola PS/2 |
+| Memoria física | Mapa BIOS E820 y frames de 4 KiB con bitmap | Agotamiento/liberación en QEMU con 16/32/64/128 MiB |
 
 Cada avance se sube en un commit `feat(alcance) mensaje` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
 
@@ -56,7 +57,7 @@ int3
 
 ## Diseño
 
-BIOS carga nuestro sector de 512 bytes. El cargador lee 64 sectores en `0x10000`, activa A20, configura una GDT, selecciona VGA modo 13h y entra a modo protegido. La entrada del kernel configura una pila en `0x90000` y limpia BSS antes de llamar a C. El código/datos de la imagen no pueden superar 32 KiB; el generador verifica este límite.
+BIOS carga nuestro sector de 512 bytes. El cargador lee dos bloques de 64 sectores en `0x10000` y `0x18000`, activa A20, configura una GDT, selecciona VGA modo 13h y entra a modo protegido. La entrada del kernel configura una pila en `0x90000` y limpia BSS antes de llamar a C. El payload no puede superar 64 KiB; linker y generador verifican el límite. Una firma al final verifica la segunda lectura. El kernel detecta RAM mediante BIOS E820 y reserva el primer MiB; el gestor de frames tiene un límite físico de 64 MiB.
 
 El kernel funciona en ring 0 con memoria física. El PIC está remapeado, el PIT actualiza el reloj por IRQ0 y el teclado encola scancodes por IRQ1; la shell los procesa fuera del handler. La consola serie y la red siguen sondeadas. La red tiene buffers DMA estáticos y usa la tarjeta RTL8139 emulada y la NAT de QEMU para salir del equipo. El invitado genera y procesa sus propios paquetes; no llama a sockets de un sistema operativo base.
 
@@ -72,6 +73,7 @@ El kernel funciona en ring 0 con memoria física. El PIC está remapeado, el PIT
 
 ## Documentación
 
+- [Memoria](docs/MEMORY.md)
 - [NotLang](docs/NOTLANG.md)
 - [Red](docs/NETWORK.md)
 - [Interrupciones y excepciones](docs/INTERRUPTS.md)

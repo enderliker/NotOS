@@ -88,3 +88,16 @@ Capturas: `build/panic-0.ppm`, `build/panic-6.ppm`, `build/panic-13.ppm`. Logs: 
 - Consulta DNS externa y `HTTP/1.1 200 OK` de `example.com` con 891 bytes recibidos, con IRQ activas.
 
 El kernel 0.5 ocupa 19258 bytes de código/datos; conserva el límite comprobado de 32 KiB del cargador. Los nuevos resultados están en `build/interrupts.log`; las capturas y logs de excepciones se mantienen. CI remota y hardware real no se han verificado aquí.
+
+## Fase 3, mapa BIOS y memoria física
+
+`make clean test` — PASS en QEMU 9.2.4:
+
+- BIOS E820 real y sector BIOS de 512 bytes.
+- Segunda lectura del kernel comprobada mediante firma en 0x1fffc. Imagen rellenada hasta 64 KiB; límite del cargador ampliado y validado por linker/generador.
+- Arranque con 16, 32, 64 y 128 MiB; cap físico de 64 MiB comprobado.
+- Agotamiento del pool, escritura en cada página adquirida, liberación y restauración exacta del contador de frames.
+- Pruebas nativas: alineación, reservas solapadas, overflow de rangos E820, OOM, reutilización y rechazo de liberaciones inválidas/dobles.
+- Gráficos, NotLang, excepciones, IRQ, teclado y HTTP por NAT siguen pasando.
+
+La prueba real de arranque detectó que E820 modifica DL; se restauró la unidad BIOS antes de INT 13h y se repitió la suite antes del commit. Los resultados nuevos quedan en `build/physical-*.log`.

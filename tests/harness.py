@@ -9,14 +9,14 @@ import tempfile
 import time
 
 class Machine:
-    def __init__(self, network=False, logname="smoke"):
+    def __init__(self, network=False, logname="smoke", memory="32M"):
         self.tmp = tempfile.TemporaryDirectory(prefix='notos-')
         self.output = bytearray()
         self.logname = logname
         self.sel = selectors.DefaultSelector()
         self.sock = None
         monitor = self.tmp.name + '/monitor'
-        args = [os.environ.get('QEMU', 'qemu-system-i386'), '-machine', 'pc', '-m', '32M',
+        args = [os.environ.get('QEMU', 'qemu-system-i386'), '-machine', 'pc', '-m', memory,
                 '-drive', 'format=raw,file=build/notos.img', '-display', 'none',
                 '-qmp', f'unix:{monitor},server=on,wait=off',
                 '-serial', 'stdio', '-no-reboot']

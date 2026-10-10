@@ -30,13 +30,17 @@ build/net-unit: tests/net_unit.c kernel/net.c $(wildcard kernel/*.h) | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/net_unit.c -o $@
 build/clock-unit: tests/clock_unit.c kernel/clock_math.h kernel/base.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/clock_unit.c -o $@
-test: all build/lang-unit build/net-unit build/clock-unit
+build/physical-unit: tests/physical_unit.c kernel/physical_core.c kernel/physical_core.h kernel/base.h | build
+	gcc -std=c11 -Wall -Wextra -Werror tests/physical_unit.c kernel/physical_core.c -o $@
+test: all build/lang-unit build/net-unit build/clock-unit build/physical-unit
 	./build/lang-unit
 	./build/net-unit
 	./build/clock-unit
+	./build/physical-unit
 	python3 tests/smoke.py
 	python3 tests/exceptions.py
 	python3 tests/interrupts.py
+	python3 tests/physical.py
 	python3 tests/network.py
 test-online: all
 	python3 tests/online.py

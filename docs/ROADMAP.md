@@ -19,9 +19,12 @@ Cada hito se sube después de probar la imagen real con QEMU. Formato de commit:
 
 Se subió en dos avances comprobados: `feat(excepciones)` y `feat(interrupciones)`. Ver [alcance y limitaciones](INTERRUPTS.md).
 
-## Fase 3 prevista: memoria
+## Fase 3: memoria (en curso)
 
-Paginación y asignación de memoria son el siguiente objetivo. El aislamiento completo y la ejecución en ring 3 requerirán pasos adicionales; todavía no están implementados.
+- **Completado:** BIOS E820, reserva de memoria y asignador de frames de 4 KiB. Cargador ampliado a 64 KiB y segunda lectura comprobada.
+- **Pendiente:** paginación y heap dinámico.
+
+El aislamiento completo y la ejecución en ring 3 requieren pasos adicionales; todavía no están implementados.
 
 ## Próximos hitos, aún no implementados
 

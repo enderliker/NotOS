@@ -1,4 +1,4 @@
-/* NotOS BIOS loader: load 32 KiB, then enter 32-bit protected mode. */
+/* NotOS BIOS loader: load 64 KiB, then enter 32-bit protected mode. */
 .section .text
 .code16
 .global _start
@@ -11,6 +11,40 @@ _start:
     mov $0x7c00, %sp
     sti
     mov %dl, drive
+    /* BIOS E820 map: header at 0x5000, up to 64 entries of 24 bytes. */
+    movl $0, 0x5000
+    movl $0, 0x5004
+    xor %ebx, %ebx
+    mov $0x5008, %di
+e820_next:
+    movl $1, %es:20(%di)
+    mov $0xe820, %eax
+    mov $0x534d4150, %edx
+    mov $24, %ecx
+    push %ds
+    push %es
+    push %di
+    int $0x15
+    pop %di
+    pop %es
+    pop %ds
+    jc memory_error
+    cmp $0x534d4150, %eax
+    jne memory_error
+    cmp $20, %ecx
+    jb memory_error
+    cmp $24, %ecx
+    ja memory_error
+    incw 0x5004
+    test %ebx, %ebx
+    jz e820_done
+    cmpw $64, 0x5004
+    jae memory_error
+    add $24, %di
+    jmp e820_next
+e820_done:
+    movl $0x4e4d4150, 0x5000
+    mov drive, %dl
     mov $0x41, %ah
     mov $0x55aa, %bx
     int $0x13
@@ -19,6 +53,14 @@ _start:
     jne disk_error
     test $1, %cx
     jz disk_error
+    mov $packet, %si
+    mov drive, %dl
+    mov $0x42, %ah
+    int $0x13
+    jc disk_error
+    movw $64, packet+2
+    movw $0x1800, packet+6
+    movl $65, packet+8
     mov $packet, %si
     mov drive, %dl
     mov $0x42, %ah
@@ -37,8 +79,12 @@ _start:
     mov %eax, %cr0
     ljmp $0x08, $protected
 
+memory_error:
+    mov $mem_error, %si
+    jmp print_error
 disk_error:
     mov $error, %si
+print_error:
 1:  lodsb
     test %al, %al
     jz 2f
@@ -57,6 +103,7 @@ packet:
     .quad 1
 drive: .byte 0
 error: .asciz "NotOS: disk error"
+mem_error: .asciz "NotOS: E820 error"
 .align 8
 gdt:
     .quad 0

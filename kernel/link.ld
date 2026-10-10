@@ -4,6 +4,9 @@ SECTIONS {
     .text : { *(.text.entry) *(.text*) }
     .rodata : { *(.rodata*) }
     .data : { *(.data*) }
+    __kernel_payload_end = .;
+    ASSERT(__kernel_payload_end <= 0x1fffc, "Kernel exceeds 64 KiB loader capacity")
+    .loader_check 0x1fffc : { LONG(0x4e4f544f) }
     __bss_start = .;
     .bss : { *(.bss*) *(COMMON) }
     __bss_end = .;
