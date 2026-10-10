@@ -9,9 +9,10 @@ import tempfile
 import time
 
 class Machine:
-    def __init__(self, network=False):
+    def __init__(self, network=False, logname="smoke"):
         self.tmp = tempfile.TemporaryDirectory(prefix='notos-')
         self.output = bytearray()
+        self.logname = logname
         self.sel = selectors.DefaultSelector()
         self.sock = None
         monitor = self.tmp.name + '/monitor'
@@ -23,6 +24,8 @@ class Machine:
             args += ['-d', 'int,cpu_reset', '-D', 'build/qemu-trace.log']
         if network:
             args += ['-netdev', 'user,id=net0', '-device', 'rtl8139,netdev=net0']
+            if os.environ.get('QEMU_PCAP'):
+                args += ['-object', 'filter-dump,id=capture,netdev=net0,file=build/network.pcap']
         else:
             args += ['-nic', 'none']
         self.p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -92,7 +95,7 @@ class Machine:
         if self.p.poll() is None:
             self.p.terminate()
         self.p.wait(timeout=5)
-        Path('build/smoke.log').write_bytes(self.output)
+        Path('build',self.logname+'.log').write_bytes(self.output)
         if hasattr(self, 'stream'): self.stream.close()
         if self.sock: self.sock.close()
         self.sel.close()

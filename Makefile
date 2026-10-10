@@ -1,7 +1,7 @@
 CC := gcc
 LD := ld
 CFLAGS := -m32 -march=i386 -mno-sse -mno-sse2 -mno-mmx -msoft-float -std=c11 -Os -ffreestanding -fno-pie -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Werror
-.PHONY: all clean run test
+.PHONY: all clean run test test-online
 all: build/notos.img
 build:
 	mkdir -p build
@@ -21,11 +21,17 @@ build/kernel.bin: build/kernel.elf
 build/notos.img: build/boot.bin build/kernel.bin tools/image.py
 	python3 tools/image.py
 run: all
-	qemu-system-i386 -drive format=raw,file=build/notos.img -serial stdio
+	qemu-system-i386 -drive format=raw,file=build/notos.img -serial stdio -netdev user,id=net0 -device rtl8139,netdev=net0
 build/lang-unit: tests/lang_unit.c kernel/lang.c $(wildcard kernel/*.h) | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/lang_unit.c kernel/lang.c -o $@
-test: all build/lang-unit
+build/net-unit: tests/net_unit.c kernel/net.c $(wildcard kernel/*.h) | build
+	gcc -std=c11 -Wall -Wextra -Werror tests/net_unit.c -o $@
+test: all build/lang-unit build/net-unit
 	./build/lang-unit
+	./build/net-unit
 	python3 tests/smoke.py
+	python3 tests/network.py
+test-online: all
+	python3 tests/online.py
 clean:
 	rm -rf build

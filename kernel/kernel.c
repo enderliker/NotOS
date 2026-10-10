@@ -1,5 +1,7 @@
 #include "base.h"
 #include "lang.h"
+#include "net.h"
+#include "clock.h"
 static char line[160];
 static unsigned used;
 static int dropped;
@@ -17,12 +19,15 @@ void console_int(int value) {
     while(n) console_putc(b[--n]);
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
     else if(starts(s,"run ")) lang_run(s+4);
     else if(equal(s,"lang-reset")) {lang_reset();console_puts("LANG: variables cleared\n");}
+    else if(equal(s,"net")) net_status();
+    else if(starts(s,"dns ")) net_command("dns",s+4);
+    else if(starts(s,"http ")) net_command("http",s+5);
     else if(*s) console_puts("ERROR: unknown command\n");
 }
 static void input(char c) {
@@ -77,9 +82,13 @@ static void keyboard(void) {
 void kernel_main(void) {
     outb(0x3f9,0);outb(0x3fb,0x80);outb(0x3f8,1);outb(0x3f9,0);
     outb(0x3fb,3);outb(0x3fa,0xc7);outb(0x3fc,0x0b);
+    clock_init();
     gui_init();
-    console_puts("NotOS 0.3\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\nnotos> ");
+    console_puts("NotOS 0.4\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
+    net_init();
+    console_puts("notos> ");
     for(;;) {
+        net_poll(clock_ms());
         if(inb(0x3fd)&1) input((char)inb(0x3f8));
         keyboard();
         __asm__ volatile("pause");

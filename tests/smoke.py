@@ -39,3 +39,7 @@ with Machine() as m:
     m.command('run print x', '\nLANG ERROR: undefined variable\nnotos> ')
     m.command('echo kernel-still-alive', '\nkernel-still-alive\nnotos> ')
     print('PASS: NotLang inside the actual guest kernel, including error recovery')
+    reply=m.command('echo ' + 'x'*160 + 'echo must-not-run', '\nERROR: input too long; discarded\nnotos> ')
+    assert b'\nmust-not-run\n' not in reply
+    m.command('echo after-long-input', '\nafter-long-input\nnotos> ')
+    print('PASS: oversized shell input is discarded without executing its tail')
