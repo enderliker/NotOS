@@ -1,12 +1,13 @@
 #ifndef NOTOS_INTERRUPT_H
 #define NOTOS_INTERRUPT_H
 #include "base.h"
-/* Same-ring interrupt frame. ESP is pushal's saved ESP, not a user stack. */
+/* Common frame. A CPL change appends user ESP/SS after EFLAGS. */
 struct interrupt_frame {
     u32 gs,fs,es,ds;
     u32 edi,esi,ebp,saved_esp,ebx,edx,ecx,eax;
     u32 vector,error,eip,cs,eflags;
 };
+struct user_interrupt_tail {u32 esp,ss;};
 void interrupts_init(void);
 void interrupt_dispatch(struct interrupt_frame *frame);
 int interrupt_selftest(void);

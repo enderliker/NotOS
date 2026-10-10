@@ -27,9 +27,12 @@ Se subió en dos avances comprobados: `feat(excepciones)` y `feat(interrupciones
 
 Se subió en tres avances comprobados: `feat(memoria)`, `feat(paginacion)` y `feat(heap)`. Ver [diseño, pruebas y límites](MEMORY.md).
 
-## Fase 4 prevista: aislamiento básico
+## Fase 4: aislamiento básico (en curso)
 
-TSS, entrada a ring 3 y espacios de direcciones protegidos serán el siguiente objetivo. No están implementados todavía. El aislamiento completo, la multitarea y un planificador requieren hitos adicionales.
+- **Completado:** GDT/TSS, CPL3 real, pila ESP0, INT 0x80 y retorno al kernel con limpieza de frames.
+- **Pendiente:** directorios CR3 privados, manejo recuperable de fallos user y validación de buffers.
+
+La demo todavía es síncrona. Multitarea y planificador requieren hitos adicionales.
 
 ## Próximos hitos, aún no implementados
 

@@ -128,3 +128,15 @@ Capturas `build/pagefault-*.ppm` y logs `build/pagefault-*.log`, `build/paging.l
 - DNS/HTTP externos pasan con PG/WP/IRQ/heap activos: respuesta 200 OK y 891 bytes recibidos.
 
 Logs `build/heap.log` y `build/heap-guard.log`; captura `build/heap-guard.ppm`. El payload del build observado termina en 0x17006, antes de la firma 0x1fffc; la imagen del kernel está rellenada a 65536 bytes. BSS termina en 0x49028, antes del guard de pila 0x80000. El linker comprueba ambos límites. Estos tamaños pueden cambiar con el compilador. No se han verificado CI remota ni hardware real.
+
+## Fase 4, GDT/TSS y entrada a CPL 3
+
+`make test` — PASS en QEMU 9.2.4.
+
+- TR real contiene selector 0x28.
+- Tres ejecuciones de programa user real: CPL=3, SS=0x23, stack supervisor de la TSS comprobado, salida 42 y IRQ0 durante la ejecución.
+- INT 0x80 y syscall desconocida (-38), DF conservado para usuario y limpio al entrar a C.
+- Retorno a la shell, restauración de frames, INT3, VM y heap tras las ejecuciones.
+- Todas las regresiones anteriores pasan. La nueva GDT hace válido 0x20; el test #GP fue actualizado a selector inválido 0x30/error 0x30.
+
+Log `build/user-ring3.log`. No se afirma todavía aislamiento por CR3 ni recuperación de fallos user en este avance.

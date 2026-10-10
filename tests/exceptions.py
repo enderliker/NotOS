@@ -12,7 +12,7 @@ with Machine(logname='idt') as m:
 for command,vector,name,error in [
     ('fault divide',0,'Divide Error','00000000'),
     ('fault opcode',6,'Invalid Opcode','00000000'),
-    ('fault gp',13,'General Protection','00000020'),
+    ('fault gp',13,'General Protection','00000030'),
 ]:
     with Machine(logname='panic-'+str(vector)) as m:
         reply=m.command(command,'SYSTEM HALTED: restart required\n')

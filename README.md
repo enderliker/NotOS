@@ -15,6 +15,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Memoria física | Mapa BIOS E820 y frames de 4 KiB con bitmap | Agotamiento/liberación en QEMU con 16/32/64/128 MiB |
 | Paginación | CR0.PG/WP, código de solo lectura y ventana virtual | Aliases, TLB y fallos #PF reales con CR2 |
 | Heap | kmalloc/kcalloc/kfree, split/coalesce y alineación de 16 bytes | 20000 operaciones nativas y asignaciones reales en el kernel |
+| Ring 3 | GDT/TSS, pila ESP0 y puerta INT 0x80 | CPL3 real, IRQ/IRET, syscalls y restauración del kernel |
 
 Cada avance se sube en un commit `feat(alcance) mensaje` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
 
@@ -83,6 +84,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 
 ## Documentación
 
+- [Ejecución de usuario](docs/USERSPACE.md)
 - [Memoria](docs/MEMORY.md)
 - [NotLang](docs/NOTLANG.md)
 - [Red](docs/NETWORK.md)

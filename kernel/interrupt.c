@@ -3,6 +3,7 @@
 #include "pic.h"
 #include "clock.h"
 #include "keyboard.h"
+#include "user.h"
 struct idt_gate {u16 low,selector;u8 zero,flags;u16 high;} __attribute__((packed));
 struct idt_pointer {u16 limit;u32 base;} __attribute__((packed));
 static struct idt_gate idt[256] __attribute__((aligned(16)));
@@ -55,7 +56,7 @@ void interrupts_init(void) {
     for(unsigned n=0;n<256;n++) {
         u32 address=(u32)(unsigned long)isr_table[n];
         idt[n].low=(u16)address;idt[n].selector=0x08;
-        idt[n].zero=0;idt[n].flags=0x8e;idt[n].high=(u16)(address>>16);
+        idt[n].zero=0;idt[n].flags=n==128?0xee:0x8e;idt[n].high=(u16)(address>>16);
     }
     const struct idt_pointer pointer={sizeof(idt)-1,(u32)(unsigned long)idt};
     __asm__ volatile("lidt %0" :: "m"(pointer) : "memory");
@@ -65,6 +66,7 @@ unsigned interrupts_irq_count(unsigned irq) {return irq<16?irq_counts[irq]:0;}
 unsigned interrupts_spurious_count(unsigned irq) {return irq==7?spurious7:irq==15?spurious15:0;}
 unsigned interrupts_stray_count(void) {return stray;}
 void interrupt_dispatch(struct interrupt_frame *frame) {
+    if(frame->vector==128) {user_syscall(frame);return;}
     if(frame->vector==3) {breakpoints++;return;}
     if(frame->vector>=32 && frame->vector<48) {
         unsigned irq=frame->vector-32;

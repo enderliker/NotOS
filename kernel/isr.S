@@ -1373,7 +1373,7 @@ fault_opcode:
     ret
 .global fault_gp
 fault_gp:
-    mov $0x20, %ax
+    mov $0x30, %ax
     mov %ax, %ds
     ret
 .section .rodata

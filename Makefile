@@ -11,7 +11,11 @@ build/boot.bin: build/boot.o boot/link.ld
 	$(LD) -m elf_i386 -T boot/link.ld --oformat binary $< -o $@
 build/entry.o: kernel/entry.S | build
 	$(CC) -m32 -c $< -o $@
-KERNEL_OBJS := build/entry.o build/isr.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
+KERNEL_OBJS := build/entry.o build/isr.o build/user_entry.o build/user_program.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
+build/user_entry.o: kernel/user_entry.S | build
+	$(CC) -m32 -c $< -o $@
+build/user_program.o: kernel/user_program.S | build
+	$(CC) -m32 -c $< -o $@
 build/isr.o: kernel/isr.S | build
 	$(CC) -m32 -c $< -o $@
 build/%.o: kernel/%.c $(wildcard kernel/*.h) | build
@@ -46,6 +50,7 @@ test: all build/lang-unit build/net-unit build/clock-unit build/physical-unit bu
 	python3 tests/physical.py
 	python3 tests/paging.py
 	python3 tests/heap.py
+	python3 tests/user.py
 	python3 tests/network.py
 test-online: all
 	python3 tests/online.py
