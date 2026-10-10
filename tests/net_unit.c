@@ -50,3 +50,9 @@ int main(void) {
     puts("PASS: bounded retry backoff, ACK validation/wrap and static config validation");
     puts("PASS: checksums, IPv4 parsing and bounded DNS decoding");
 }
+
+void socket_stack_init(const u8 m[6],const u8 a[4],const u8 g[4],const u8 d[4]) {(void)m;(void)a;(void)g;(void)d;}
+void socket_stack_configure(const u8 a[4],const u8 g[4],const u8 d[4]) {(void)a;(void)g;(void)d;}
+int socket_stack_input(const void *p,u32 n) {(void)p;(void)n;return 0;}
+void socket_stack_poll(void) {}
+int socket_stack_busy(void) {return 0;}

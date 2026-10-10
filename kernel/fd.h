@@ -24,4 +24,7 @@ int fd_is_tty(struct fd_table *table,int fd);
 int fd_blocking_input(struct fd_table *table,int fd);
 int fd_feed(struct fd_table *table,const void *buffer,u32 bytes,int eof);
 u32 fd_description_count(void);
+int fd_socket_open(struct fd_table *,u32 flags);
+int fd_socket_handle(struct fd_table *,int fd);
+int fd_nonblocking(struct fd_table *,int fd);
 #endif

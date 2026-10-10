@@ -35,10 +35,23 @@ static int translated_error(int error) {
     case ERROR_INVALID_ARGUMENT:return EINVAL;
     case ERROR_NO_SYSCALL:return ENOSYS;
     case ERROR_UNSUPPORTED:return ENOTSUP;
+    case ERROR_BROKEN_PIPE:return EPIPE;
+    case ERROR_NOT_SOCKET:return ENOTSOCK;
+    case ERROR_PROTOCOL_OPTION:return ENOPROTOOPT;
+    case ERROR_ADDRESS_FAMILY:return EAFNOSUPPORT;
+    case ERROR_ADDRESS_IN_USE:return EADDRINUSE;
+    case ERROR_NETWORK_UNREACHABLE:return ENETUNREACH;
+    case ERROR_CONNECTION_RESET:return ECONNRESET;
+    case ERROR_IS_CONNECTED:return EISCONN;
+    case ERROR_NOT_CONNECTED:return ENOTCONN;
+    case ERROR_TIMED_OUT:return ETIMEDOUT;
+    case ERROR_CONNECTION_REFUSED:return ECONNREFUSED;
+    case ERROR_ALREADY:return EALREADY;
+    case ERROR_IN_PROGRESS:return EINPROGRESS;
     default:return EIO;
     }
 }
-static int checked(int result) {
+int notos_checked(int result) {
     if (result<0) {errno=translated_error(-result);return -1;}
     return result;
 }
@@ -62,11 +75,11 @@ void *sbrk(intptr_t increment) {
 ssize_t write(int fd,const void *buffer,size_t bytes) {
     if (bytes>INT_MAX) {errno=EINVAL;return -1;}
     if (bytes>UINTPTR_MAX-(uintptr_t)buffer) {errno=EFAULT;return -1;}
-    if (!bytes) return checked(notos_raw_call(SYS_FD_WRITE,(uint32_t)fd,(uint32_t)buffer,0));
+    if (!bytes) return notos_checked(notos_raw_call(SYS_FD_WRITE,(uint32_t)fd,(uint32_t)buffer,0));
     size_t written=0;
     while (written<bytes) {
         size_t n=bytes-written;if (n>NOTOS_CONSOLE_LIMIT) n=NOTOS_CONSOLE_LIMIT;
-        int result=checked(notos_raw_call(SYS_FD_WRITE,(uint32_t)fd,(uint32_t)buffer+written,n));
+        int result=notos_checked(notos_raw_call(SYS_FD_WRITE,(uint32_t)fd,(uint32_t)buffer+written,n));
         if (result<0) return written?(ssize_t)written:-1;
         if (!result) break;
         written+=(size_t)result;
@@ -78,9 +91,9 @@ ssize_t read(int fd,void *buffer,size_t bytes) {
     if (bytes>UINTPTR_MAX-(uintptr_t)buffer) {errno=EFAULT;return -1;}
     size_t request=bytes>NOTOS_IO_LIMIT?NOTOS_IO_LIMIT:bytes;
     /* A short read is valid; never loop and accidentally block after delivering bytes. */
-    return checked(notos_raw_call(SYS_FD_READ,(uint32_t)fd,(uint32_t)buffer,(uint32_t)request));
+    return notos_checked(notos_raw_call(SYS_FD_READ,(uint32_t)fd,(uint32_t)buffer,(uint32_t)request));
 }
-int close(int fd) {return checked(notos_raw_call(SYS_FD_CLOSE,(uint32_t)fd,0,0));}
+int close(int fd) {return notos_checked(notos_raw_call(SYS_FD_CLOSE,(uint32_t)fd,0,0));}
 static int open_flags(int flags,uint32_t *wire) {
     int accepted=O_ACCMODE|O_APPEND|O_CREAT|O_EXCL|O_TRUNC|O_NONBLOCK|O_CLOEXEC;
     if ((flags&~accepted) || (flags&O_ACCMODE)>O_RDWR) {errno=ENOTSUP;return -1;}
@@ -97,7 +110,7 @@ int open(const char *path,int flags,...) {
     uint32_t wire,mode=0;
     if (open_flags(flags,&wire)) return -1;
     if (flags&O_CREAT) {va_list arguments;va_start(arguments,flags);mode=(uint32_t)va_arg(arguments,int);va_end(arguments);}
-    return checked(notos_raw_call(SYS_FD_OPEN,(uint32_t)path,wire,mode));
+    return notos_checked(notos_raw_call(SYS_FD_OPEN,(uint32_t)path,wire,mode));
 }
 off_t lseek(int fd,off_t offset,int whence) {
     if (offset<INT_MIN || offset>INT_MAX) {errno=EOVERFLOW;return (off_t)-1;}
@@ -106,46 +119,46 @@ off_t lseek(int fd,off_t offset,int whence) {
     else if (whence==SEEK_CUR) origin=NOTOS_SEEK_CUR;
     else if (whence==SEEK_END) origin=NOTOS_SEEK_END;
     else {errno=EINVAL;return (off_t)-1;}
-    return (off_t)checked(notos_raw_call(SYS_FD_SEEK,(uint32_t)fd,(uint32_t)offset,origin));
+    return (off_t)notos_checked(notos_raw_call(SYS_FD_SEEK,(uint32_t)fd,(uint32_t)offset,origin));
 }
 static void convert_stat(struct stat *status,const struct notos_file_info *info) {
     *status=(struct stat){0};
     status->st_ino=info->inode;status->st_nlink=info->links;status->st_size=info->size;
-    status->st_mode=(info->kind==NOTOS_FILE_REGULAR?S_IFREG:S_IFCHR)|info->permissions;
+    status->st_mode=(info->kind==NOTOS_FILE_REGULAR?S_IFREG:info->kind==NOTOS_FILE_SOCKET?S_IFSOCK:S_IFCHR)|info->permissions;
     status->st_blksize=4096;status->st_blocks=((info->size+4095)/4096)*8;
 }
 static int stat_output(struct stat *status) {
-    return checked(notos_raw_call(SYS_USER_CHECK,(uint32_t)status,sizeof(*status),1));
+    return notos_checked(notos_raw_call(SYS_USER_CHECK,(uint32_t)status,sizeof(*status),1));
 }
 int fstat(int fd,struct stat *status) {
     if (stat_output(status)) return -1;
     struct notos_file_info info;
-    int result=checked(notos_raw_call(SYS_FD_STAT,(uint32_t)fd,(uint32_t)&info,0));
+    int result=notos_checked(notos_raw_call(SYS_FD_STAT,(uint32_t)fd,(uint32_t)&info,0));
     if (!result) convert_stat(status,&info);
     return result;
 }
 int stat(const char *path,struct stat *status) {
     if (stat_output(status)) return -1;
     struct notos_file_info info;
-    int result=checked(notos_raw_call(SYS_PATH_STAT,(uint32_t)path,(uint32_t)&info,0));
+    int result=notos_checked(notos_raw_call(SYS_PATH_STAT,(uint32_t)path,(uint32_t)&info,0));
     if (!result) convert_stat(status,&info);
     return result;
 }
-int unlink(const char *path) {return checked(notos_raw_call(SYS_PATH_UNLINK,(uint32_t)path,0,0));}
+int unlink(const char *path) {return notos_checked(notos_raw_call(SYS_PATH_UNLINK,(uint32_t)path,0,0));}
 int isatty(int fd) {
-    int result=checked(notos_raw_call(SYS_FD_ISATTY,(uint32_t)fd,0,0));
+    int result=notos_checked(notos_raw_call(SYS_FD_ISATTY,(uint32_t)fd,0,0));
     if (result<0) return 0;
     if (!result) errno=ENOTTY;
     return result;
 }
-int dup(int fd) {return checked(notos_raw_call(SYS_FD_DUP,(uint32_t)fd,UINT32_MAX,0));}
+int dup(int fd) {return notos_checked(notos_raw_call(SYS_FD_DUP,(uint32_t)fd,UINT32_MAX,0));}
 int dup2(int fd,int destination) {
     if (destination<0) {errno=EBADF;return -1;}
-    return checked(notos_raw_call(SYS_FD_DUP,(uint32_t)fd,(uint32_t)destination,0));
+    return notos_checked(notos_raw_call(SYS_FD_DUP,(uint32_t)fd,(uint32_t)destination,0));
 }
 int ftruncate(int fd,off_t length) {
     if (length<0 || (uint64_t)length>UINT32_MAX) {errno=EINVAL;return -1;}
-    return checked(notos_raw_call(SYS_FD_TRUNCATE,(uint32_t)fd,(uint32_t)length,0));
+    return notos_checked(notos_raw_call(SYS_FD_TRUNCATE,(uint32_t)fd,(uint32_t)length,0));
 }
 int fcntl(int fd,int command,...) {
     uint32_t number,argument=0;
@@ -163,7 +176,7 @@ int fcntl(int fd,int command,...) {
             argument=value?NOTOS_FD_CLOEXEC:0;
         }
     } else {errno=ENOTSUP;return -1;}
-    int result=checked(notos_raw_call(SYS_FD_CONTROL,(uint32_t)fd,number,argument));
+    int result=notos_checked(notos_raw_call(SYS_FD_CONTROL,(uint32_t)fd,number,argument));
     if (result<0) return -1;
     if (command==F_GETFL) {
         int flags=result&NOTOS_O_ACCMODE;
@@ -182,7 +195,7 @@ static int clock_number(clockid_t clock) {
 }
 int clock_gettime(clockid_t clock,struct timespec *output) {
     int number=clock_number(clock);if (number<0) return -1;
-    return checked(notos_raw_call(SYS_TIME,(uint32_t)number,(uint32_t)output,0));
+    return notos_checked(notos_raw_call(SYS_TIME,(uint32_t)number,(uint32_t)output,0));
 }
 int clock_getres(clockid_t clock,struct timespec *output) {
     if (clock_number(clock)<0) return -1;
@@ -191,7 +204,7 @@ int clock_getres(clockid_t clock,struct timespec *output) {
 }
 int gettimeofday(struct timeval *output,void *timezone) {
     if (timezone) {errno=ENOTSUP;return -1;}
-    if (checked(notos_raw_call(SYS_TIME,NOTOS_CLOCK_REALTIME,(uint32_t)output,0))) return -1;
+    if (notos_checked(notos_raw_call(SYS_TIME,NOTOS_CLOCK_REALTIME,(uint32_t)output,0))) return -1;
     output->tv_usec/=1000;
     return 0;
 }
@@ -201,7 +214,7 @@ int nanosleep(const struct timespec *request,struct timespec *remaining) {
         errno=EINVAL;return -1;
     }
     uint32_t ms=(uint32_t)request->tv_sec*1000u+(uint32_t)(request->tv_nsec+999999)/1000000u;
-    int result=checked(notos_raw_call(SYS_SLEEP,ms,0,0));
+    int result=notos_checked(notos_raw_call(SYS_SLEEP,ms,0,0));
     if (!result && remaining) *remaining=(struct timespec){0,0};
     return result;
 }
@@ -216,6 +229,8 @@ unsigned sleep(unsigned seconds) {
 }
 int getentropy(void *buffer,size_t bytes) {
     if (bytes>NOTOS_ENTROPY_LIMIT) {errno=EIO;return -1;}
-    return checked(notos_raw_call(SYS_ENTROPY,(uint32_t)buffer,(uint32_t)bytes,0));
+    return notos_checked(notos_raw_call(SYS_ENTROPY,(uint32_t)buffer,(uint32_t)bytes,0));
 }
-pid_t getpid(void) {return (pid_t)checked(notos_raw_call(SYS_PID,0,0,0));}
+pid_t getpid(void) {return (pid_t)notos_checked(notos_raw_call(SYS_PID,0,0,0));}
+
+int notos_errno(int error) {return translated_error(error);}

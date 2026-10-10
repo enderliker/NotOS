@@ -6,8 +6,8 @@ La arquitectura sigue siendo x86 de 32 bits: INT 0x80 es la entrada de syscall a
 ## Comprobado
 
 - PAE, páginas de 4 KiB, CR0.WP y EFER.NXE, texto RX, datos/pilas RW/NX y aislamiento ring3.
-- IRQ0, reloj, procesos básicos, cambio de contexto y SYS_SLEEP bloqueante para procesos gestionados; todavía sin bloqueo de sockets.
-- RTL8139, ARP, IPv4, DNS UDP y un transporte TCP educativo de una conexión. No es API BSD sockets.
+- IRQ0, reloj, procesos básicos, cambio de contexto y SYS_SLEEP bloqueante para procesos gestionados; bloqueo connect/send/recv por proceso; todavía sin poll/select.
+- RTL8139, ARP, IPv4, DNS UDP y un transporte TCP educativo de una conexión. Se conserva para el cliente kernel. Desde 0.16, lwIP aporta transporte TCP/IPv4 general y un API BSD parcial de usuario; ver SOCKETS.md.
 - TLS1.2/1.3, CA/RTC/DRBG, SNI/SAN/EKU/firmas y pruebas negativas dentro del invitado.
 - NotFS propio persistente; montaje read-only `/disk` y tmpfs `/tmp`. FDs privados, stdio binario, dup/seek y stdin bloqueante en ring3. Ver VFS.md; no es POSIX completo.
 
@@ -20,8 +20,8 @@ Picolibc 1.8.11 ya ejecuta malloc/free, stdio entero, strings, errno privado, ti
 
 1. Extender runtime/argumentos según lo que requiera curl y cargar ejecutables desde VFS. Sin TLS de threads; solo proceso single-thread por ahora.
 2. La base FDs/tmpfs/stdin ya está comprobada. Para el port final de curl, completar los hooks adicionales que necesite, validar sus rutas/config y ampliar cuotas para descargas/CA bundle si corresponde. `/disk` es read-only; no hay escritura POSIX persistente.
-3. Transporte TCP general y API sockets, connect/send/recv/options, fcntl y getaddrinfo DNS; no basta la conexión educativa del kernel.
-4. Extender TASK_BLOCKED/SYS_SLEEP a eventos de sockets/FDs y poll/select, además de timeouts ya comprobados.
+3. Transporte TCP/IPv4, connect/send/recv/options, fcntl y getaddrinfo DNS implementados y comprobados en 0.16; completar lo adicional que demande curl, sin asumir POSIX completo.
+4. Añadir poll/select y espera de múltiples FDs. TASK_BLOCKED ya suspende connect/send/recv y los timeouts de socket están comprobados.
 5. Completar los hooks y funciones de libc adicionales que demande la compilación de curl; el port inicial no prueba toda la biblioteca upstream ni float/libm.
 6. curl upstream estático HTTP-only usando el sysroot reproducible, adaptando su configuración y ejecutando peticiones y `-o` dentro del invitado.
 7. Backend TLS de curl en userspace: TLS1.3/1.2, CA/hostname/fecha, timeouts, errores y CLI verificadas. El TLS kernel de `https` no satisface este gate por sí solo.

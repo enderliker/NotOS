@@ -4,7 +4,7 @@
 #include "space.h"
 #include "scheduler_policy.h"
 #include "fd.h"
-enum task_wait_kind {TASK_WAIT_TIMER,TASK_WAIT_INPUT};
+enum task_wait_kind {TASK_WAIT_TIMER,TASK_WAIT_INPUT,TASK_WAIT_CONNECT,TASK_WAIT_RECEIVE,TASK_WAIT_SEND};
 
 /* Count IRQ0 samples delivered at CPL3, not exact CPU or wall time. */
 #define TASK_EXECUTION_BUDGET 250u
@@ -47,7 +47,7 @@ struct task {
     u32 first_tick;
     u32 wait_started,wait_duration;
     enum task_wait_kind wait_kind;
-    u32 pending_buffer,pending_bytes;
+    u32 pending_buffer,pending_bytes,pending_flags;
     int pending_fd;
     struct fd_table files;
     u8 *kernel_stack;

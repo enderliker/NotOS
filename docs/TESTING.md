@@ -323,3 +323,19 @@ Logs `build/vfs-16M.log`, `build/vfs-64M.log`, `build/vfs-notfs.log`, `build/vfs
 ## Preparación de transporte TCP: capacidad BIOS
 
 `make test` PASS en QEMU 9.2.4. El loader carga 512 KiB en 16 lecturas de 32 KiB, sello 0x8fffc. La pila inicial se mueve a 0x9f000, bajo EBDA del target QEMU; guard 0x90000, fuera del payload. BSS sigue desde 1 MiB y reservado antes de asignar frames. Se mantienen todas las regresiones de memoria, ring3, VFS y TLS. No añade todavía sockets ni nuevos protocolos por sí mismo.
+
+## NotOS 0.16: TCP/IPv4 y DNS de usuario
+
+`make clean` seguido de `make -j4 test` y `make test-online`: PASS en QEMU 9.2.4/TCG con libslirp 4.8.0. Código propio y lwIP seleccionado con `-Wall -Wextra -Werror`; Picolibc conserva la política upstream y el warning de `_set_tls` ya documentado, sin desactivar los warnings del proyecto.
+
+- ELF ring3 independiente enlazado a Picolibc upstream, API TCP/IPv4 sobre syscalls propias y RTL8139/lwIP reales, sin host libc/sockets dentro del invitado.
+- 16/64 MiB: streams de 32768 bytes con envíos/lecturas parciales, PEEK y half-close/EOF; descarga HTTP binaria a tmpfs con contenido/stat/unlink verificados. fstat S_IFSOCK, read/write y dup sobre sockets.
+- NONBLOCK/EINPROGRESS y fcntl, CLOEXEC, NODELAY, direcciones/puertos, EFAULT/read-only, IPv6/DGRAM rechazados, refusal/SO_ERROR consumido una vez, RST real con datos pendientes y timeout EAGAIN.
+- Cuatro procesos TCP simultáneos, pérdidas SYN/TX/RX recuperadas, shell/INT3 disponibles durante recv bloqueado, kill y limpieza exacta de frames/heap/descripciones/tmpfs/endpoints/registros DNS.
+- Más de ocho conexiones secuenciales, FD antiguo abierto tras FIN, TIME_WAIT reciclado sin punteros colgantes; caché de dirección y NODELAY conservada. Ocho endpoints/dup y cuota EMFILE. Pool de ocho PCBs retenidos con siete FDs: nueva apertura devuelve ENOMEM y conexiones restantes conservan identidad y envío, sin expulsión de activos.
+- DNS A/NXDOMAIN en fixture UDP 53530 separado de producción 53; cancelación, propietario/slot reutilizado y callback tardío sin contaminación. Ausencia de NIC/semilla falla cerrado.
+- Regresiones completas de loader/memoria/PAE/ELF/libc/VFS/IRQ/UI/NotLang/procesos/almacenamiento/red/TLS: PASS. Peers TLS controlados mantienen cobertura 1.2/1.3 y certificados inválidos. Internet real: kernel DNS/HTTP200, HTTPS TLSv1.3/HTTP200/close_notify y DNS/HTTP200 desde el ELF de usuario.
+
+Logs: `build/sockets-16M.log`, `build/sockets-64M.log`, `build/sockets-dns.log`, `build/sockets-online.log`, además de regresiones existentes. Mapas/ELFs y las tres imágenes quedan en build. El primer fixture RST sin datos pendientes no era estable bajo slirp; se hizo determinista dejando datos pendientes antes del reset. También se corrigió la lectura de líneas parciales de logs y se usa Connection: close, no un half-close temprano, para el peer HTTP público. La reconstrucción limpia final pasó después de esos ajustes.
+
+Los recursos protocolarios estáticos TIME_WAIT/ARP/DNS son acotados, no se exige que desaparezcan instantáneamente con el FD. Sin CI remota/hardware físico comprobados. API cliente parcial: no poll/select, bind/listen/accept, UDP público, IPv6 ni curl upstream/TLS userspace; ver SOCKETS.md y CURL_PORT.md.

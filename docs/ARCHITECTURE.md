@@ -77,3 +77,9 @@ Los hooks no soportados no devuelven éxito ficticio. libc privada single-thread
 `syscall.*` valida/copia rutas y buffers antes de llamar al backend. `file_abi.h` fija el wire independiente de Picolibc. `user/libc/port.c` traduce constantes/errores/stat y usa los hooks reales de stdio upstream. `process_poll` termina lecturas TASK_WAIT_INPUT mediante `space_copy_to_user` sobre aliases del espacio bloqueado, sin activar su CR3. Shell/IRQ no comparten datos de entrada entre PIDs.
 
 El backend tiene tests ASAN/UBSAN con un asignador de frames falso host-only; `tests/vfs.py` comprueba el ELF real y recuperación exacta en QEMU. La operación no preemptiva del kernel garantiza consistencia de referencias en un CPU; no se declara soporte SMP ni sincronización multi-CPU.
+
+## TCP y DNS de usuario en 0.16
+
+`socket_stack.*` encapsula lwIP raw NO_SYS; `lwip_port/` aporta configuración/límites, reloj y RNG. `net.*` comparte RTL8139/DMA y demultiplexa puertos con el transporte legacy. `fd.*` integra el endpoint en referencias OFD/dup; no decide bloqueo. `syscall.*` registra espera/punteros validados; `process_poll` copia desde/hacia el espacio bloqueado por aliases físicos y reanuda el frame.
+
+`user/include` define cabeceras propias y `user/libc/socket.c` traduce API/errno/native structs al wire estable `socket_abi.h`. `user/socket_demo.c` es diagnóstico ELF separado, no implementación de TCP. Fixtures de tests usan sockets del host solo como peers; no se incorporan al invitado. `tools/fetch_lwip.py` fija SHA/licencia y `build_lwip.py` cruza upstream sin headers/libc de host. Lifecycle raw, quotas y pendientes están documentados en SOCKETS.md.

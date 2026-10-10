@@ -27,6 +27,7 @@
 #define NOTOS_SEEK_END 2u
 #define NOTOS_FILE_REGULAR 1u
 #define NOTOS_FILE_CHARACTER 2u
+#define NOTOS_FILE_SOCKET 3u
 struct notos_file_info { u32 inode, size, kind, links, permissions; };
 _Static_assert(sizeof(struct notos_file_info)==20,"file stat wire ABI");
 #endif

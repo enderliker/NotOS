@@ -234,3 +234,15 @@ int space_munmap(struct user_space *space,u32 address,u32 bytes) {
     for (u32 cursor=address;cursor<high;cursor+=4096) unmap_page(space,cursor);
     return 1;
 }
+
+int space_copy_from_user(const struct user_space *space,u32 address,void *data,u32 bytes) {
+    if (!space_range(space,address,bytes,0)) return 0;
+    u8 *destination=data;
+    while (bytes) {
+        u32 offset=address&4095u,n=4096-offset;if (n>bytes) n=bytes;
+        const u8 *source=(const u8 *)(frame_at(space,address)+offset);
+        for (u32 i=0;i<n;i++) destination[i]=source[i];
+        destination+=n;address+=n;bytes-=n;
+    }
+    return 1;
+}

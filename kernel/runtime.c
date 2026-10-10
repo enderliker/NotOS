@@ -34,3 +34,15 @@ char *strstr(const char *text,const char *needle) {
     size_t n=strlen(needle);for (;*text;text++) if (!strncmp(text,needle,n)) return (char *)text;
     return n?0:(char *)text;
 }
+
+int atoi(const char *text) {
+    while (*text==' ' || *text=='\t' || *text=='\n' || *text=='\r') text++;
+    int negative=*text=='-';if (*text=='-' || *text=='+') text++;
+    unsigned limit=negative?2147483648u:2147483647u,value=0;
+    while (*text>='0' && *text<='9') {
+        unsigned digit=(unsigned)(*text++-'0');
+        if (value>(limit-digit)/10) return negative?(int)(0u-limit):(int)limit;
+        value=value*10+digit;
+    }
+    return negative?(int)(0u-value):(int)value;
+}

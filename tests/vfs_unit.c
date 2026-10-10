@@ -87,3 +87,10 @@ int main(void) {
     fd_table_destroy(&a);fd_table_destroy(&b);empty();
     puts("PASS: tmpfs holes/truncate/unlink/quotas/OOM rollback, NotFS snapshots, private FDs/shared dup offsets and stdin queues");
 }
+
+/* This native unit isolates descriptor/VFS logic, not network correctness. */
+int socket_create(void) {return -ERROR_UNSUPPORTED;}
+void socket_release(int h) {(void)h;}
+int socket_read(int h,void *p,u32 n,u32 f) {(void)h;(void)p;(void)n;(void)f;return -ERROR_UNSUPPORTED;}
+int socket_write(int h,const void *p,u32 n) {(void)h;(void)p;(void)n;return -ERROR_UNSUPPORTED;}
+void socket_resolve_cancel(struct fd_table *t) {(void)t;}

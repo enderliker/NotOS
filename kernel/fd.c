@@ -1,13 +1,15 @@
 /* No CPU, syscall or scheduling policy here; buffers and paths are trusted. */
 #include "fd.h"
+#include "socket_stack.h"
 #include "vfs.h"
 #include "syscall_numbers.h"
 #define DESCRIPTION_COUNT 64u
-enum file_kind { FILE_REGULAR,FILE_INPUT,FILE_OUTPUT,FILE_CONSOLE,FILE_NULL };
+enum file_kind { FILE_REGULAR,FILE_INPUT,FILE_OUTPUT,FILE_CONSOLE,FILE_NULL,FILE_SOCKET };
 struct open_file {
     u32 references,flags,offset;
     enum file_kind kind;
     struct vfs_node *node;
+    int socket;
     struct fd_table *terminal;
 };
 static struct open_file descriptions[DESCRIPTION_COUNT];
@@ -63,10 +65,11 @@ int fd_table_init(struct fd_table *table) {
 int fd_close(struct fd_table *table,int fd) {
     struct open_file *file=get(table,fd);if (!file) return -ERROR_BAD_FD;
     table->slots[fd]=0;table->descriptor_flags[fd]=0;
-    if (!--file->references) {vfs_release(file->node);*file=(struct open_file){0};}
+    if (!--file->references) {if (file->kind==FILE_SOCKET) socket_release(file->socket);else vfs_release(file->node);*file=(struct open_file){0};}
     return 0;
 }
 void fd_table_destroy(struct fd_table *table) {
+    socket_resolve_cancel(table);
     for (u32 i=0;i<NOTOS_FD_COUNT;i++) if (table->slots[i]) fd_close(table,(int)i);
     *table=(struct fd_table){0};
 }
@@ -79,6 +82,7 @@ int fd_read(struct fd_table *table,int fd,void *buffer,u32 bytes) {
         if (result>0) file->offset+=(u32)result;
         return result;
     }
+    if (file->kind==FILE_SOCKET) return socket_read(file->socket,buffer,bytes,0);
     if (file->kind==FILE_NULL) return 0;
     struct fd_table *terminal=file->terminal;
     if (!terminal->input_count) return terminal->input_eof?0:-ERROR_AGAIN;
@@ -99,6 +103,7 @@ int fd_write(struct fd_table *table,int fd,const void *buffer,u32 bytes) {
         if (result>0) file->offset=offset+(u32)result;
         return result;
     }
+    if (file->kind==FILE_SOCKET) return socket_write(file->socket,buffer,bytes);
     if (file->kind!=FILE_NULL) for (u32 i=0;i<bytes;i++) console_putc(((const char *)buffer)[i]);
     return (int)bytes;
 }
@@ -123,6 +128,7 @@ int fd_truncate(struct fd_table *table,int fd,u32 bytes) {
 int fd_stat(struct fd_table *table,int fd,struct notos_file_info *result) {
     struct open_file *file=get(table,fd);if (!file) return -ERROR_BAD_FD;
     if (file->kind==FILE_REGULAR) vfs_node_info(file->node,result);
+    else if (file->kind==FILE_SOCKET) *result=(struct notos_file_info){0,0,NOTOS_FILE_SOCKET,1,0600};
     else *result=(struct notos_file_info){file->offset,0,NOTOS_FILE_CHARACTER,1,0666};
     return 0;
 }
@@ -172,4 +178,23 @@ u32 fd_description_count(void) {
     u32 count=0;
     for (u32 i=0;i<DESCRIPTION_COUNT;i++) if (descriptions[i].references) count++;
     return count;
+}
+
+int fd_socket_open(struct fd_table *table,u32 flags) {
+    int slot=free_slot(table),index=-1;
+    if (slot<0) return -ERROR_TOO_MANY_FILES;
+    for (u32 i=0;i<DESCRIPTION_COUNT;i++) if (!descriptions[i].references) {index=(int)i;break;}
+    if (index<0) return -ERROR_TOO_MANY_FILES;
+    int handle=socket_create();if (handle<0) return handle;
+    descriptions[index]=(struct open_file){.references=1,.kind=FILE_SOCKET,.socket=handle,
+        .flags=NOTOS_O_RDWR|(flags&NOTOS_O_NONBLOCK)};
+    table->slots[slot]=(u16)(index+1);table->descriptor_flags[slot]=(flags&NOTOS_O_CLOEXEC)?NOTOS_FD_CLOEXEC:0;
+    return slot;
+}
+int fd_socket_handle(struct fd_table *table,int fd) {
+    struct open_file *file=get(table,fd);if (!file) return -ERROR_BAD_FD;
+    return file->kind==FILE_SOCKET?file->socket:-ERROR_NOT_SOCKET;
+}
+int fd_nonblocking(struct fd_table *table,int fd) {
+    struct open_file *file=get(table,fd);return file && (file->flags&NOTOS_O_NONBLOCK);
 }

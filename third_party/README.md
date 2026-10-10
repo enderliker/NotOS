@@ -32,3 +32,12 @@ Upstream sources unchanged, SHA checked before safe extraction. Offline: PICOLIB
 The selected libc sources use their upstream BSD/MIT/newlib and other per-file notices; this is not one blanket project license. See the complete upstream copyright/license inventory in Picolibc-COPYING.txt. The source distribution also contains an AGPL-3 script (scripts/GeneratePicolibcCrossFile.sh); NotOS does not use or incorporate it, and generates its own Meson cross file. Keep the full inventory with binary distributions and review licenses when selecting additional components.
 
 Meson builds freestanding i386/i486 without system headers, host libc, semihosting, multilib, picocrt, thread-local storage or thread locks. Integer/long-long stdio is selected. A NotOS startup and explicit syscall adapter in user/libc provide console output, sbrk, process exit, time, sleep and entropy. The 0.15 adapter connects file hooks to the bounded guest tmpfs/read-only NotFS VFS and per-process input queues; unsupported facilities still fail explicitly. Link-time garbage collection selects only needed upstream functions; float/libm and a full POSIX environment are not claimed. Headers and libc.a are installed under build/sysroot; nothing is installed into the host system. See docs/LIBC.md.
+
+## TCP/IPv4 and DNS
+
+lwIP 2.2.1, Swedish Institute of Computer Science and contributors, BSD-3-Clause; retain lwIP-LICENSE.txt.
+Source: https://codeload.github.com/lwip-tcpip/lwip/tar.gz/refs/tags/STABLE-2_2_1_RELEASE
+SHA256: ce0b7461c0ad9602c376f0bf07c5eb7253b48c7bf66f011c6bf3e2a96731c539
+
+Verified before safe extraction; upstream sources unchanged. Offline: LWIP_ARCHIVE=/path/to/archive.
+Raw NO_SYS=1, IPv4/TCP/DNS/ARP/ICMP, no lwIP sockets/netconn/OS thread layer. Kernel owns sys_now, entropy, NIC link, descriptor references and process blocking. Built with freestanding target headers, not host libc or Linux socket APIs. Limits and tests in docs/SOCKETS.md. Production DNS port 53; the separate fixture library/image selects 53530 so CI needs no privileged UDP bind.

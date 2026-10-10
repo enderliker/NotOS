@@ -23,4 +23,5 @@ u32 space_brk(struct user_space *space,u32 requested);
 /* Anonymous private RW/NX only; no fixed-address or file mappings. */
 u32 space_mmap(struct user_space *space,u32 bytes);
 int space_munmap(struct user_space *space,u32 address,u32 bytes);
+int space_copy_from_user(const struct user_space *,u32 address,void *data,u32 bytes);
 #endif

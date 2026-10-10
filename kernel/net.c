@@ -4,6 +4,7 @@
  */
 #include "base.h"
 #include "net.h"
+#include "socket_stack.h"
 #include "tcp_retry.h"
 #include "tls.h"
 #define RX_RING 8192
@@ -63,12 +64,12 @@ static void net_error(const char *message) {
     console_puts("NET ERROR: ");console_puts(message);console_putc('\n');state=IDLE;retry.active=0;tls_stop();
 }
 static u32 pci_read(unsigned reg) {outl(0xcf8,pci_addr|(reg&0xfc));return inl(0xcfc);}
-static int transmit(unsigned size) {
-    if(size>FRAME_MAX) return 0;
+int net_frame_send(const void *packet,u32 size) {
+    if(!io || size>1514) return 0;
     unsigned slot=tx_slot;
     if(!(inl(io+0x10+slot*4)&0x2000)) return 0;
     unsigned padded=size<60?60:size;
-    copy(tx[slot],frame,size);
+    copy(tx[slot],packet,size);
     for(unsigned i=size;i<padded;i++) tx[slot][i]=0;
     __asm__ volatile("" ::: "memory");
     outl(io+0x20+slot*4,(u32)(unsigned long)tx[slot]);
@@ -76,6 +77,7 @@ static int transmit(unsigned size) {
     tx_slot=(slot+1)%4;
     return 1;
 }
+static int transmit(unsigned size) {return net_frame_send(frame,size);}
 static void ethernet(u16 type,const u8 *dest) {
     copy(frame,dest,6);copy(frame+6,mac,6);set16(frame+12,type);
 }
@@ -141,7 +143,7 @@ static void tcp_send(u8 flags,const char *payload,unsigned size) {
 }
 static void tcp_connect(void) {
     local_tcp++;
-    if(local_tcp<49153) local_tcp=49153;
+    if(local_tcp<49153 || local_tcp>=52000) local_tcp=49153;
     seq=0x10203040+dns_id*1024;ack=0;
     tcp_bytes=header_used=0;status_printed=0;retry.active=0;retransmissions=0;send_floor=seq;
     state=WAIT_SYN;deadline=now+8000;
@@ -337,6 +339,7 @@ void net_init(void) {
     outl(io+0x30,(u32)(unsigned long)rx);outw(io+0x38,0xfff0);
     outl(io+0x44,0x0000078f);outl(io+0x40,0x03000700);
     outb(io+0x37,0x0c);
+    socket_stack_init(mac,local_ip,gateway_ip,dns_ip);
     console_puts("NET: RTL8139 ready; IPv4 ");ip_print(local_ip);console_putc('\n');
 }
 void net_poll(unsigned now_ms) {
@@ -356,7 +359,7 @@ void net_poll(unsigned now_ms) {
         for(unsigned i=0;i<size-4;i++) packet[i]=rx[at+4+i];
         rx_pos=(rx_pos+size+4+3)&~3u;rx_pos%=RX_RING;
         outw(io+0x38,(u16)(rx_pos-16));
-        receive(packet,size-4);
+        if(!socket_stack_input(packet,size-4)) receive(packet,size-4);
     }
     outw(io+0x3e,0xffff);
     if(want_tls && state!=IDLE && (unsigned)(now-tls_started)>=60000u) net_error("TLS total timeout");
@@ -369,6 +372,7 @@ void net_poll(unsigned now_ms) {
         console_puts("TCP: retransmission=");console_int((int)retransmissions);console_putc('\n');
     }
     tls_transport();
+    socket_stack_poll();
 }
 void net_status(void) {
     if(!io) {console_puts("NET: unavailable (use QEMU RTL8139)\n");return;}
@@ -432,7 +436,7 @@ void net_command(const char *kind,const char *host) {
 }
 
 void net_configure(const char *argument) {
-    if(!io || state!=IDLE) {console_puts("NET ERROR: configure requires idle RTL8139\n");return;}
+    if(!io || state!=IDLE || socket_stack_busy()) {console_puts("NET ERROR: configure requires idle RTL8139\n");return;}
     u8 addresses[3][4];
     for(unsigned i=0;i<3;i++) {
         char text[16];unsigned n=0;
@@ -449,6 +453,7 @@ void net_configure(const char *argument) {
         console_puts("NET ERROR: gateway must be another address in local /24\n");return;
     }
     copy(local_ip,addresses[0],4);copy(gateway_ip,addresses[1],4);copy(dns_ip,addresses[2],4);
+    socket_stack_configure(local_ip,gateway_ip,dns_ip);
     gateway_known=0;console_puts("NET: static /24 configuration applied\n");
 }
 void net_drop_once(const char *kind) {

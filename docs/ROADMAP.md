@@ -43,7 +43,7 @@ Se subió en dos avances comprobados: `feat(ring3)` y `feat(aislamiento)`. Las d
 
 Se subió en tres avances comprobados: `feat(tareas)`, `feat(planificador)` y `feat(multitarea)`. Ver [contratos, pruebas y límites](TASKS.md).
 
-## Hitos posteriores — estado en NotOS 0.15
+## Hitos posteriores — estado en NotOS 0.16
 
 - **Completado en QEMU:** gestor con cuatro slots, PID, spawn/ps/kill, ejecución en segundo plano y recolección automática. Integrado: exec de programas fuente NotLang y ELF32 estáticos embebidos; sin carga de ejecutables desde VFS.
 - **Completado básico en QEMU:** ratón PS/2 IRQ12, cursor, toolbar clickable y minimizar/restaurar ventana. No es un escritorio completo.
@@ -70,19 +70,25 @@ Ver [CURL_PORT](CURL_PORT.md) para los gates de ELF, memoria user, libc, sockets
 - Heap por proceso, brk y mmap anónimo bajo demanda, munmap/TLB y rollback OOM.
 - Ejecución y fallos recuperables en ring3, coexistencia con NotLang y cuatro procesos.
 
-Ver ELF.md. El startup/libc inicial de 0.14 está descrito en LIBC.md; no es POSIX completo, sockets BSD ni curl upstream.
+Ver ELF.md. El startup/libc inicial de 0.14 está descrito en LIBC.md; no es POSIX completo ni curl upstream. Los sockets parciales añadidos en 0.16 se describen en SOCKETS.md.
 
 ## Esperas temporizadas de procesos gestionados
 
 TASK_BLOCKED y SYS_SLEEP: guardado del frame, devolución al event loop, despertar relativo, cancelación y recolección.
-Esto prepara el bloqueo de libc/poll, pero no incluye FDs, sockets ni un poll POSIX. Los lotes diagnósticos síncronos rechazan esta espera de forma explícita.
+Esto prepara el bloqueo de libc/poll, pero se amplía después con FDs y sockets; sigue sin un poll POSIX. Los lotes diagnósticos síncronos rechazan esta espera de forma explícita.
 
 ## Libc de usuario — port inicial comprobado
 
 Picolibc upstream estática con sysroot, startup argc/argv/envp, init/fini/atexit, malloc/calloc/realloc/free sobre brk privado, stdio entero, errno por proceso, time_t64 y espera/entropía. Pruebas en ELF ring3, cuatro procesos concurrentes, OOM y recursos restaurados.
 
-FDs/VFS/stdin básicos se añaden en 0.15. El siguiente gate de curl es transporte sockets y después poll/DNS, no renombrar el cliente HTTPS. No hay POSIX completo ni float/libm comprobados. Ver LIBC.md y CURL_PORT.md.
+FDs/VFS/stdin básicos se añaden en 0.15. En 0.16 se añaden TCP sockets y DNS; el siguiente gate de curl es poll/select, no renombrar el cliente HTTPS. No hay POSIX completo ni float/libm comprobados. Ver LIBC.md y CURL_PORT.md.
 
 ## FDs y VFS mínimo — comprobados en 0.15
 
 Tablas por proceso, descripciones compartidas por dup/dup2, tmpfs binario con cuotas, snapshot NotFS read-only, stdio/seek/stat/unlink/truncate y stdin bloqueante enrutado por PID. Rollback de memoria y limpieza por exit/kill/fault; no VFS completo ni escritura POSIX persistente. Ver VFS.md.
+
+## TCP/IPv4 y DNS de usuario — 0.16
+
+lwIP 2.2.1 estático, driver propio, ocho endpoints, descriptores privados/dup, API BSD parcial y connect/send/recv bloqueantes por proceso. DNS A asíncrono, errores/timeouts, cancelación y tokens sin reutilización. Transferencias de 32 KiB, HTTP a tmpfs, cuatro procesos concurrentes, pérdidas y ciclos TIME_WAIT/FD comprobados. No se usa la libc ni sockets del host en el invitado.
+
+Ver SOCKETS.md: sin poll/select, server sockets, IPv6 ni curl. El TLS kernel 1.2/1.3 se conserva; TLS userspace/curl sigue siendo un gate independiente.

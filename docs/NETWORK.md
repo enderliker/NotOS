@@ -67,3 +67,7 @@ net-drop response
 La siguiente solicitud correspondiente pierde ese paquete. El test real por NAT exige HTTP 200 y cantidad exacta de bytes después de cada pérdida, con IP alternativa 10.0.2.16; demuestra retries propios de SYN/GET y recuperación de retransmisiones del peer para RX. No sustituye tests exhaustivos de redes hostiles.
 
 **HTTPS implementado en 0.10:** registros TLS1.2 verificados, X509 y cierre autenticado sobre TCP del invitado. Ver [TLS.md](TLS.md). No hay proxy host ni fallback a plaintext. `net-drop tamper` altera un payload después de verificación TLS para comprobar que AEAD lo rechaza.
+
+## TCP de usuario desde 0.16
+
+Este documento describe el cliente kernel legacy. La pila lwIP y el API BSD parcial de usuario coexisten mediante puertos separados en RTL8139; ver [SOCKETS](SOCKETS.md). No hay un límite global de una sola conexión para usuarios, pero sí cuotas y funciones no soportadas explícitas.

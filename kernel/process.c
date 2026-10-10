@@ -1,5 +1,6 @@
 /* Persistent process slots are owned by the event loop, never by an IRQ. */
 #include "process.h"
+#include "socket_stack.h"
 #include "task.h"
 #include "scheduler.h"
 #include "user_test_abi.h"
@@ -65,6 +66,26 @@ void process_poll(void) {
             if (wait_due(task->wait_started,task->wait_duration,now)) {
                 task->wait_duration=0;task->state=TASK_READY;
             }
+        } else if (task->wait_kind!=TASK_WAIT_INPUT) {
+            int handle=fd_socket_handle(&task->files,task->pending_fd),result;
+            int expired=task->wait_duration && wait_due(task->wait_started,task->wait_duration,now);
+            u8 buffer[NOTOS_IO_LIMIT];u32 bytes=task->pending_bytes;
+            if (bytes>sizeof(buffer)) bytes=sizeof(buffer);
+            if (handle<0) result=handle;
+            else if (expired) {
+                result=task->wait_kind==TASK_WAIT_CONNECT?-ERROR_TIMED_OUT:-ERROR_AGAIN;
+                if (task->wait_kind==TASK_WAIT_CONNECT) socket_connect_timeout(handle);
+            } else if (task->wait_kind==TASK_WAIT_CONNECT) result=socket_connected(handle);
+            else if (task->wait_kind==TASK_WAIT_SEND) {
+                result=space_copy_from_user(&task->space,task->pending_buffer,buffer,bytes)?
+                    socket_write(handle,buffer,bytes):-ERROR_BAD_ADDRESS;
+            } else {
+                result=socket_read(handle,buffer,bytes,task->pending_flags);
+                if (result>0 && !space_copy_to_user(&task->space,task->pending_buffer,buffer,(u32)result)) result=-ERROR_BAD_ADDRESS;
+            }
+            if (!expired && (result==-ERROR_AGAIN || result==-ERROR_IN_PROGRESS)) continue;
+            task->context->eax=(u32)result;task->state=TASK_READY;
+            task->pending_buffer=task->pending_bytes=task->pending_flags=0;
         } else {
             u8 buffer[NOTOS_INPUT_BYTES];
             u32 bytes=task->pending_bytes;
@@ -96,6 +117,7 @@ void process_command(const char *command, const char *argument) {
             if (slots[i].task.state==TASK_BLOCKED) {
                 console_puts("PROCESS WAIT: pid=");console_uint(slots[i].task.id);
                 if (slots[i].task.wait_kind==TASK_WAIT_INPUT) console_puts(" stdin=1");
+                else if (slots[i].task.wait_kind!=TASK_WAIT_TIMER) console_puts(" socket=1");
                 else {console_puts(" timeout_ms=");console_uint(slots[i].task.wait_duration);}console_putc('\n');
             }
         }

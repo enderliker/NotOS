@@ -92,3 +92,7 @@ python3 tests/vfs.py
 - Tras cada escenario limpio, frames/heap/descripciones/nodos vuelven al estado exacto inicial.
 
 No se ha probado hardware físico ni CI remota desde este entorno. Las cuotas hacen que este VFS sirva para salidas pequeñas; un bundle completo de CAs o descargas grandes necesitará ampliar el almacenamiento o un backend distinto en futuros hitos.
+
+## Descriptores de socket en 0.16
+
+FILE_SOCKET comparte referencias/flags NONBLOCK mediante dup igual que otras descripciones. El último close libera el endpoint; stat informa S_IFSOCK y seek/truncate se rechazan. Exit/kill/fault también cancela registros DNS del propietario. Ver SOCKETS.md para cuotas, bloqueo y límites; no añade poll ni archivos de disco escribibles.
