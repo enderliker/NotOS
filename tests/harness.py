@@ -1,6 +1,7 @@
 """Boot the actual disk image and interact with the emulated hardware."""
 import os
 import json
+import re
 from pathlib import Path
 import selectors
 import socket
@@ -8,11 +9,17 @@ import subprocess
 import tempfile
 import time
 
+def validate_logname(name):
+    """Keep generated basenames compatible with upload-artifact and downloads."""
+    if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', name):
+        raise ValueError('logname must contain only ASCII letters, digits, dot, underscore or hyphen')
+    return name
+
 class Machine:
     def __init__(self, network=False, logname="smoke", memory="32M", data_disk=None, entropy=True, rtc=None, image="build/notos.img", cpu="max", ready="notos> "):
+        self.logname = validate_logname(logname)
         self.tmp = tempfile.TemporaryDirectory(prefix='notos-')
         self.output = bytearray()
-        self.logname = logname
         self.sel = selectors.DefaultSelector()
         self.sock = None
         monitor = self.tmp.name + '/monitor'

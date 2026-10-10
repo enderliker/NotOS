@@ -82,6 +82,7 @@ build/utc-unit: tests/utc_unit.c kernel/utc.c kernel/platform_tls.h | build
 build/certificate-unit: tests/certificate_unit.c kernel/certificate_policy.c kernel/certificate_policy.h build/tls-fixtures.ready | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/certificate_unit.c kernel/certificate_policy.c -o $@
 test: build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+	python3 tests/lognames_unit.py
 	./build/vfs-unit
 	./build/wait-unit
 	./build/elf-unit

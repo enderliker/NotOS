@@ -6,6 +6,11 @@ from pathlib import Path
 from harness import Machine
 from socket_fixture import Server,DNS
 
+UNAVAILABLE_CASES = (
+    ('sockets-no-nic', {'network': False}),
+    ('sockets-no-entropy', {'network': True, 'entropy': False}),
+)
+
 def snapshot(m):
     frames=re.search(rb'free_frames=(\d+)',m.command('mem','\nnotos> '))[1]
     heap=re.search(rb'HEAP: [^\n]+\n',m.command('heap','\nnotos> '))[0]
@@ -73,8 +78,8 @@ with DNS() as dns,Server('echo') as server,Machine(network=True,image='build/not
     run(m,'dns',server.port);time.sleep(.7);assert snapshot(m)==baseline
     assert {'echo.socket.test','missing.socket.test','slow.socket.test'}<=set(dns.names),dns.names
 print('sockets: DNS A/NXDOMAIN/cancel/stale callback PASS')
-for options in ({'network':False},{'network':True,'entropy':False}):
-    with Machine(logname='sockets-unavailable-'+str(options),**options) as m:
+for logname,options in UNAVAILABLE_CASES:
+    with Machine(logname=logname,**options) as m:
         baseline=snapshot(m);run(m,'unavailable',1);assert snapshot(m)==baseline
 assert 'build/sysroot/lib/notos/libc.a' in Path('build/socket-demo.map').read_text()
 print('sockets: no NIC/no entropy/upstream static libc PASS')
