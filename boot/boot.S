@@ -24,6 +24,8 @@ _start:
     mov $0x42, %ah
     int $0x13
     jc disk_error
+    mov $0x0013, %ax
+    int $0x10
     cli
     in $0x92, %al
     or $2, %al

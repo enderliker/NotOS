@@ -6,9 +6,11 @@ Sistema operativo educativo escrito desde cero para x86 de 32 bits. No usa Linux
 
 - Cargador BIOS propio, imagen de disco cruda y entrada a modo protegido.
 - Kernel freestanding en C y ensamblador, con inicialización de BSS y pila.
-- Salida de texto por VGA y puerto serie COM1.
+- Escritorio VGA de 320×200 con ventana de terminal y fuente bitmap propia.
+- Entrada por teclado PS/2 y consola serie COM1; comandos `help`, `about`, `clear` y `echo`.
+- `F1` muestra ayuda y `F2` limpia la terminal.
 
-Todavía no hay interfaz gráfica, red ni lenguaje. Se implementarán por hitos separados, con pruebas antes de cada commit. No es un sistema listo para uso diario.
+Todavía no hay red ni lenguaje. Se implementarán por hitos separados, con pruebas antes de cada commit. La interfaz inicial se controla por teclado: no tiene ratón ni aplicaciones de escritorio. No es un sistema listo para uso diario.
 
 ## Construir y probar
 
@@ -20,7 +22,7 @@ make test
 make run
 ```
 
-El test arranca realmente la imagen en QEMU y verifica los mensajes del kernel por el puerto serie. `build/smoke.log` conserva la salida. QEMU usa emulación por software, sin necesitar KVM.
+El test arranca realmente la imagen en QEMU, captura su salida VGA, envía teclas al dispositivo PS/2 y verifica comandos por el puerto serie. `build/smoke.log` conserva la salida. QEMU usa emulación por software, sin necesitar KVM.
 
 ## Diseño inicial
 
