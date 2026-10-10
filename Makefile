@@ -1,6 +1,6 @@
 CC := gcc
 LD := ld
-CFLAGS := -m32 -march=i386 -mno-sse -mno-sse2 -mno-mmx -msoft-float -std=c11 -Os -ffreestanding -fno-pie -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Werror
+CFLAGS := -m32 -march=i486 -mno-sse -mno-sse2 -mno-mmx -msoft-float -std=c11 -Os -ffreestanding -fno-pie -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Werror
 .PHONY: all clean run test test-online
 all: build/notos.img
 build:
@@ -41,6 +41,7 @@ test: all build/lang-unit build/net-unit build/clock-unit build/physical-unit
 	python3 tests/exceptions.py
 	python3 tests/interrupts.py
 	python3 tests/physical.py
+	python3 tests/paging.py
 	python3 tests/network.py
 test-online: all
 	python3 tests/online.py

@@ -101,3 +101,16 @@ El kernel 0.5 ocupa 19258 bytes de código/datos; conserva el límite comprobado
 - Gráficos, NotLang, excepciones, IRQ, teclado y HTTP por NAT siguen pasando.
 
 La prueba real de arranque detectó que E820 modifica DL; se restauró la unidad BIOS antes de INT 13h y se repitió la suite antes del commit. Los resultados nuevos quedan en `build/physical-*.log`.
+
+## Fase 3, paginación y protección
+
+`make test` y `make test-online` — PASS en QEMU 9.2.4:
+
+- CR0.PG/WP leídos del estado real de CPU. Código/rodata de solo lectura.
+- Aliases virtuales altos, traducción de offset, remapping y eliminación con invalidación TLB. Tres ejecuciones restauran los frames físicos.
+- #PF reales: null/error 0/CR2 0; write-protect/error 3/CR2 0x10000; guard/error 0/CR2 0xd0000000; unmap/error 0/CR2 0xd03ff000.
+- Panic muestra el diagnóstico y la CPU llega a HLT sin triple fault.
+- Las cuatro configuraciones de RAM, gráficos, NotLang, IRQ, teclado y HTTP local siguen pasando con la MMU activa.
+- DNS externo y HTTP 200 OK/891 bytes siguen pasando con paginación activa.
+
+Capturas `build/pagefault-*.ppm` y logs `build/pagefault-*.log`, `build/paging.log`. Se separaron segmentos ELF de código/datos y se alineó la región de solo lectura. El objetivo de instrucciones pasó a i486 por WP/INVLPG; no se declara soporte probado para hardware real.

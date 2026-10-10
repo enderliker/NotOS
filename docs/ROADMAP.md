@@ -22,7 +22,8 @@ Se subió en dos avances comprobados: `feat(excepciones)` y `feat(interrupciones
 ## Fase 3: memoria (en curso)
 
 - **Completado:** BIOS E820, reserva de memoria y asignador de frames de 4 KiB. Cargador ampliado a 64 KiB y segunda lectura comprobada.
-- **Pendiente:** paginación y heap dinámico.
+- **Completado:** paginación, CR0.WP, mappings/TLB y pruebas de fallos de página reales.
+- **Pendiente:** heap dinámico.
 
 El aislamiento completo y la ejecución en ring 3 requieren pasos adicionales; todavía no están implementados.
 

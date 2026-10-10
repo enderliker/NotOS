@@ -6,6 +6,7 @@
 #include "pic.h"
 #include "keyboard.h"
 #include "physical.h"
+#include "paging.h"
 static char line[160];
 static unsigned used;
 static int dropped;
@@ -42,7 +43,7 @@ static void clock_command(const char *kind,const char *argument) {
     console_puts(" ms ticks=");console_uint(after_ticks-ticks);console_putc('\n');
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test\nfault divide/opcode/gp (HALTS)\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nfault divide/opcode/gp/null/readonly/guard/unmapped (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
@@ -84,6 +85,12 @@ static void command(const char *s) {
     else if(starts(s,"busy ")) clock_command("busy",s+5);
     else if(equal(s,"mem")) physical_status();
     else if(equal(s,"frame-test")) console_puts(physical_selftest()?"MEM: frame selftest PASS\n":"ERROR: frame selftest failed\n");
+    else if(equal(s,"vm")) paging_status();
+    else if(equal(s,"vm-test")) console_puts(paging_selftest()?"VM: map/alias/remap/unmap selftest PASS\n":"ERROR: VM selftest failed\n");
+    else if(equal(s,"fault null")) paging_fault_null();
+    else if(equal(s,"fault readonly")) paging_fault_readonly();
+    else if(equal(s,"fault guard")) paging_fault_guard();
+    else if(equal(s,"fault unmapped")) paging_fault_unmapped();
     else if(*s) console_puts("ERROR: unknown command\n");
 }
 static void input(char c) {
@@ -146,18 +153,23 @@ void kernel_main(void) {
         console_puts("MEM ERROR: invalid E820 or no usable RAM\n");
         for(;;) __asm__ volatile("cli; hlt");
     }
+    if(!paging_init()) {
+        console_puts("VM ERROR: failed to enable paging\n");
+        for(;;) __asm__ volatile("cli; hlt");
+    }
     pic_init();
     clock_init();
     int keyboard_ready=keyboard_init();
     pic_unmask(0);pic_unmask(2);
     if(keyboard_ready) pic_unmask(1);
     __asm__ volatile("sti" ::: "memory");
-    console_puts("NotOS 0.6-frames\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
+    console_puts("NotOS 0.6-paging\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
     console_puts("IDT: 256 gates installed\n");
     console_puts("IRQ: PIC remapped; PIT ~1000 Hz\n");
     console_puts(keyboard_ready?"KEYBOARD: IRQ1 ready\n":"KEYBOARD: unavailable; use serial\n");
     console_puts("BOOT: 64 KiB loader verified\n");
     physical_status();
+    paging_status();
     net_init();
     console_puts("notos> ");
     for(;;) {

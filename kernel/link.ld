@@ -1,15 +1,19 @@
 ENTRY(_start)
+PHDRS { code PT_LOAD FLAGS(5); data PT_LOAD FLAGS(6); }
 SECTIONS {
     . = 0x10000;
-    .text : { *(.text.entry) *(.text*) }
-    .rodata : { *(.rodata*) }
-    .data : { *(.data*) }
+    __readonly_start = .;
+    .text : { *(.text.entry) *(.text*) } :code
+    .rodata : { *(.rodata*) } :code
+    . = ALIGN(4096);
+    __readonly_end = .;
+    .data : { *(.data*) } :data
     __kernel_payload_end = .;
     ASSERT(__kernel_payload_end <= 0x1fffc, "Kernel exceeds 64 KiB loader capacity")
-    .loader_check 0x1fffc : { LONG(0x4e4f544f) }
+    .loader_check 0x1fffc : { LONG(0x4e4f544f) } :data
     __bss_start = .;
-    .bss : { *(.bss*) *(COMMON) }
+    .bss (NOLOAD) : { *(.bss*) *(COMMON) } :data
     __bss_end = .;
-    ASSERT(__bss_end < 0x80000, "Kernel overlaps stack")
+    ASSERT(__bss_end < 0x80000, "Kernel overlaps stack guard")
     /DISCARD/ : { *(.eh_frame*) *(.comment*) *(.note*) }
 }

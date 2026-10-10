@@ -13,10 +13,13 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Excepciones | IDT propia de 256 entradas, frame x86 y pantalla de panic | INT3 recuperable y fallos reales #DE, #UD y #GP |
 | Interrupciones | PIC 8259, PIT por IRQ0 y teclado por IRQ1 | HLT, reloj durante trabajo en primer plano y cola PS/2 |
 | Memoria física | Mapa BIOS E820 y frames de 4 KiB con bitmap | Agotamiento/liberación en QEMU con 16/32/64/128 MiB |
+| Paginación | CR0.PG/WP, código de solo lectura y ventana virtual | Aliases, TLB y fallos #PF reales con CR2 |
 
 Cada avance se sube en un commit `feat(alcance) mensaje` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
 
 ## Construir, probar y arrancar
+
+Objetivo de CPU: x86 de 32 bits con WP/INVLPG (486 o posterior), probado solo en QEMU.
 
 Requisitos del host: GNU Make, GCC capaz de generar código `-m32` (el kernel no necesita libc de 32 bits), GNU binutils, Python 3 y `qemu-system-i386`. En Ubuntu/Debian:
 
@@ -64,7 +67,7 @@ El kernel funciona en ring 0 con memoria física. El PIC está remapeado, el PIT
 ## Límites importantes
 
 - Solo PC BIOS/x86 y hardware emulado especificado; no UEFI ni soporte comprobado en equipos reales.
-- Sin paginación, procesos, aislamiento, sistema de archivos persistente, instalador o multitarea.
+- Paginación supervisor activa, pero sin procesos, aislamiento, sistema de archivos persistente, instalador o multitarea. El heap dinámico aún está pendiente.
 - Las excepciones fatales muestran diagnóstico y detienen el sistema; no hay recuperación de fallos de aplicaciones ni pila independiente para double fault. Las IRQ de timer y teclado están activas, pero no hay APIC, SMP ni un planificador.
 - Interfaz gráfica mínima, sin ratón, navegador ni gestor completo de ventanas.
 - NotLang es un intérprete pequeño, sin bucles, funciones ni acceso a archivos.
