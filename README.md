@@ -11,6 +11,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Lenguaje | NotLang: `let`, `print`, variables y aritmética entera | Pruebas nativas y programas dentro del kernel |
 | Red | Driver RTL8139, ARP, IPv4, UDP/DNS y TCP/HTTP | Servidor de prueba por NAT y DNS/HTTP de internet |
 | Excepciones | IDT propia de 256 entradas, frame x86 y pantalla de panic | INT3 recuperable y fallos reales #DE, #UD y #GP |
+| Interrupciones | PIC 8259, PIT por IRQ0 y teclado por IRQ1 | HLT, reloj durante trabajo en primer plano y cola PS/2 |
 
 Cada avance se sube en un commit `feat(alcance) mensaje` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
 
@@ -44,6 +45,11 @@ net
 dns example.com
 http example.com
 http 10.0.2.2:8080
+uptime
+sleep 200
+busy 250
+irqs
+int3
 ```
 
 `F1` muestra ayuda y `F2` limpia la terminal. Se controla por teclado PS/2 o por COM1. La fuente inicial representa las minúsculas como mayúsculas; el intérprete conserva la entrada original. La red responde de forma asíncrona en la terminal.
@@ -52,13 +58,13 @@ http 10.0.2.2:8080
 
 BIOS carga nuestro sector de 512 bytes. El cargador lee 64 sectores en `0x10000`, activa A20, configura una GDT, selecciona VGA modo 13h y entra a modo protegido. La entrada del kernel configura una pila en `0x90000` y limpia BSS antes de llamar a C. El código/datos de la imagen no pueden superar 32 KiB; el generador verifica este límite.
 
-El kernel funciona en ring 0, con memoria física y dispositivos sondeados. La red tiene buffers DMA estáticos y usa la tarjeta RTL8139 emulada y la NAT de QEMU para salir del equipo. El invitado genera y procesa sus propios paquetes; no llama a sockets de un sistema operativo base.
+El kernel funciona en ring 0 con memoria física. El PIC está remapeado, el PIT actualiza el reloj por IRQ0 y el teclado encola scancodes por IRQ1; la shell los procesa fuera del handler. La consola serie y la red siguen sondeadas. La red tiene buffers DMA estáticos y usa la tarjeta RTL8139 emulada y la NAT de QEMU para salir del equipo. El invitado genera y procesa sus propios paquetes; no llama a sockets de un sistema operativo base.
 
 ## Límites importantes
 
 - Solo PC BIOS/x86 y hardware emulado especificado; no UEFI ni soporte comprobado en equipos reales.
 - Sin paginación, procesos, aislamiento, sistema de archivos persistente, instalador o multitarea.
-- Las excepciones fatales muestran diagnóstico y detienen el sistema; no hay recuperación de fallos de aplicaciones ni pila independiente para double fault. Interrupciones de hardware aún desactivadas en este hito.
+- Las excepciones fatales muestran diagnóstico y detienen el sistema; no hay recuperación de fallos de aplicaciones ni pila independiente para double fault. Las IRQ de timer y teclado están activas, pero no hay APIC, SMP ni un planificador.
 - Interfaz gráfica mínima, sin ratón, navegador ni gestor completo de ventanas.
 - NotLang es un intérprete pequeño, sin bucles, funciones ni acceso a archivos.
 - Red con IP estática para QEMU, una solicitud a la vez, IPv4 y HTTP sin cifrar. Sin DHCP, IPv6, TLS/HTTPS, retransmisión TCP propia ni reensamblado de fragmentos IP. El cliente muestra el estado HTTP y la cantidad de bytes, no renderiza páginas web.

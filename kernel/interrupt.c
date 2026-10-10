@@ -1,10 +1,14 @@
 #include "base.h"
 #include "interrupt.h"
+#include "pic.h"
+#include "clock.h"
+#include "keyboard.h"
 struct idt_gate {u16 low,selector;u8 zero,flags;u16 high;} __attribute__((packed));
 struct idt_pointer {u16 limit;u32 base;} __attribute__((packed));
 static struct idt_gate idt[256] __attribute__((aligned(16)));
 extern void (*const isr_table[256])(void);
 static volatile unsigned breakpoints;
+static volatile unsigned irq_counts[16],spurious7,spurious15,stray;
 static volatile unsigned panic_active;
 _Static_assert(sizeof(struct idt_gate)==8,"IDT gate size");
 _Static_assert(sizeof(struct idt_pointer)==6,"IDTR size");
@@ -57,7 +61,23 @@ void interrupts_init(void) {
     __asm__ volatile("lidt %0" :: "m"(pointer) : "memory");
 }
 unsigned interrupts_breakpoints(void) {return breakpoints;}
+unsigned interrupts_irq_count(unsigned irq) {return irq<16?irq_counts[irq]:0;}
+unsigned interrupts_spurious_count(unsigned irq) {return irq==7?spurious7:irq==15?spurious15:0;}
+unsigned interrupts_stray_count(void) {return stray;}
 void interrupt_dispatch(struct interrupt_frame *frame) {
     if(frame->vector==3) {breakpoints++;return;}
+    if(frame->vector>=32 && frame->vector<48) {
+        unsigned irq=frame->vector-32;
+        if(pic_spurious(irq)) {
+            if(irq==7) spurious7++;else spurious15++;
+            return;
+        }
+        irq_counts[irq]++;
+        if(irq==0) clock_irq();
+        else if(irq==1) keyboard_irq();
+        else {stray++;pic_mask(irq);}
+        pic_eoi(irq);
+        return;
+    }
     panic(frame);
 }

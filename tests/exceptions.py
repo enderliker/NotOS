@@ -8,7 +8,7 @@ with Machine(logname='idt') as m:
     for _ in range(3):
         m.command('int3','IDT: breakpoint OK; registers and flags preserved\nnotos> ')
     m.command('echo after-int3','\nafter-int3\nnotos> ')
-    print('PASS: IDT and repeated INT3; general registers/CF/DF restored by IRET')
+    print('PASS: IDT and repeated INT3; general registers/CF/DF/IF restored by IRET')
 for command,vector,name,error in [
     ('fault divide',0,'Divide Error','00000000'),
     ('fault opcode',6,'Invalid Opcode','00000000'),

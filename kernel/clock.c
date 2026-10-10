@@ -1,20 +1,21 @@
 #include "base.h"
 #include "clock.h"
-static u16 previous;
-static unsigned fraction,elapsed;
-static u16 counter(void) {
-    outb(0x43,0);
-    u8 low=inb(0x40),high=inb(0x40);
-    return (u16)(low|((u16)high<<8));
-}
+#include "clock_math.h"
+static struct clock_state state;
 void clock_init(void) {
-    outb(0x43,0x34);outb(0x40,0);outb(0x40,0);
-    previous=counter();
+    state.elapsed=state.ticks=state.fraction=0;
+    outb(0x43,0x34);outb(0x40,(u8)PIT_DIVISOR);outb(0x40,(u8)(PIT_DIVISOR>>8));
 }
-unsigned clock_ms(void) {
-    /* Call more often than one PIT wrap (~55 ms); this is a polling prototype. */
-    u16 current=counter();
-    fraction+=(u16)(previous-current);previous=current;
-    elapsed+=fraction/1193;fraction%=1193;
-    return elapsed;
+void clock_irq(void) {clock_advance(&state);}
+unsigned clock_ms(void) {return state.elapsed;}
+unsigned clock_ticks(void) {return state.ticks;}
+int clock_sleep(unsigned ms) {
+    if(!irq_enabled()) return 0;
+    unsigned begin=clock_ms();
+    for(;;) {
+        /* No lost-wakeup window: check with IF=0, then atomic STI/HLT pair. */
+        u32 flags=irq_save();
+        if((unsigned)(clock_ms()-begin)>=ms) {irq_restore(flags);return 1;}
+        __asm__ volatile("sti; hlt" ::: "memory");
+    }
 }

@@ -58,7 +58,7 @@ HTTP: HTTP/1.1 200 OK
 HTTP: received 891 bytes
 ```
 
-Los logs completos quedan en `build/smoke.log`, `build/network.log` y `build/online.log`. No se ha probado HTTPS ni hardware real. El kernel final ocupa 11416 bytes de código/datos en una imagen de disco de 1 MiB.
+Los logs completos quedan en `build/smoke.log`, `build/network.log` y `build/online.log`. No se ha probado HTTPS ni hardware real. El kernel de la versión 0.4 ocupaba 11416 bytes de código/datos en una imagen de disco de 1 MiB.
 
 ## Fase 2, avance de IDT/excepciones
 
@@ -71,3 +71,20 @@ Los logs completos quedan en `build/smoke.log`, `build/network.log` y `build/onl
 - CPU detenida con HLT, QEMU vivo y comandos posteriores sin ejecutarse; no hay reinicio por triple fault.
 
 Capturas: `build/panic-0.ppm`, `build/panic-6.ppm`, `build/panic-13.ppm`. Logs: `build/idt.log`, `build/panic-*.log`. Las excepciones no provocadas por estos tests no se declaran comprobadas.
+
+## Fase 2, IRQ/PIT/teclado y validación final
+
+`make clean test` y `make test-online` — PASS en QEMU 9.2.4.
+
+- IRQ0 reales y reloj monotónico con IF activo.
+- Espera HLT repetida y trabajo en primer plano de 250/1000 ms sin depender del sondeo del PIT.
+- INT3 conserva también IF con las interrupciones activas.
+- Prueba de las rutas espurias IRQ7/15 mediante entradas software con ISR del PIC vacío; no se afirma haber provocado IRQ espurias físicas. El timer continúa funcionando después.
+- Orden `echo queued` escrita por PS/2 durante `busy 1000`: la IRQ la encola y la shell la ejecuta al terminar. Contador IRQ1 aumenta; sin descartes en este test.
+- Shift y signos comprobados con `echo A!`.
+- Duraciones inválidas y demasiado grandes rechazadas.
+- Aritmética de fracciones del reloj durante 1000000 ticks y rollover de 32 bits comprobados nativamente con la misma función utilizada por IRQ0. No es una prueba real de semanas de funcionamiento.
+- Gráficos, errores de NotLang, excepciones fatales y tres conexiones HTTP por NAT siguen pasando.
+- Consulta DNS externa y `HTTP/1.1 200 OK` de `example.com` con 891 bytes recibidos, con IRQ activas.
+
+El kernel 0.5 ocupa 19258 bytes de código/datos; conserva el límite comprobado de 32 KiB del cargador. Los nuevos resultados están en `build/interrupts.log`; las capturas y logs de excepciones se mantienen. CI remota y hardware real no se han verificado aquí.

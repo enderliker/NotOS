@@ -9,12 +9,22 @@ Cada hito se sube después de probar la imagen real con QEMU. Formato de commit:
 3. **Lenguaje:** intérprete NotLang con variables enteras, expresiones y errores comprobados.
 4. **Red:** RTL8139 y pila propia; DNS y petición HTTP pública comprobados. No incluye TLS.
 
-## Fase 2: interrupciones (en curso)
+## Fase 2: interrupciones — completada en QEMU
 
-- **Completado:** IDT, stubs x86, INT3 recuperable y diagnóstico para excepciones fatales.
-- **Pendiente:** PIC, IRQ de hardware y temporizador por interrupciones.
+1. IDT, stubs x86, INT3 recuperable y diagnóstico de excepciones fatales.
+2. PIC 8259 remapeado, EOI y tratamiento de IRQ7/15 espurias.
+3. PIT por IRQ0, reloj con fracciones y espera HLT, sin depender del sondeo del bucle principal.
+4. Teclado por IRQ1, cola y procesamiento diferido fuera de los handlers.
+5. Pruebas de CPU, temporizador, teclado y regresión de gráficos/NotLang/red.
+
+Se subió en dos avances comprobados: `feat(excepciones)` y `feat(interrupciones)`. Ver [alcance y limitaciones](INTERRUPTS.md).
+
+## Fase 3 prevista: memoria
+
+Paginación y asignación de memoria son el siguiente objetivo. El aislamiento completo y la ejecución en ring 3 requerirán pasos adicionales; todavía no están implementados.
 
 ## Próximos hitos, aún no implementados
+
 - Memoria paginada, asignación dinámica y aislamiento.
 - Ratón y UI interactiva más allá de la terminal.
 - Almacenamiento persistente y archivos de programas.

@@ -9,12 +9,20 @@ static inline void outw(u16 p, u16 v) { __asm__ volatile("outw %0,%1" :: "a"(v),
 static inline u16 inw(u16 p) { u16 v; __asm__ volatile("inw %1,%0" : "=a"(v) : "Nd"(p)); return v; }
 static inline void outl(u16 p, u32 v) { __asm__ volatile("outl %0,%1" :: "a"(v), "Nd"(p)); }
 static inline u32 inl(u16 p) { u32 v; __asm__ volatile("inl %1,%0" : "=a"(v) : "Nd"(p)); return v; }
+static inline u32 irq_save(void) {
+    u32 flags;__asm__ volatile("pushfl; popl %0; cli" : "=r"(flags) :: "memory");return flags;
+}
+static inline void irq_restore(u32 flags) {__asm__ volatile("pushl %0; popfl" :: "r"(flags) : "memory","cc");}
+static inline int irq_enabled(void) {
+    u32 flags;__asm__ volatile("pushfl; popl %0" : "=r"(flags));return (flags&0x200)!=0;
+}
 static inline unsigned length(const char *s) { unsigned n=0; while(s[n]) n++; return n; }
 static inline int equal(const char *a,const char *b) { while(*a && *a==*b) { a++; b++; } return *a==*b; }
 static inline int starts(const char *s,const char *prefix) { while(*prefix) if(*s++!=*prefix++) return 0; return 1; }
 void console_putc(char c);
 void console_puts(const char *s);
 void console_int(int value);
+void console_uint(u32 value);
 void gui_init(void);
 void gui_clear(void);
 void gui_putc(char c);

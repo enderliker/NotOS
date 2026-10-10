@@ -1314,6 +1314,7 @@ interrupt_selftest:
     push %esi
     push %edi
     push %ebp
+    pushfl
     mov $0x12345678, %eax
     mov $0x22334455, %ecx
     mov $0x33445566, %edx
@@ -1344,12 +1345,16 @@ interrupt_selftest:
     and $0x401, %eax
     cmp $0x401, %eax
     jne selftest_failed
+    mov (%esp), %eax
+    xor 4(%esp), %eax
+    test $0x200, %eax
+    jne selftest_failed
     mov $1, %eax
     jmp selftest_done
 selftest_failed:
     xor %eax, %eax
 selftest_done:
-    add $4, %esp
+    add $8, %esp
     pop %ebp
     pop %edi
     pop %esi
