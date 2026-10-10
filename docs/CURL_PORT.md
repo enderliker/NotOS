@@ -9,7 +9,7 @@ La arquitectura sigue siendo x86 de 32 bits: INT 0x80 es la entrada de syscall a
 - IRQ0, reloj, procesos básicos, cambio de contexto y SYS_SLEEP bloqueante para procesos gestionados; todavía sin bloqueo de sockets.
 - RTL8139, ARP, IPv4, DNS UDP y un transporte TCP educativo de una conexión. No es API BSD sockets.
 - TLS1.2/1.3, CA/RTC/DRBG, SNI/SAN/EKU/firmas y pruebas negativas dentro del invitado.
-- NotFS propio persistente. No es un VFS POSIX.
+- NotFS propio persistente; montaje read-only `/disk` y tmpfs `/tmp`. FDs privados, stdio binario, dup/seek y stdin bloqueante en ring3. Ver VFS.md; no es POSIX completo.
 
 ## Base ELF y VM implementada
 
@@ -19,7 +19,7 @@ Picolibc 1.8.11 ya ejecuta malloc/free, stdio entero, strings, errno privado, ti
 ## Pendiente (no declarar curl disponible antes de los gates finales)
 
 1. Extender runtime/argumentos según lo que requiera curl y cargar ejecutables desde VFS. Sin TLS de threads; solo proceso single-thread por ahora.
-2. FDs por proceso, VFS RAM/NotFS y stdin funcional; conectar open/read/write/close y salida `-o` a archivos. Los hooks no soportados de libc fallan explícitamente.
+2. La base FDs/tmpfs/stdin ya está comprobada. Para el port final de curl, completar los hooks adicionales que necesite, validar sus rutas/config y ampliar cuotas para descargas/CA bundle si corresponde. `/disk` es read-only; no hay escritura POSIX persistente.
 3. Transporte TCP general y API sockets, connect/send/recv/options, fcntl y getaddrinfo DNS; no basta la conexión educativa del kernel.
 4. Extender TASK_BLOCKED/SYS_SLEEP a eventos de sockets/FDs y poll/select, además de timeouts ya comprobados.
 5. Completar los hooks y funciones de libc adicionales que demande la compilación de curl; el port inicial no prueba toda la biblioteca upstream ni float/libm.

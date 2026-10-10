@@ -29,3 +29,7 @@ INT 0x80, EAX=9 / SYS_SLEEP, EBX=0..60000 ms. Cero equivale a yield; longitud in
 **Alcance:** bloqueos por tiempo para procesos persistentes ejecutados mediante scheduler_pulse. Los lotes síncronos de diagnóstico no tienen event loop para despertar y devuelven -EOPNOTSUPP para esperas positivas; se prueba ese rechazo. No hay todavía poll/select de FDs, espera de sockets, señales/EINTR ni garantías de latencia mientras el kernel procesa un comando largo. No se declara completado el planificador POSIX de curl.
 
 Los retornos administrados aplican la misma sanitización de EFLAGS que los cambios de contexto de lotes (NT/IOPL/VM limpiados, IF activado). La demo de espera intenta conservar NT y comprueba su rechazo al reanudarse; las pruebas de registros/DF anteriores se conservan.
+
+## Entrada de procesos en 0.15
+
+TASK_WAIT_INPUT conserva una syscall read hasta datos o EOF en la cola de esa tarea; no usa el deadline de SYS_SLEEP. `feed PID TEXT` y `feed-eof PID` enrutan explícitamente la entrada sin robar teclas a shell u otros procesos. Kill cierra los FDs, libera inodes huérfanos y reinicia cola/espera antes de reutilizar el slot. Ver VFS.md para límites y política NONBLOCK. No es poll/select ni job control.

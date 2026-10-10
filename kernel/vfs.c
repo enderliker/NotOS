@@ -66,9 +66,17 @@ no_memory:
     return -ERROR_MEMORY;
 }
 static u32 disk_inode(const char *name) {
-    u32 inode=2166136261u;
-    for (const char *s=name;*s;s++) inode=(inode^(u8)*s)*16777619u;
-    return inode;
+    return 7u+(u32)fs_file_inode(name);
+}
+/* Picolibc's i386 ino_t is 16-bit. Keep IDs distinct across live nodes and devices. */
+static u32 allocate_inode(void) {
+    for (u32 attempt=0;attempt<=VFS_NODE_COUNT;attempt++) {
+        if (next_inode>65535u) next_inode=16;
+        u32 candidate=next_inode++;int busy=0;
+        for (u32 i=0;i<VFS_NODE_COUNT;i++) if (nodes[i].used && nodes[i].inode==candidate) busy=1;
+        if (!busy) return candidate;
+    }
+    return 0;
 }
 void vfs_node_info(const struct vfs_node *node,struct notos_file_info *result) {
     *result=(struct notos_file_info){node->inode,node->size,NOTOS_FILE_REGULAR,node->linked,node->permissions};
@@ -92,11 +100,12 @@ int vfs_open(const char *path,u32 flags,u32 mode,struct vfs_node **result) {
         if (!disk && counts.files==VFS_FILE_COUNT) return -ERROR_NO_SPACE;
         for (u32 i=0;i<VFS_NODE_COUNT;i++) if (!nodes[i].used) {node=&nodes[i];break;}
         if (!node) return -ERROR_NO_SPACE;
-        *node=(struct vfs_node){.used=1,.disk=(u32)disk,.linked=1,.inode=next_inode++,
+        u32 inode=disk?disk_inode(name):allocate_inode();
+        if (!inode) return -ERROR_NO_SPACE;
+        *node=(struct vfs_node){.used=1,.disk=(u32)disk,.linked=1,.inode=inode,
             .permissions=disk?0444u:mode&0777u};
         copy(node->name,name,length(name)+1);
         if (disk) {
-            node->inode=disk_inode(name);
             int size=fs_file_size(name);
             error=reserve(node,(u32)size);
             if (!error && size && fs_read_file(name,page_bytes(node->pages[0]),4096)!=size) error=-ERROR_IO;

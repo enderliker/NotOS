@@ -52,10 +52,10 @@ EAX número/resultado; EBX, ECX y EDX argumentos. Se preservan los números ante
 
 SYS_TIME escribe una estructura wire de 12 bytes: segundos low/high de 32 bits y nanosegundos de 32 bits. No expone padding ni tipos nativos del kernel. En este target Picolibc, `timespec`/`timeval` tienen esa misma disposición, protegida por static assertions. El adaptador traduce también identificadores de reloj. El kernel valida todo el rango y permisos antes de leer/escribir un puntero de usuario.
 
-## Límites explícitos y curl
+## Límites explícitos y curl (actualizado en 0.15)
 
-- No hay tabla general de FDs ni VFS POSIX. `open`, `stat`, `fstat`, `unlink` y cierre de consola devuelven ENOSYS; por ello `fopen` falla. NotFS aún no está conectado a libc.
-- Lectura no vacía de stdin devuelve ENOSYS; `fgetc` devuelve EOF **con indicador de error**, no un EOF exitoso ficticio. stdout/stderr comparten la consola; no hay redirección ni terminal por proceso.
+- Desde 0.15 hay FDs por proceso, archivos tmpfs, snapshots NotFS read-only y open/read/write/close/seek/stat/dup/ftruncate/fcntl; `fopen` opera sobre ellos. Ver VFS.md para cuotas y operaciones ausentes; no es VFS POSIX completo.
+- Stdin bloquea hasta datos/EOF entregados con feed/feed-eof al PID; NONBLOCK produce EAGAIN y stdio diferencia EOF de error. stdout/stderr comparten la consola y dup2 permite redirección a archivos. No hay raw TTY/job control ni poll.
 - Sin sockets BSD, `getaddrinfo`, `poll`/`select`, señales, fork, ejecutables desde archivos, enlazado dinámico ni TLS de threads.
 - FPU/MMX/SSE siguen rechazados por el kernel. No se declara `libm`, conversión/formato float ni conformidad C/POSIX completa. La configuración selecciona stdio entero; el archive upstream contiene componentes adicionales no preparados para este runtime.
 - `mmap`/`munmap` básicos del kernel siguen disponibles por ABI, pero no se presenta un wrapper POSIX completo. El asignador comprobado usa `sbrk`.
@@ -65,6 +65,6 @@ Es un prerrequisito real de curl, **no el port de curl terminado**. Los siguient
 
 ## Pruebas
 
-`tests/libc.py` arranca la imagen real con 16 y 64 MiB, ejecuta dos procesos secuenciales, salida 23 y cuatro procesos simultáneos; rechaza el quinto slot. Comprueba strings/formato/calendario, 2500 operaciones de heap, alineación, calloc cero, realloc/OOM sin pérdida de datos, errno privado a través de espera, entrada no soportada, buffers inválidos y constructor/atexit/destructor/flush.
+`tests/libc.py` arranca la imagen real con 16 y 64 MiB, ejecuta dos procesos secuenciales, salida 23 y cuatro procesos simultáneos; rechaza el quinto slot. Comprueba strings/formato/calendario, 2500 operaciones de heap, alineación, calloc cero, realloc/OOM sin pérdida de datos, errno privado a través de espera, entrada no bloqueante con EAGAIN, buffers inválidos y constructor/atexit/destructor/flush.
 
 Cada terminación debe restaurar exactamente frames físicos y estado del heap kernel. También prueba reloj real en 2050, ausencia de entropía, el mapa de enlace upstream, syscalls legacy con buffers inválidos y rollback ELF/OOM. La división signed/unsigned de 64 bits tiene pruebas nativas de límites y 100000 comparaciones; el reloj verifica carry al envolver los 32 bits bajos. Las regresiones completas y la red se describen en `TESTING.md`.

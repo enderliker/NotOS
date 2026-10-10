@@ -43,7 +43,7 @@ Se subió en dos avances comprobados: `feat(ring3)` y `feat(aislamiento)`. Las d
 
 Se subió en tres avances comprobados: `feat(tareas)`, `feat(planificador)` y `feat(multitarea)`. Ver [contratos, pruebas y límites](TASKS.md).
 
-## Hitos posteriores — estado en NotOS 0.14
+## Hitos posteriores — estado en NotOS 0.15
 
 - **Completado en QEMU:** gestor con cuatro slots, PID, spawn/ps/kill, ejecución en segundo plano y recolección automática. Integrado: exec de programas fuente NotLang y ELF32 estáticos embebidos; sin carga de ejecutables desde VFS.
 - **Completado básico en QEMU:** ratón PS/2 IRQ12, cursor, toolbar clickable y minimizar/restaurar ventana. No es un escritorio completo.
@@ -81,4 +81,8 @@ Esto prepara el bloqueo de libc/poll, pero no incluye FDs, sockets ni un poll PO
 
 Picolibc upstream estática con sysroot, startup argc/argv/envp, init/fini/atexit, malloc/calloc/realloc/free sobre brk privado, stdio entero, errno por proceso, time_t64 y espera/entropía. Pruebas en ELF ring3, cuatro procesos concurrentes, OOM y recursos restaurados.
 
-El siguiente gate de curl es FDs/VFS y después sockets/poll/DNS, no renombrar el cliente HTTPS. No hay stdin funcional, archivos POSIX ni float/libm comprobados. Ver LIBC.md y CURL_PORT.md.
+FDs/VFS/stdin básicos se añaden en 0.15. El siguiente gate de curl es transporte sockets y después poll/DNS, no renombrar el cliente HTTPS. No hay POSIX completo ni float/libm comprobados. Ver LIBC.md y CURL_PORT.md.
+
+## FDs y VFS mínimo — comprobados en 0.15
+
+Tablas por proceso, descripciones compartidas por dup/dup2, tmpfs binario con cuotas, snapshot NotFS read-only, stdio/seek/stat/unlink/truncate y stdin bloqueante enrutado por PID. Rollback de memoria y limpieza por exit/kill/fault; no VFS completo ni escritura POSIX persistente. Ver VFS.md.

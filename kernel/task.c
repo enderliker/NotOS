@@ -30,6 +30,10 @@ static int finish_creation(struct task *task,u32 id) {
         space_destroy(&task->space);
         return 0;
     }
+    if (!fd_table_init(&task->files)) {
+        kfree(task->kernel_stack);task->kernel_stack=0;
+        space_destroy(&task->space);return 0;
+    }
     task->id=id;
     task->state=TASK_READY;
     initialize_context(task);
@@ -61,6 +65,7 @@ int task_destroy(struct task *task) {
     if (!space_destroy(&task->space)) {
         return 0;
     }
+    fd_table_destroy(&task->files);
     if (task->kernel_stack && !kfree(task->kernel_stack)) {
         return 0;
     }

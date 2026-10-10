@@ -7,6 +7,8 @@
 #include "paging.h"
 #include "wait_policy.h"
 #include "platform_abi.h"
+#include "file_abi.h"
+#include "vfs.h"
 #include "platform_tls.h"
 
 static void probe(struct task *task, struct interrupt_frame *frame) {
@@ -46,13 +48,52 @@ static void write_console(struct task *task, struct interrupt_frame *frame) {
 }
 
 static void write_fd(struct task *task,struct interrupt_frame *frame) {
-    u32 fd=frame->ebx,bytes=frame->edx,address=frame->ecx;
-    if (fd!=1 && fd!=2) {frame->eax=(u32)-ERROR_BAD_FD;return;}
-    if (bytes>NOTOS_CONSOLE_LIMIT) {frame->eax=(u32)-ERROR_INVALID_ARGUMENT;return;}
+    u32 bytes=frame->edx,address=frame->ecx;
+    if (bytes>NOTOS_IO_LIMIT) {frame->eax=(u32)-ERROR_INVALID_ARGUMENT;return;}
     if (!space_range(&task->space,address,bytes,0)) {frame->eax=(u32)-ERROR_BAD_ADDRESS;return;}
-    const u8 *buffer=(const u8 *)address;
-    for (u32 i=0;i<bytes;i++) console_putc((char)buffer[i]);
-    frame->eax=bytes;
+    frame->eax=(u32)fd_write(&task->files,(int)frame->ebx,(const void *)address,bytes);
+}
+static struct interrupt_frame *read_fd(struct task *task,struct interrupt_frame *frame) {
+    u32 bytes=frame->edx,address=frame->ecx;
+    if (bytes>NOTOS_IO_LIMIT) {frame->eax=(u32)-ERROR_INVALID_ARGUMENT;return frame;}
+    if (!space_range(&task->space,address,bytes,1)) {frame->eax=(u32)-ERROR_BAD_ADDRESS;return frame;}
+    int result=fd_read(&task->files,(int)frame->ebx,(void *)address,bytes);
+    if (result==-ERROR_AGAIN && fd_blocking_input(&task->files,(int)frame->ebx)) {
+        if (!scheduler_can_block()) {frame->eax=(u32)-ERROR_UNSUPPORTED;return frame;}
+        task->wait_kind=TASK_WAIT_INPUT;task->pending_fd=(int)frame->ebx;
+        task->pending_buffer=address;task->pending_bytes=bytes;
+        return scheduler_block(frame);
+    }
+    frame->eax=(u32)result;return frame;
+}
+static int copy_path(struct task *task,u32 address,char path[NOTOS_PATH_BYTES]) {
+    for (u32 i=0;i<NOTOS_PATH_BYTES;i++) {
+        if (address>~0u-i || !space_range(&task->space,address+i,1,0)) return -ERROR_BAD_ADDRESS;
+        path[i]=*(const char *)(address+i);
+        if (!path[i]) return 0;
+    }
+    return -ERROR_NAME_TOO_LONG;
+}
+static void path_call(struct task *task,struct interrupt_frame *frame) {
+    char path[NOTOS_PATH_BYTES];u32 number=frame->eax;
+    int error=copy_path(task,frame->ebx,path);
+    if (error) {frame->eax=(u32)error;return;}
+    if (number==SYS_FD_OPEN) frame->eax=(u32)fd_open(&task->files,path,frame->ecx,frame->edx);
+    else if (number==SYS_PATH_UNLINK) frame->eax=(u32)(starts(path,"/dev/")?-ERROR_READ_ONLY:vfs_unlink(path));
+    else {
+        struct notos_file_info info;
+        if (!space_range(&task->space,frame->ecx,sizeof(info),1)) {frame->eax=(u32)-ERROR_BAD_ADDRESS;return;}
+        error=fd_path_stat(path,&info);
+        if (!error) space_copy_to_user(&task->space,frame->ecx,&info,sizeof(info));
+        frame->eax=(u32)error;
+    }
+}
+static void stat_fd(struct task *task,struct interrupt_frame *frame) {
+    struct notos_file_info info;
+    if (!space_range(&task->space,frame->ecx,sizeof(info),1)) {frame->eax=(u32)-ERROR_BAD_ADDRESS;return;}
+    int error=fd_stat(&task->files,(int)frame->ebx,&info);
+    if (!error) space_copy_to_user(&task->space,frame->ecx,&info,sizeof(info));
+    frame->eax=(u32)error;
 }
 static void read_time(struct task *task,struct interrupt_frame *frame) {
     if (frame->ebx>NOTOS_CLOCK_MONOTONIC) {frame->eax=(u32)-ERROR_INVALID_ARGUMENT;return;}
@@ -102,6 +143,20 @@ struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     case SYS_YIELD:
         frame->eax = 0;
         return scheduler_yield(frame);
+    case SYS_FD_OPEN:case SYS_PATH_STAT:case SYS_PATH_UNLINK:
+        path_call(task,frame);break;
+    case SYS_FD_READ:return read_fd(task,frame);
+    case SYS_FD_CLOSE:frame->eax=(u32)fd_close(&task->files,(int)frame->ebx);break;
+    case SYS_FD_SEEK:frame->eax=(u32)fd_seek(&task->files,(int)frame->ebx,(int)frame->ecx,frame->edx);break;
+    case SYS_FD_STAT:stat_fd(task,frame);break;
+    case SYS_FD_DUP:frame->eax=(u32)fd_dup(&task->files,(int)frame->ebx,(int)frame->ecx);break;
+    case SYS_FD_CONTROL:frame->eax=(u32)fd_control(&task->files,(int)frame->ebx,frame->ecx,frame->edx);break;
+    case SYS_FD_TRUNCATE:frame->eax=(u32)fd_truncate(&task->files,(int)frame->ebx,frame->ecx);break;
+    case SYS_FD_ISATTY:frame->eax=(u32)fd_is_tty(&task->files,(int)frame->ebx);break;
+    case SYS_USER_CHECK:
+        frame->eax=frame->edx>1?(u32)-ERROR_INVALID_ARGUMENT:
+            space_range(&task->space,frame->ebx,frame->ecx,(int)frame->edx)?0:(u32)-ERROR_BAD_ADDRESS;
+        break;
     case SYS_PID:
         frame->eax=task->id;
         break;
@@ -130,6 +185,7 @@ struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
             frame->eax=(u32)-ERROR_UNSUPPORTED;
             break;
         }
+        task->wait_kind=TASK_WAIT_TIMER;
         task->wait_started=clock_ms();
         task->wait_duration=frame->ebx;
         frame->eax=0;

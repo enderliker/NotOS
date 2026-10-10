@@ -86,6 +86,10 @@ static int find(const char *name) {
     return -1;
 }
 int fs_ready(void) {return mounted;}
+int fs_file_inode(const char *name) {
+    if (!mounted || !valid_name(name)) return 0;
+    return find(name)+1;
+}
 int fs_file_size(const char *name) {
     if (!mounted || !valid_name(name)) return -1;
     int index=find(name);

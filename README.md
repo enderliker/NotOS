@@ -19,6 +19,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Libc de usuario | Picolibc estática, CRT, heap, stdio entero, errno, tiempo64 y entropía | ELF ring3, cuatro procesos, OOM, buffers, exit/flush y recursos restaurados |
 | Aislamiento básico | GDT/TSS, CR3 privados, INT 0x80 y buffers validados | CPL3 real, datos separados, fallos user y timeout recuperables |
 | Espera de procesos | SYS_SLEEP, TASK_BLOCKED y despertar por tiempo | Shell/worker concurrentes, cancelación, slots bloqueados y clock wrap |
+| VFS y FDs | tmpfs, NotFS read-only, FDs privados, dup/seek y stdin bloqueante | Stdio binario ring3, cuotas/OOM, cuatro procesos, EOF y kill/fault sin fugas |
 | Archivos | ATA PIO y NotFS propio en disco de datos separado | Reinicios, CRC, rollback y CRUD persistente |
 | Multitarea básica | Round-robin por IRQ0, cuatro slots, pilas privadas y SYS_YIELD | Contextos/registros, lotes mixtos, presupuesto, FPU rechazada y rollback OOM |
 
@@ -80,6 +81,11 @@ ring3-test
 multitask-test
 libc-test
 libc-run exit
+libc-run files
+libc-run stdin
+vfs
+feed 1 hello-vfs
+feed-eof 1
 elf-run demo
 spawn worker
 spawn spin
@@ -116,7 +122,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - Interfaz gráfica mínima con ratón PS/2, toolbar y minimizar/restaurar; sin navegador ni gestor completo de ventanas.
 - NotLang tiene intérprete 0.1 y compilador/VM ring3 0.2 con repeat y exec de archivos fuente; sin funciones ni acceso a archivos desde las aplicaciones.
 - Red con IP estática para QEMU, una solicitud a la vez, IPv4, HTTP y HTTPS/TLS1.2/1.3 con validación X509. Configuración estática /24 y retransmisión con backoff; sin DHCP, IPv6 ni reensamblado de fragmentos IP. TLS requiere semilla fresca por firmware y RTC UTC válidos. El cliente muestra el estado HTTP y la cantidad de bytes, no renderiza páginas web.
-- Picolibc es un port parcial: stdio entero, heap y tiempo, sin stdin funcional, VFS POSIX, sockets ni float/libm. No equivale a curl disponible.
+- Picolibc es un port parcial: stdio entero, heap y tiempo, con archivos tmpfs y stdin por proceso; sin VFS POSIX completo, sockets ni float/libm. No equivale a curl disponible.
 - Pensado para pruebas de laboratorio; no usar para información sensible ni redes hostiles.
 
 ## Documentación
@@ -127,6 +133,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - [Procesos en segundo plano](docs/PROCESSES.md)
 - [ELF32 y memoria privada](docs/ELF.md)
 - [Libc de usuario](docs/LIBC.md)
+- [FDs, VFS y entrada](docs/VFS.md)
 - [Memoria](docs/MEMORY.md)
 - [Almacenamiento](docs/STORAGE.md)
 - [Ratón y controles gráficos](docs/UI.md)
@@ -141,5 +148,5 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 ## Port de curl — en desarrollo
 
 TLS 1.3 conserva TLS 1.2, con negociación/verificación dentro del invitado; ver [TLS](docs/TLS.md).
-PAE/NX ya protege datos y pilas; ELF32, brk y mmap anónimo privados se describen en [ELF](docs/ELF.md). Picolibc ya ejecuta una aplicación real en ring3 con malloc/stdio/errno/tiempo; ver [LIBC](docs/LIBC.md). **curl upstream todavía no está portado ni disponible**: `https` es el cliente HTTP educativo, no curl.
+PAE/NX ya protege datos y pilas; ELF32, brk y mmap anónimo privados se describen en [ELF](docs/ELF.md). Picolibc ya ejecuta una aplicación real en ring3 con malloc/stdio/errno/tiempo; ver [LIBC](docs/LIBC.md). FDs, archivos tmpfs, snapshots NotFS y stdin se describen en [VFS](docs/VFS.md). **curl upstream todavía no está portado ni disponible**: `https` es el cliente HTTP educativo, no curl.
 La hoja de ruta verificable de libc/ELF/memoria/sockets/VFS/poll está en [CURL_PORT](docs/CURL_PORT.md).

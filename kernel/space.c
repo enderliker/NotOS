@@ -171,7 +171,7 @@ int space_range(const struct user_space *space,u32 address,u32 bytes,int writabl
     }
     return 1;
 }
-static int copy_to_space(struct user_space *space,u32 address,const void *data,u32 bytes) {
+int space_copy_to_user(struct user_space *space,u32 address,const void *data,u32 bytes) {
     if (!space_range(space,address,bytes,1)) return 0;
     const u8 *source=data;
     while (bytes) {
@@ -188,17 +188,17 @@ int space_arguments(struct user_space *space,const char *name,const char *argume
         || (argument && length(argument)>64)) return 0;
     u32 argc=argument?2:1,cursor=space->stack_top;
     cursor-=length(name)+1;u32 name_address=cursor;
-    if (!copy_to_space(space,cursor,name,length(name)+1)) return 0;
+    if (!space_copy_to_user(space,cursor,name,length(name)+1)) return 0;
     u32 argument_address=0;
     if (argument) {
         cursor-=length(argument)+1;argument_address=cursor;
-        if (!copy_to_space(space,cursor,argument,length(argument)+1)) return 0;
+        if (!space_copy_to_user(space,cursor,argument,length(argument)+1)) return 0;
     }
     u32 words[7]={argc,name_address,0,0,0,0,0};
     if (argument) words[2]=argument_address;
     /* argc, argv pointers+NULL, empty envp, AT_NULL pair. */
     u32 bytes=(argc+5)*sizeof(u32),stack=(cursor-bytes)&~15u;
-    if (!copy_to_space(space,stack,words,bytes)) return 0;
+    if (!space_copy_to_user(space,stack,words,bytes)) return 0;
     space->initial_stack=stack;
     return 1;
 }

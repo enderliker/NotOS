@@ -69,3 +69,11 @@ Los lotes síncronos no registran una espera que no puedan despertar: devuelven 
 `platform_abi.h` fija límites y layout wire del tiempo. Las syscalls validan rangos/permisos antes de tocar buffers; el runtime de usuario no puede desactivar esa comprobación. `clock_uptime_ms` toma una instantánea atómica de 64 bits con IF preservado. `integer_runtime.*` proporciona división/remainder signed y unsigned al kernel y al ELF por enlaces separados, sin libgcc host.
 
 Los hooks no soportados no devuelven éxito ficticio. libc privada single-thread no significa threads, VFS, sockets ni conformidad POSIX. Ver LIBC.md.
+
+## FDs, VFS y entrada en 0.15
+
+`vfs.*` posee nodos/frames, nombres tmpfs y snapshots read-only NotFS; `fd.*` posee descripciones abiertas, referencias, posición/flags y colas de entrada. `task.*` adquiere/libera la tabla de descriptores. Ni VFS ni FDs interpretan punteros de usuario o deciden planificación.
+
+`syscall.*` valida/copia rutas y buffers antes de llamar al backend. `file_abi.h` fija el wire independiente de Picolibc. `user/libc/port.c` traduce constantes/errores/stat y usa los hooks reales de stdio upstream. `process_poll` termina lecturas TASK_WAIT_INPUT mediante `space_copy_to_user` sobre aliases del espacio bloqueado, sin activar su CR3. Shell/IRQ no comparten datos de entrada entre PIDs.
+
+El backend tiene tests ASAN/UBSAN con un asignador de frames falso host-only; `tests/vfs.py` comprueba el ELF real y recuperación exacta en QEMU. La operación no preemptiva del kernel garantiza consistencia de referencias en un CPU; no se declara soporte SMP ni sincronización multi-CPU.

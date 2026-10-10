@@ -5,6 +5,7 @@
 #include "user_test_abi.h"
 #include "clock.h"
 #include "wait_policy.h"
+#include "syscall_numbers.h"
 #define PROCESS_NAME_BYTES 24u
 struct process_slot { struct task task; char name[PROCESS_NAME_BYTES]; };
 static struct process_slot slots[SCHEDULER_CAPACITY];
@@ -59,9 +60,21 @@ void process_poll(void) {
     u32 now=clock_ms();
     for (unsigned i=0;i<SCHEDULER_CAPACITY;i++) {
         struct task *task=&slots[i].task;
-        if (task->state==TASK_BLOCKED && wait_due(task->wait_started,task->wait_duration,now)) {
-            task->wait_duration=0;
-            task->state=TASK_READY;
+        if (task->state!=TASK_BLOCKED) continue;
+        if (task->wait_kind==TASK_WAIT_TIMER) {
+            if (wait_due(task->wait_started,task->wait_duration,now)) {
+                task->wait_duration=0;task->state=TASK_READY;
+            }
+        } else {
+            u8 buffer[NOTOS_INPUT_BYTES];
+            u32 bytes=task->pending_bytes;
+            if (bytes>sizeof(buffer)) bytes=sizeof(buffer);
+            int result=fd_read(&task->files,task->pending_fd,buffer,bytes);
+            if (result==-ERROR_AGAIN) continue;
+            if (result>0 && !space_copy_to_user(&task->space,task->pending_buffer,buffer,(u32)result))
+                result=-ERROR_BAD_ADDRESS;
+            task->context->eax=(u32)result;task->state=TASK_READY;
+            task->pending_buffer=task->pending_bytes=0;
         }
     }
     for (unsigned offset = 0; offset < SCHEDULER_CAPACITY; ++offset) {
@@ -82,7 +95,8 @@ void process_command(const char *command, const char *argument) {
             console_puts(" ticks="); console_uint(slots[i].task.statistics.cpu_ticks); console_putc('\n');
             if (slots[i].task.state==TASK_BLOCKED) {
                 console_puts("PROCESS WAIT: pid=");console_uint(slots[i].task.id);
-                console_puts(" timeout_ms=");console_uint(slots[i].task.wait_duration);console_putc('\n');
+                if (slots[i].task.wait_kind==TASK_WAIT_INPUT) console_puts(" stdin=1");
+                else {console_puts(" timeout_ms=");console_uint(slots[i].task.wait_duration);}console_putc('\n');
             }
         }
         console_puts("PROCESS: list complete\n"); return;
@@ -117,4 +131,29 @@ void process_command(const char *command, const char *argument) {
     for (unsigned i = 0; i < SCHEDULER_CAPACITY; ++i)
         if (slots[i].task.id == pid) slots[i].task.expected_marker = data[TEST_DATA_MARKER];
     console_puts("PROCESS: started pid="); console_uint(pid); console_putc('\n');
+}
+
+/* Shell explicitly routes input to one process; it never steals another task's stdin. */
+void process_input_command(const char *argument,int eof) {
+    u32 pid=0;const char *s=argument;
+    while (*s>='0' && *s<='9') {
+        u32 digit=(u32)(*s++-'0');
+        if (pid>(0x7fffffffu-digit)/10u) {console_puts("INPUT ERROR: invalid pid\n");return;}
+        pid=pid*10+digit;
+    }
+    if (!pid || s==argument || (eof?*s!=0:*s!=' ')) {console_puts("INPUT ERROR: use feed PID TEXT / feed-eof PID\n");return;}
+    for (u32 i=0;i<SCHEDULER_CAPACITY;i++) if (slots[i].task.id==pid
+        && slots[i].task.state!=TASK_UNUSED && slots[i].task.state!=TASK_FINISHED) {
+        u8 text[NOTOS_INPUT_BYTES];u32 bytes=0;
+        if (!eof) {
+            s++;bytes=length(s);
+            if (bytes>=sizeof(text)) {console_puts("INPUT ERROR: queue full\n");return;}
+            for (u32 j=0;j<bytes;j++) text[j]=(u8)s[j];
+            text[bytes++]='\n';
+        }
+        if (fd_feed(&slots[i].task.files,text,bytes,eof)) console_puts("INPUT ERROR: queue full or EOF\n");
+        else console_puts("INPUT: delivered\n");
+        return;
+    }
+    console_puts("INPUT ERROR: pid not found\n");
 }

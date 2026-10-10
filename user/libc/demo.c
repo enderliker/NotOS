@@ -11,6 +11,8 @@
 #include <limits.h>
 #include <time.h>
 #include <sys/time.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 static int constructed;
 static void before_main(void) __attribute__((constructor));
 static void before_main(void) {constructed=1;}
@@ -79,9 +81,11 @@ static void platform(void) {
     errno=0;CHECK(write(77,"x",1)==-1 && errno==EBADF);
     CHECK(write(1,0,0)==0);
     errno=0;CHECK(write(1,(void *)0x10000,1)==-1 && errno==EFAULT);
-    errno=0;CHECK(read(0,buffer,1)==-1 && errno==ENOSYS);
-    errno=0;CHECK(fgetc(stdin)==EOF && ferror(stdin) && errno==ENOSYS);clearerr(stdin);
-    errno=0;CHECK(!fopen("/not-yet-implemented","w") && errno==ENOSYS);
+    CHECK(!fcntl(0,F_SETFL,O_NONBLOCK));
+    errno=0;CHECK(read(0,buffer,1)==-1 && errno==EAGAIN);
+    errno=0;CHECK(fgetc(stdin)==EOF && ferror(stdin) && errno==EAGAIN);clearerr(stdin);
+    CHECK(!fcntl(0,F_SETFL,0));
+    errno=0;CHECK(!fopen("/not-yet-implemented","w") && errno==ENOENT);
     errno=0;CHECK(getentropy((void *)0x08000000,1)==-1 && errno==EFAULT);
     errno=0;CHECK(getentropy(buffer,257)==-1 && errno==EIO);
     unsigned char first[256],second[256];CHECK(!getentropy(first,sizeof(first)) && !getentropy(second,sizeof(second)));
@@ -105,6 +109,87 @@ static void platform(void) {
 
     puts("LIBC: errno/console/time64/calendar/entropy PASS");
 }
+static void files(void) {
+    char path[48],buffer[32];
+    CHECK(snprintf(path,sizeof(path),"/tmp/libc-%d",(int)getpid())>0);
+    int file=open(path,O_CREAT|O_EXCL|O_RDWR|O_CLOEXEC,0600);CHECK(file==3);
+    CHECK((fcntl(file,F_GETFD)&FD_CLOEXEC) && fcntl(file,F_GETFL)==O_RDWR);
+    CHECK(open(path,O_CREAT|O_EXCL|O_RDWR,0600)==-1 && errno==EEXIST);
+    CHECK(write(file,"abc\0def",7)==7 && lseek(file,0,SEEK_SET)==0);
+    int alias=dup(file);CHECK(alias==4 && fcntl(alias,F_GETFD)==0);
+    CHECK(read(alias,buffer,2)==2 && !memcmp(buffer,"ab",2));
+    CHECK(read(file,buffer,2)==2 && buffer[0]=='c' && !buffer[1]);
+    CHECK(read(file,(void *)0x08000000,1)==-1 && errno==EFAULT && lseek(alias,0,SEEK_CUR)==4);
+    CHECK(fstat(file,(struct stat *)0x08000000)==-1 && errno==EFAULT);
+    struct stat status;CHECK(!fstat(file,&status) && S_ISREG(status.st_mode) && status.st_size==7);
+    CHECK(!isatty(file) && errno==ENOTTY);
+    CHECK(!fcntl(alias,F_SETFL,O_RDWR|O_APPEND) && !lseek(file,0,SEEK_SET));
+    CHECK(write(file,"!",1)==1 && lseek(alias,0,SEEK_CUR)==8);
+    CHECK(!unlink(path) && stat(path,&status)==-1 && errno==ENOENT);
+    CHECK(!fstat(file,&status) && status.st_nlink==0);
+    int replacement=open(path,O_CREAT|O_EXCL|O_RDWR,0600);CHECK(replacement==5);
+    CHECK(!fstat(replacement,&status) && status.st_size==0);
+    CHECK(!unlink(path) && !close(replacement) && !close(alias) && !close(file));
+    CHECK(close(file)==-1 && errno==EBADF);
+    FILE *stream=fopen(path,"w+");CHECK(stream);
+    unsigned char *bytes=malloc(8193),*copy=malloc(8193);CHECK(bytes && copy);
+    for (unsigned i=0;i<8193;i++) bytes[i]=(unsigned char)(i*31u);
+    CHECK(fwrite(bytes,1,8193,stream)==8193 && !fflush(stream));
+    CHECK(!fseek(stream,0,SEEK_SET) && fread(copy,1,8193,stream)==8193 && !memcmp(bytes,copy,8193));
+    CHECK(fgetc(stream)==EOF && feof(stream) && !ferror(stream));
+    CHECK(!fclose(stream));
+    stream=fopen(path,"a");CHECK(stream && fwrite("xy",1,2,stream)==2 && !fclose(stream));
+    CHECK(!stat(path,&status) && status.st_size==8195);
+    file=open(path,O_RDWR);CHECK(file==3);
+    CHECK(!ftruncate(file,1) && !ftruncate(file,8193) && !lseek(file,0,SEEK_SET));
+    CHECK(read(file,copy,4096)==4096 && read(file,copy+4096,4097)==4096 && read(file,copy+8192,1)==1);
+    for (unsigned i=0;i<8193;i++) CHECK(!copy[i]);
+    CHECK(lseek(file,65536,SEEK_SET)==65536 && write(file,"x",1)==-1 && errno==EFBIG);
+    CHECK(!close(file));free(bytes);free(copy);
+    int full[13];
+    for (unsigned i=0;i<13;i++) {full[i]=open("/dev/null",O_RDWR);CHECK(full[i]==(int)i+3);}
+    CHECK(open(path,O_WRONLY|O_TRUNC)==-1 && errno==EMFILE);
+    CHECK(!stat(path,&status) && status.st_size==8193);
+    for (unsigned i=0;i<13;i++) CHECK(!close(full[i]));
+    file=open(path,O_WRONLY);int saved=dup(1);CHECK(file==3 && saved==4);
+    CHECK(!fflush(stdout) && dup2(file,1)==1 && write(1,"redirect",8)==8 && dup2(saved,1)==1);
+    CHECK(!close(saved) && !close(file));
+    file=open(path,O_RDONLY);CHECK(read(file,buffer,8)==8 && !memcmp(buffer,"redirect",8));
+    CHECK(!close(file) && !unlink(path));
+    CHECK(open((const char *)0x10000,O_RDONLY)==-1 && errno==EFAULT);
+    char too_long[65];memset(too_long,'a',64);too_long[64]=0;
+    CHECK(open(too_long,O_RDONLY)==-1 && errno==ENAMETOOLONG);
+    uint32_t page=(uint32_t)notos_raw_call(SYS_MMAP,4096,0,0);CHECK(page>=0x08800000 && page<0x08c00000);
+    memcpy((void *)(page+4093),"abc",3);
+    CHECK(open((const char *)(page+4093),O_RDONLY)==-1 && errno==EFAULT);
+    CHECK(!notos_raw_call(SYS_MUNMAP,page,4096,0));
+    puts("VFS: binary stdio/seek/append/dup/unlink/errors/FD-limit PASS");
+}
+static void input_test(void) {
+    char line[64];puts("VFS: stdin waiting");
+    CHECK(fgets(line,sizeof(line),stdin) && !strcmp(line,"hello-vfs\n"));
+    puts("VFS: stdin received");
+    CHECK(fgetc(stdin)==EOF && feof(stdin) && !ferror(stdin));
+    puts("VFS: blocking stdin/EOF PASS");
+}
+static void disk_test(void) {
+    FILE *file=fopen("/disk/hello.txt","r");CHECK(file);
+    puts("VFS: disk snapshot waiting");struct timespec delay={0,300000000};CHECK(!nanosleep(&delay,0));
+    char data[16]={0};CHECK(fread(data,1,9,file)==9 && !memcmp(data,"from-disk",9) && !fclose(file));
+    int fd=open("/disk/hello.txt",O_RDONLY);CHECK(fd==3);
+    CHECK(read(fd,data,9)==9 && !memcmp(data,"new-data!",9));
+    struct stat a,b;CHECK(!fstat(fd,&a) && !stat("/disk/hello.txt",&b) && a.st_ino==b.st_ino);
+    CHECK(!close(fd) && open("/disk/hello.txt",O_WRONLY)==-1 && errno==EROFS);
+    puts("VFS: NotFS read-only snapshots PASS");
+}
+static void held_file(int fault) {
+    char name[48];CHECK(snprintf(name,sizeof(name),"/tmp/held-%d",(int)getpid())>0);
+    int file=open(name,O_CREAT|O_RDWR,0600);CHECK(file==3 && dup(file)==4);
+    CHECK(!ftruncate(file,8193) && !unlink(name));
+    puts("VFS: orphan held");fflush(stdout);
+    if (fault) __asm__ volatile("ud2");
+    struct timespec delay={60,0};CHECK(!nanosleep(&delay,0));
+}
 int main(int argc,char **argv) {
     CHECK(constructed && argc==2 && argv && !strcmp(argv[0],"libc") && argv[2]==0);
     CHECK(!atexit(finishing));
@@ -113,6 +198,10 @@ int main(int argc,char **argv) {
         puts("LIBC: entropy unavailable FAIL-CLOSED PASS");return 0;
     }
     if (!strcmp(argv[1],"exit")) {printf("LIBC: buffered output");exit(23);}
+    if (!strcmp(argv[1],"files")) {files();return 0;}
+    if (!strcmp(argv[1],"stdin")) {input_test();return 0;}
+    if (!strcmp(argv[1],"disk")) {disk_test();return 0;}
+    if (!strcmp(argv[1],"hold") || !strcmp(argv[1],"fault")) {held_file(!strcmp(argv[1],"fault"));return 0;}
     core();allocations();platform();
     errno=1000+(int)getpid();int marker=errno;struct timespec delay={0,200000000};
     CHECK(!nanosleep(&delay,0) && errno==marker);

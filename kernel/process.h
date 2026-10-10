@@ -4,6 +4,7 @@
 u32 process_spawn_elf_args(const char *name,const u8 *image,u32 bytes,const char *argument);
 u32 process_spawn_elf(const char *name,const u8 *image,u32 bytes);
 void process_poll(void);
+void process_input_command(const char *argument,int eof);
 void process_command(const char *command, const char *argument);
 /* Creates a managed ring-3 task; image copied into private code/data pages. */
 u32 process_spawn_image(const char *name, const u8 *code, u32 code_bytes,

@@ -18,6 +18,7 @@ int physical_free(u32 address) {
     assert(0);return 0;
 }
 int fs_ready(void) {return 1;}
+int fs_file_inode(const char *name) {return !strcmp(name,"sample")?1:0;}
 int fs_file_size(const char *name) {return !strcmp(name,"sample")?6:-1;}
 int fs_read_file(const char *name,void *buffer,u32 size) {assert(!strcmp(name,"sample")&&size>=6);memcpy(buffer,"disk\0!",6);return 6;}
 void console_putc(char c) {(void)c;}
@@ -74,6 +75,15 @@ int main(void) {
     assert(fd_open(&a,"/tmp/no-side-effect",NOTOS_O_CREAT|NOTOS_O_RDWR,0600)==-ERROR_TOO_MANY_FILES);
     assert(vfs_stat("/tmp/no-side-effect",&info)==-ERROR_NOT_FOUND);
     for (unsigned i=0;i<13;i++) assert(fd_close(&a,full[i])==0);
+    /* Exercise 16-bit inode wrap while an unlinked old inode remains open. */
+    int pinned=fd_open(&a,"/tmp/pinned",NOTOS_O_CREAT|NOTOS_O_RDWR,0600);
+    struct notos_file_info pin;assert(pinned>=0 && fd_stat(&a,pinned,&pin)==0 && vfs_unlink("/tmp/pinned")==0);
+    for (unsigned i=0;i<70000;i++) {
+        int transient=fd_open(&a,"/tmp/transient",NOTOS_O_CREAT|NOTOS_O_RDWR,0600);assert(transient>=0);
+        assert(fd_stat(&a,transient,&info)==0 && info.inode>=16 && info.inode<=65535 && info.inode!=pin.inode);
+        assert(vfs_unlink("/tmp/transient")==0 && fd_close(&a,transient)==0);
+    }
+    fd_close(&a,pinned);
     fd_table_destroy(&a);fd_table_destroy(&b);empty();
     puts("PASS: tmpfs holes/truncate/unlink/quotas/OOM rollback, NotFS snapshots, private FDs/shared dup offsets and stdin queues");
 }

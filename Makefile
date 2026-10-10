@@ -104,6 +104,7 @@ test: all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit buil
 	python3 tests/physical.py
 	python3 tests/paging.py
 	python3 tests/heap.py
+	python3 tests/vfs.py
 	python3 tests/libc.py
 	python3 tests/elf.py
 	python3 tests/user.py
@@ -168,9 +169,9 @@ build/picolibc-built.ready: build/picolibc.ready tools/build_picolibc.py Makefil
 	CC="$(CC)" NOTOS_CFLAGS="$(CFLAGS)" python3 tools/build_picolibc.py
 LIBC_INCLUDES := -nostdinc -isystem build/sysroot/include/notos -isystem $(shell $(CC) -print-file-name=include)
 LIBC_FLAGS := $(CFLAGS) $(LIBC_INCLUDES) -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -D_POSIX_MONOTONIC_CLOCK=200809L -U__linux__ -U__unix__ -D__NOTOS__
-build/libc-demo.o: user/libc/demo.c user/libc/os.h kernel/platform_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
+build/libc-demo.o: user/libc/demo.c user/libc/os.h kernel/platform_abi.h kernel/file_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
-build/libc-port.o: user/libc/port.c user/libc/os.h kernel/platform_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
+build/libc-port.o: user/libc/port.c user/libc/os.h kernel/platform_abi.h kernel/file_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
 build/libc-start.o: user/libc/start.c build/picolibc-built.ready
 	$(CC) $(LIBC_FLAGS) -c $< -o $@

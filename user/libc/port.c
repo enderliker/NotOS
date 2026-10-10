@@ -12,10 +12,21 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <fcntl.h>
+#include <stdarg.h>
 #define HEAP_BASE 0x08400000u
 #define HEAP_LIMIT 0x08800000u
 static int translated_error(int error) {
     switch (error) {
+    case ERROR_NOT_FOUND:return ENOENT;
+    case ERROR_AGAIN:return EAGAIN;
+    case ERROR_ACCESS:return EACCES;
+    case ERROR_EXISTS:return EEXIST;
+    case ERROR_TOO_MANY_FILES:return EMFILE;
+    case ERROR_FILE_TOO_LARGE:return EFBIG;
+    case ERROR_NO_SPACE:return ENOSPC;
+    case ERROR_ILLEGAL_SEEK:return ESPIPE;
+    case ERROR_READ_ONLY:return EROFS;
+    case ERROR_NAME_TOO_LONG:return ENAMETOOLONG;
     case ERROR_PERMISSION:return EPERM;
     case ERROR_IO:return EIO;
     case ERROR_BAD_FD:return EBADF;
@@ -63,20 +74,105 @@ ssize_t write(int fd,const void *buffer,size_t bytes) {
     return (ssize_t)written;
 }
 ssize_t read(int fd,void *buffer,size_t bytes) {
-    (void)buffer;
-    if (fd!=0) {errno=EBADF;return -1;}
-    if (!bytes) return 0;
-    errno=ENOSYS;return -1;
+    if (bytes>INT_MAX) {errno=EINVAL;return -1;}
+    if (bytes>UINTPTR_MAX-(uintptr_t)buffer) {errno=EFAULT;return -1;}
+    size_t request=bytes>NOTOS_IO_LIMIT?NOTOS_IO_LIMIT:bytes;
+    /* A short read is valid; never loop and accidentally block after delivering bytes. */
+    return checked(notos_raw_call(SYS_FD_READ,(uint32_t)fd,(uint32_t)buffer,(uint32_t)request));
 }
-int close(int fd) {errno=(fd<0 || fd>2)?EBADF:ENOSYS;return -1;}
-int open(const char *path,int flags,...) {(void)path;(void)flags;errno=ENOSYS;return -1;}
+int close(int fd) {return checked(notos_raw_call(SYS_FD_CLOSE,(uint32_t)fd,0,0));}
+static int open_flags(int flags,uint32_t *wire) {
+    int accepted=O_ACCMODE|O_APPEND|O_CREAT|O_EXCL|O_TRUNC|O_NONBLOCK|O_CLOEXEC;
+    if ((flags&~accepted) || (flags&O_ACCMODE)>O_RDWR) {errno=ENOTSUP;return -1;}
+    *wire=(uint32_t)(flags&O_ACCMODE);
+    if (flags&O_APPEND) *wire|=NOTOS_O_APPEND;
+    if (flags&O_CREAT) *wire|=NOTOS_O_CREAT;
+    if (flags&O_EXCL) *wire|=NOTOS_O_EXCL;
+    if (flags&O_TRUNC) *wire|=NOTOS_O_TRUNC;
+    if (flags&O_NONBLOCK) *wire|=NOTOS_O_NONBLOCK;
+    if (flags&O_CLOEXEC) *wire|=NOTOS_O_CLOEXEC;
+    return 0;
+}
+int open(const char *path,int flags,...) {
+    uint32_t wire,mode=0;
+    if (open_flags(flags,&wire)) return -1;
+    if (flags&O_CREAT) {va_list arguments;va_start(arguments,flags);mode=(uint32_t)va_arg(arguments,int);va_end(arguments);}
+    return checked(notos_raw_call(SYS_FD_OPEN,(uint32_t)path,wire,mode));
+}
 off_t lseek(int fd,off_t offset,int whence) {
-    (void)offset;(void)whence;errno=(fd<0 || fd>2)?EBADF:ESPIPE;return (off_t)-1;
+    if (offset<INT_MIN || offset>INT_MAX) {errno=EOVERFLOW;return (off_t)-1;}
+    uint32_t origin;
+    if (whence==SEEK_SET) origin=NOTOS_SEEK_SET;
+    else if (whence==SEEK_CUR) origin=NOTOS_SEEK_CUR;
+    else if (whence==SEEK_END) origin=NOTOS_SEEK_END;
+    else {errno=EINVAL;return (off_t)-1;}
+    return (off_t)checked(notos_raw_call(SYS_FD_SEEK,(uint32_t)fd,(uint32_t)offset,origin));
 }
-int fstat(int fd,struct stat *status) {(void)fd;(void)status;errno=ENOSYS;return -1;}
-int stat(const char *path,struct stat *status) {(void)path;(void)status;errno=ENOSYS;return -1;}
-int unlink(const char *path) {(void)path;errno=ENOSYS;return -1;}
-int isatty(int fd) {if (fd>=0 && fd<=2) return 1;errno=EBADF;return 0;}
+static void convert_stat(struct stat *status,const struct notos_file_info *info) {
+    *status=(struct stat){0};
+    status->st_ino=info->inode;status->st_nlink=info->links;status->st_size=info->size;
+    status->st_mode=(info->kind==NOTOS_FILE_REGULAR?S_IFREG:S_IFCHR)|info->permissions;
+    status->st_blksize=4096;status->st_blocks=((info->size+4095)/4096)*8;
+}
+static int stat_output(struct stat *status) {
+    return checked(notos_raw_call(SYS_USER_CHECK,(uint32_t)status,sizeof(*status),1));
+}
+int fstat(int fd,struct stat *status) {
+    if (stat_output(status)) return -1;
+    struct notos_file_info info;
+    int result=checked(notos_raw_call(SYS_FD_STAT,(uint32_t)fd,(uint32_t)&info,0));
+    if (!result) convert_stat(status,&info);
+    return result;
+}
+int stat(const char *path,struct stat *status) {
+    if (stat_output(status)) return -1;
+    struct notos_file_info info;
+    int result=checked(notos_raw_call(SYS_PATH_STAT,(uint32_t)path,(uint32_t)&info,0));
+    if (!result) convert_stat(status,&info);
+    return result;
+}
+int unlink(const char *path) {return checked(notos_raw_call(SYS_PATH_UNLINK,(uint32_t)path,0,0));}
+int isatty(int fd) {
+    int result=checked(notos_raw_call(SYS_FD_ISATTY,(uint32_t)fd,0,0));
+    if (result<0) return 0;
+    if (!result) errno=ENOTTY;
+    return result;
+}
+int dup(int fd) {return checked(notos_raw_call(SYS_FD_DUP,(uint32_t)fd,UINT32_MAX,0));}
+int dup2(int fd,int destination) {
+    if (destination<0) {errno=EBADF;return -1;}
+    return checked(notos_raw_call(SYS_FD_DUP,(uint32_t)fd,(uint32_t)destination,0));
+}
+int ftruncate(int fd,off_t length) {
+    if (length<0 || (uint64_t)length>UINT32_MAX) {errno=EINVAL;return -1;}
+    return checked(notos_raw_call(SYS_FD_TRUNCATE,(uint32_t)fd,(uint32_t)length,0));
+}
+int fcntl(int fd,int command,...) {
+    uint32_t number,argument=0;
+    if (command==F_GETFL) number=NOTOS_F_GETFL;
+    else if (command==F_GETFD) number=NOTOS_F_GETFD;
+    else if (command==F_SETFL || command==F_SETFD) {
+        va_list args;va_start(args,command);int value=va_arg(args,int);va_end(args);
+        if (command==F_SETFL) {
+            number=NOTOS_F_SETFL;
+            if (value&~(O_ACCMODE|O_APPEND|O_NONBLOCK)) {errno=EINVAL;return -1;}
+            if (open_flags(value,&argument)) return -1;
+        } else {
+            number=NOTOS_F_SETFD;
+            if (value&~FD_CLOEXEC) {errno=EINVAL;return -1;}
+            argument=value?NOTOS_FD_CLOEXEC:0;
+        }
+    } else {errno=ENOTSUP;return -1;}
+    int result=checked(notos_raw_call(SYS_FD_CONTROL,(uint32_t)fd,number,argument));
+    if (result<0) return -1;
+    if (command==F_GETFL) {
+        int flags=result&NOTOS_O_ACCMODE;
+        if (result&NOTOS_O_APPEND) flags|=O_APPEND;
+        if (result&NOTOS_O_NONBLOCK) flags|=O_NONBLOCK;
+        return flags;
+    }
+    return command==F_GETFD?(result?FD_CLOEXEC:0):result;
+}
 _Static_assert(sizeof(time_t)==8 && sizeof(struct timespec)==12 && offsetof(struct timespec,tv_nsec)==8,"timespec ABI");
 _Static_assert(sizeof(struct timeval)==12 && offsetof(struct timeval,tv_usec)==8,"timeval ABI");
 static int clock_number(clockid_t clock) {

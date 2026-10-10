@@ -305,3 +305,17 @@ Log `build/blocked-wait.log`. No equivale a poll/select ni sockets bloqueantes d
 Código propio con `-Wall -Wextra -Werror`. La biblioteca upstream se compila sin elevar sus warnings a errores; se observó un warning de prototype de `_set_tls` en machine/x86/tls.c, con TLS de threads desactivado. No se silencian ni se presentan las fuentes upstream como libres de warnings.
 
 Logs `build/libc-16M.log`, `build/libc-64M.log`, `build/libc-noentropy.log`, `build/libc-time2050.log`; ELF/símbolos/mapa en build. No se probaron CI remota ni hardware físico. Port inicial single-thread/stdio entero, sin archivos POSIX/stdin funcional/sockets/poll/float/libm ni curl upstream: ver LIBC.md.
+
+## NotOS 0.15: FDs y VFS de usuario
+
+`make clean test` y `make test-online` PASS en QEMU 9.2.4. Tras ajustar IDs de inode compatibles con Picolibc i386 y añadir wrap/lectores concurrentes se repitieron `make test` y `make test-online`: PASS.
+
+- Backend tmpfs/FDs bajo ASAN/UBSAN: holes/truncate a cero, unlink con handles abiertos, offsets de dup compartidos y de open independientes, fd/space quotas, OOM parcial con rollback y descriptor lleno sin mutar un archivo.
+- 70000 ciclos crear/unlink/close prueban wrap de inode de 16 bits manteniendo un inode huérfano abierto sin colisión.
+- ELF real en 16/64 MiB: fopen/fread/fwrite/fseek/fclose binarios de 8193 bytes, append, stat, redirección dup2, EOF, EAGAIN, EBADF/EFAULT, rutas sin terminador cruzando a página no mapeada y límites de FDs.
+- Cuatro escritores concurrentes con FDs propios; cuatro lectores stdin bloqueados, feed/EOF para uno y los otros permanecen bloqueados. Shell/INT3 responden.
+- Kill/fault #UD cierran FDs y liberan inodes huérfanos; cancelación de stdin, cola llena y slot reutilizado sin entrada ni referencias anteriores. Frames/heap/nodos/descripciones restaurados exactamente.
+- NotFS read-only: handle conserva snapshot, nuevos opens ven cambios de shell, reboot conserva disco y boot image permanece idéntica. Escritura a ese montaje se rechaza.
+- Regresiones completas de libc, ELF/VM/aislamiento, scheduler/esperas, UI, IRQ, NotLang, memoria, almacenamiento y TLS pasan. Internet real: DNS/HTTP200 y HTTPS TLSv1.3/HTTP200/close_notify; los peers controlados mantienen cobertura TLS1.2/1.3.
+
+Logs `build/vfs-16M.log`, `build/vfs-64M.log`, `build/vfs-notfs.log`, `build/vfs-notfs-reboot.log`. Código propio con Werror activo; sigue el warning upstream de Picolibc ya documentado en 0.14. No se comprobaron CI remota ni hardware físico. VFS.md especifica cuotas, montaje disco read-only, entrada enrutada por PID y funciones POSIX ausentes. Todavía no hay sockets/poll ni curl upstream.

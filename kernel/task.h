@@ -3,6 +3,8 @@
 #include "interrupt.h"
 #include "space.h"
 #include "scheduler_policy.h"
+#include "fd.h"
+enum task_wait_kind {TASK_WAIT_TIMER,TASK_WAIT_INPUT};
 
 /* Count IRQ0 samples delivered at CPL3, not exact CPU or wall time. */
 #define TASK_EXECUTION_BUDGET 250u
@@ -44,6 +46,10 @@ struct task {
     u32 expected_marker;
     u32 first_tick;
     u32 wait_started,wait_duration;
+    enum task_wait_kind wait_kind;
+    u32 pending_buffer,pending_bytes;
+    int pending_fd;
+    struct fd_table files;
     u8 *kernel_stack;
     struct interrupt_frame *context;
 };

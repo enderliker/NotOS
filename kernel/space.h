@@ -14,6 +14,7 @@ struct user_space {
 /* Destination must be zero initialized. Failures release every acquired frame. */
 int space_create(struct user_space *space,const u8 *image,unsigned bytes);
 int space_create_elf(struct user_space *space,const u8 *image,u32 bytes);
+int space_copy_to_user(struct user_space *space,u32 address,const void *data,u32 bytes);
 int space_arguments(struct user_space *space,const char *name,const char *argument);
 int space_destroy(struct user_space *space);
 int space_range(const struct user_space *space,u32 address,u32 bytes,int writable);
