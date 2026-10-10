@@ -93,7 +93,7 @@ struct interrupt_frame *interrupt_dispatch(struct interrupt_frame *frame) {
             pic_eoi(irq); /* Required even if scheduling never returns to this stack. */
             return scheduler_tick(frame);
         }
-        if (irq == 1) keyboard_irq(); else {stray++; pic_mask(irq);}
+        if (irq == 1 || irq == 12) keyboard_irq(); else {stray++; pic_mask(irq);}
         pic_eoi(irq);
         return frame;
     }

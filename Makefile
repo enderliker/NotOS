@@ -42,7 +42,10 @@ build/user-unit: tests/user_unit.c kernel/user_memory.c kernel/user_memory.h ker
 	gcc -std=c11 -Wall -Wextra -Werror tests/user_unit.c kernel/user_memory.c -o $@
 build/scheduler-unit: tests/scheduler_unit.c kernel/scheduler_policy.c kernel/scheduler_policy.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/scheduler_unit.c kernel/scheduler_policy.c -o $@
-test: all build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+build/mouse-unit: tests/mouse_unit.c kernel/mouse_decode.c kernel/mouse_decode.h | build
+	gcc -std=c11 -Wall -Wextra -Werror tests/mouse_unit.c kernel/mouse_decode.c -o $@
+test: all build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+	./build/mouse-unit
 	./build/lang-unit
 	./build/net-unit
 	./build/clock-unit
@@ -58,6 +61,7 @@ test: all build/lang-unit build/net-unit build/clock-unit build/physical-unit bu
 	python3 tests/heap.py
 	python3 tests/user.py
 	python3 tests/multitask.py
+	python3 tests/mouse.py
 	python3 tests/process.py
 	python3 tests/storage.py
 	python3 tests/network.py

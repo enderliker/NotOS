@@ -46,7 +46,7 @@ Se subió en tres avances comprobados: `feat(tareas)`, `feat(planificador)` y `f
 ## Próximos hitos, aún no implementados
 
 - **Completado en QEMU:** gestor con cuatro slots, PID, spawn/ps/kill, ejecución en segundo plano y recolección automática. Pendiente cargar aplicaciones desde archivos.
-- Ratón y UI interactiva más allá de la terminal.
+- **Completado básico en QEMU:** ratón PS/2 IRQ12, cursor, toolbar clickable y minimizar/restaurar ventana. No es un escritorio completo.
 - **Almacenamiento completado en QEMU:** ATA PIO y NotFS persistente con CRC/snapshots y CRUD. Pendiente integrar carga/ejecución de programas.
 - Retransmisión TCP, configuración de red y, posteriormente, HTTPS.
 - Ampliaciones de NotLang y ejecución fuera del kernel.

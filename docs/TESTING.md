@@ -195,3 +195,7 @@ No se han comprobado CI remota ni hardware real. Los budgets son muestras CPL3, 
 Tests `process.py` y `multitask.py` — PASS: cuatro slots ocupados a la vez, PID monotónico, shell responde, kill con estado 143, fallo user no afecta otro proceso, salida normal y presupuesto, recolección automática y restauración de frames/heap. Las regresiones batch siguen pasando. Se añadió integración HTTP con cuatro spins activos; ver resultado de regresión del commit. Los procesos no sobreviven al reinicio.
 
 `make test` del avance background — PASS en QEMU 9.2.4, incluyendo tres respuestas HTTP por NAT mientras se ejecutan spins background; todas las regresiones previas y persistencia pasan.
+
+## Ratón y UI
+
+`make test` — PASS en QEMU 9.2.4. Decodificador PS/2 nativo; test QMP de IRQ12/movimiento/clicks, toolbar CLR/FILES/TASKS, minimizar/restaurar framebuffer, teclado operativo después. Todas las regresiones de IRQ, memoria, procesos, disco y red pasan. Logs `build/mouse.log` y capturas `build/mouse-*.ppm`. No se ha probado ratón físico ni USB.

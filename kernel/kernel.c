@@ -13,6 +13,8 @@
 #include "multitask.h"
 #include "fs.h"
 #include "process.h"
+#include "mouse.h"
+#include "gui.h"
 static char line[160];
 static unsigned used;
 static int dropped;
@@ -49,7 +51,7 @@ static void clock_command(const char *kind,const char *argument) {
     console_puts(" ms ticks=");console_uint(after_ticks-ticks);console_putc('\n');
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nmultitask-test  multitask-run SCENARIO\nmkfs  ls  cat NAME  write NAME TEXT  rm NAME\nspawn worker/spin/fault  ps  kill PID\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nmultitask-test  multitask-run SCENARIO\nmkfs  ls  cat NAME  write NAME TEXT  rm NAME\nspawn worker/spin/fault  ps  kill PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
@@ -106,6 +108,7 @@ static void command(const char *s) {
     else if(starts(s,"user-run ")) user_command(s+9);
     else if(equal(s,"multitask-test")) multitask_command("workers");
     else if(starts(s,"multitask-run ")) multitask_command(s+14);
+    else if(equal(s,"mouse")) mouse_status();
     else if(equal(s,"ps")) process_command("ps", "");
     else if(starts(s,"spawn ")) process_command("spawn",s+6);
     else if(starts(s,"kill ")) process_command("kill",s+5);
@@ -187,13 +190,16 @@ void kernel_main(void) {
     pic_init();
     clock_init();
     int keyboard_ready=keyboard_init();
+    int mouse_ready=mouse_init();
     pic_unmask(0);pic_unmask(2);
+    if(mouse_ready) pic_unmask(12);
     if(keyboard_ready) pic_unmask(1);
     __asm__ volatile("sti" ::: "memory");
     console_puts("NotOS 0.8\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
     console_puts("IDT: 256 gates installed\n");
     console_puts("IRQ: PIC remapped; PIT ~1000 Hz\n");
     console_puts(keyboard_ready?"KEYBOARD: IRQ1 ready\n":"KEYBOARD: unavailable; use serial\n");
+    console_puts(mouse_ready?"MOUSE: IRQ12 ready\n":"MOUSE: unavailable\n");
     console_puts("BOOT: 64 KiB loader verified\n");
     physical_status();
     paging_status();
@@ -207,6 +213,11 @@ void kernel_main(void) {
         for (unsigned budget=0;budget<160 && (inb(0x3fd)&1);++budget)
             input((char)inb(0x3f8));
         keyboard();
+        mouse_poll();
+        enum gui_action action=gui_next_action();
+        if(action==GUI_CLEAR) {gui_clear();used=0;dropped=0;console_puts("\nUI: clear\nnotos> ");}
+        else if(action==GUI_FILES) {console_puts("\nUI: files\n");fs_command("ls", "");console_puts("notos> ");}
+        else if(action==GUI_TASKS) {console_puts("\nUI: tasks\n");process_command("ps", "");console_puts("notos> ");}
         process_poll();
         __asm__ volatile("pause");
     }

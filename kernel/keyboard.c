@@ -1,5 +1,6 @@
 #include "base.h"
 #include "keyboard.h"
+#include "mouse.h"
 #define CAPACITY 256u
 static u8 queue[CAPACITY];
 static volatile unsigned head,tail,dropped;
@@ -30,7 +31,8 @@ void keyboard_irq(void) {
         u8 status=inb(0x64);
         if(!(status&1)) return;
         u8 code=inb(0x60);
-        if(status&0xe0) continue; /* AUX, parity or timeout. */
+        if(status&0xc0) continue; /* parity/timeout */
+        if(status&0x20) {mouse_receive(code);continue;}
         if(code==0xfa||code==0xfe) continue;
         unsigned next=(head+1)&(CAPACITY-1);
         if(next==tail) {dropped++;continue;}
