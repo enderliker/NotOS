@@ -10,8 +10,9 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Interfaz gráfica | VGA 320×200, fuente bitmap propia y ventana de terminal | Captura del framebuffer e interacción PS/2 |
 | Lenguaje | NotLang: `let`, `print`, variables y aritmética entera | Pruebas nativas y programas dentro del kernel |
 | Red | Driver RTL8139, ARP, IPv4, UDP/DNS y TCP/HTTP | Servidor de prueba por NAT y DNS/HTTP de internet |
+| Excepciones | IDT propia de 256 entradas, frame x86 y pantalla de panic | INT3 recuperable y fallos reales #DE, #UD y #GP |
 
-Cada hito se subió en un commit `feat(alcance) mensaje` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
+Cada avance se sube en un commit `feat(alcance) mensaje` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
 
 ## Construir, probar y arrancar
 
@@ -57,7 +58,7 @@ El kernel funciona en ring 0, con memoria física y dispositivos sondeados. La r
 
 - Solo PC BIOS/x86 y hardware emulado especificado; no UEFI ni soporte comprobado en equipos reales.
 - Sin paginación, procesos, aislamiento, sistema de archivos persistente, instalador o multitarea.
-- Sin IDT/manejadores de excepciones; un fallo inesperado del kernel puede detener el sistema. Interrupciones desactivadas.
+- Las excepciones fatales muestran diagnóstico y detienen el sistema; no hay recuperación de fallos de aplicaciones ni pila independiente para double fault. Interrupciones de hardware aún desactivadas en este hito.
 - Interfaz gráfica mínima, sin ratón, navegador ni gestor completo de ventanas.
 - NotLang es un intérprete pequeño, sin bucles, funciones ni acceso a archivos.
 - Red con IP estática para QEMU, una solicitud a la vez, IPv4 y HTTP sin cifrar. Sin DHCP, IPv6, TLS/HTTPS, retransmisión TCP propia ni reensamblado de fragmentos IP. El cliente muestra el estado HTTP y la cantidad de bytes, no renderiza páginas web.
@@ -67,5 +68,6 @@ El kernel funciona en ring 0, con memoria física y dispositivos sondeados. La r
 
 - [NotLang](docs/NOTLANG.md)
 - [Red](docs/NETWORK.md)
+- [Interrupciones y excepciones](docs/INTERRUPTS.md)
 - [Pruebas y resultados](docs/TESTING.md)
 - [Hitos y próximos pasos](docs/ROADMAP.md)

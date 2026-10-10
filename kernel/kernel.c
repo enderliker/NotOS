@@ -2,6 +2,7 @@
 #include "lang.h"
 #include "net.h"
 #include "clock.h"
+#include "interrupt.h"
 static char line[160];
 static unsigned used;
 static int dropped;
@@ -19,7 +20,7 @@ void console_int(int value) {
     while(n) console_putc(b[--n]);
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  fault divide/opcode/gp (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
@@ -28,6 +29,15 @@ static void command(const char *s) {
     else if(equal(s,"net")) net_status();
     else if(starts(s,"dns ")) net_command("dns",s+4);
     else if(starts(s,"http ")) net_command("http",s+5);
+    else if(equal(s,"int3")) {
+        unsigned before=interrupts_breakpoints();
+        if(interrupt_selftest() && interrupts_breakpoints()==before+1)
+            console_puts("IDT: breakpoint OK; registers and flags preserved\n");
+        else console_puts("ERROR: interrupt selftest failed\n");
+    }
+    else if(equal(s,"fault divide")) fault_divide();
+    else if(equal(s,"fault opcode")) fault_opcode();
+    else if(equal(s,"fault gp")) fault_gp();
     else if(*s) console_puts("ERROR: unknown command\n");
 }
 static void input(char c) {
@@ -84,7 +94,9 @@ void kernel_main(void) {
     outb(0x3fb,3);outb(0x3fa,0xc7);outb(0x3fc,0x0b);
     clock_init();
     gui_init();
-    console_puts("NotOS 0.4\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
+    interrupts_init();
+    console_puts("NotOS 0.5-idt\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
+    console_puts("IDT: 256 gates installed\n");
     net_init();
     console_puts("notos> ");
     for(;;) {

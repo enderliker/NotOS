@@ -9,9 +9,12 @@ Cada hito se sube después de probar la imagen real con QEMU. Formato de commit:
 3. **Lenguaje:** intérprete NotLang con variables enteras, expresiones y errores comprobados.
 4. **Red:** RTL8139 y pila propia; DNS y petición HTTP pública comprobados. No incluye TLS.
 
-## Próximos hitos, aún no implementados
+## Fase 2: interrupciones (en curso)
 
-- IDT, excepciones, interrupciones y temporizador robusto.
+- **Completado:** IDT, stubs x86, INT3 recuperable y diagnóstico para excepciones fatales.
+- **Pendiente:** PIC, IRQ de hardware y temporizador por interrupciones.
+
+## Próximos hitos, aún no implementados
 - Memoria paginada, asignación dinámica y aislamiento.
 - Ratón y UI interactiva más allá de la terminal.
 - Almacenamiento persistente y archivos de programas.

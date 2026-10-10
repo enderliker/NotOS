@@ -11,7 +11,9 @@ build/boot.bin: build/boot.o boot/link.ld
 	$(LD) -m elf_i386 -T boot/link.ld --oformat binary $< -o $@
 build/entry.o: kernel/entry.S | build
 	$(CC) -m32 -c $< -o $@
-KERNEL_OBJS := build/entry.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
+KERNEL_OBJS := build/entry.o build/isr.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
+build/isr.o: kernel/isr.S | build
+	$(CC) -m32 -c $< -o $@
 build/%.o: kernel/%.c $(wildcard kernel/*.h) | build
 	$(CC) $(CFLAGS) -c $< -o $@
 build/kernel.elf: $(KERNEL_OBJS) kernel/link.ld
@@ -30,6 +32,7 @@ test: all build/lang-unit build/net-unit
 	./build/lang-unit
 	./build/net-unit
 	python3 tests/smoke.py
+	python3 tests/exceptions.py
 	python3 tests/network.py
 test-online: all
 	python3 tests/online.py

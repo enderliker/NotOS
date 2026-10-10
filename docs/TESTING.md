@@ -59,3 +59,15 @@ HTTP: received 891 bytes
 ```
 
 Los logs completos quedan en `build/smoke.log`, `build/network.log` y `build/online.log`. No se ha probado HTTPS ni hardware real. El kernel final ocupa 11416 bytes de código/datos en una imagen de disco de 1 MiB.
+
+## Fase 2, avance de IDT/excepciones
+
+`make clean test` — PASS en QEMU 9.2.4, conservando los tests de gráficos, lenguaje y red.
+
+- IDT de 256 puertas de interrupción, selector de código 0x08 y frames uniformes.
+- INT3 repetido con retorno IRET y verificación de todos los registros generales, CF y DF. El handler C recibe DF limpio.
+- Fallos de CPU reales (no `int N` simulados): división por cero #DE (vector 0), UD2 #UD (vector 6) y carga de selector inexistente #GP (vector 13).
+- Error #GP esperado `0x00000020`, EIP/CS/registros impresos y pantalla de diagnóstico.
+- CPU detenida con HLT, QEMU vivo y comandos posteriores sin ejecutarse; no hay reinicio por triple fault.
+
+Capturas: `build/panic-0.ppm`, `build/panic-6.ppm`, `build/panic-13.ppm`. Logs: `build/idt.log`, `build/panic-*.log`. Las excepciones no provocadas por estos tests no se declaran comprobadas.
