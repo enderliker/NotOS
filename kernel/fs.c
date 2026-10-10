@@ -85,6 +85,12 @@ static int find(const char *name) {
         if (equal(active.files[i].name, name)) return (int)i;
     return -1;
 }
+int fs_ready(void) {return mounted;}
+int fs_file_size(const char *name) {
+    if (!mounted || !valid_name(name)) return -1;
+    int index=find(name);
+    return index<0?-1:(int)active.files[index].size;
+}
 int fs_read_file(const char *name, void *buffer, u32 capacity) {
     if (!mounted || !valid_name(name) || !buffer) return -1;
     int index = find(name);

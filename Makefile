@@ -81,7 +81,8 @@ build/utc-unit: tests/utc_unit.c kernel/utc.c kernel/platform_tls.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/utc_unit.c kernel/utc.c -o $@
 build/certificate-unit: tests/certificate_unit.c kernel/certificate_policy.c kernel/certificate_policy.h build/tls-fixtures.ready | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/certificate_unit.c kernel/certificate_policy.c -o $@
-test: all build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+test: all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+	./build/vfs-unit
 	./build/wait-unit
 	./build/elf-unit
 	./build/tls-port-unit
@@ -183,3 +184,6 @@ build/libc-demo.elf: build/libc-demo.o build/libc-port.o build/libc-start.o buil
 build/libc-demo-blob.o: build/libc-demo.elf
 	objcopy --strip-all $< build/libc-app.elf
 	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.libcimage,alloc,load,readonly,data,contents --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=noload,readonly build/libc-app.elf $@
+
+build/vfs-unit: tests/vfs_unit.c kernel/vfs.c kernel/fd.c kernel/vfs.h kernel/fd.h kernel/file_abi.h kernel/syscall_numbers.h | build
+	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -no-pie tests/vfs_unit.c kernel/vfs.c kernel/fd.c -o $@
