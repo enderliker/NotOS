@@ -199,3 +199,7 @@ Tests `process.py` y `multitask.py` — PASS: cuatro slots ocupados a la vez, PI
 ## Ratón y UI
 
 `make test` — PASS en QEMU 9.2.4. Decodificador PS/2 nativo; test QMP de IRQ12/movimiento/clicks, toolbar CLR/FILES/TASKS, minimizar/restaurar framebuffer, teclado operativo después. Todas las regresiones de IRQ, memoria, procesos, disco y red pasan. Logs `build/mouse.log` y capturas `build/mouse-*.ppm`. No se ha probado ratón físico ni USB.
+
+## NotLang 0.2 y archivos de programas
+
+`make test` — PASS en QEMU 9.2.4. Compilador nativo acotado, VM de 1264 bytes enlazada en 0x08000000; loops/anidamiento y aritmética ejecutados en ring3, overflow/división por cero terminan con 65, errores de compile no crean proceso. Fuente guardada en NotFS, reinicio y exec con salida 42. Frames/heap restaurados; todas las regresiones anteriores pasan. Logs `build/notlang.log`, `build/notlang-reboot.log`. La VM no usa el intérprete kernel; no es un cargador ELF ni incluye funciones.

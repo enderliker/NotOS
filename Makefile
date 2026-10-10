@@ -11,7 +11,15 @@ build/boot.bin: build/boot.o boot/link.ld
 	$(LD) -m elf_i386 -T boot/link.ld --oformat binary $< -o $@
 build/entry.o: kernel/entry.S | build
 	$(CC) -m32 -c $< -o $@
-KERNEL_OBJS := build/entry.o build/isr.o build/user_entry.o build/user_program.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
+KERNEL_OBJS := build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
+build/notlang_vm.o: user/notlang_vm.c kernel/notlang_bytecode.h kernel/syscall_numbers.h | build
+	$(CC) $(CFLAGS) -ffunction-sections -c $< -o $@
+build/notlang_vm.elf: build/notlang_vm.o user/link.ld
+	$(LD) -m elf_i386 -T user/link.ld $< -o $@
+build/notlang_vm.bin: build/notlang_vm.elf
+	objcopy -O binary $< $@
+build/notlang_blob.o: build/notlang_vm.bin
+	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.uservm,alloc,load,readonly,data,contents $< $@
 build/user_entry.o: kernel/user_entry.S | build
 	$(CC) -m32 -c $< -o $@
 build/user_program.o: kernel/user_program.S kernel/syscall_numbers.h kernel/user_test_abi.h | build
@@ -44,7 +52,10 @@ build/scheduler-unit: tests/scheduler_unit.c kernel/scheduler_policy.c kernel/sc
 	gcc -std=c11 -Wall -Wextra -Werror tests/scheduler_unit.c kernel/scheduler_policy.c -o $@
 build/mouse-unit: tests/mouse_unit.c kernel/mouse_decode.c kernel/mouse_decode.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/mouse_unit.c kernel/mouse_decode.c -o $@
-test: all build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+build/notlang-unit: tests/notlang_unit.c kernel/notlang_compile.c kernel/notlang_bytecode.h | build
+	gcc -std=c11 -Wall -Wextra -Werror tests/notlang_unit.c kernel/notlang_compile.c -o $@
+test: all build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+	./build/notlang-unit
 	./build/mouse-unit
 	./build/lang-unit
 	./build/net-unit
@@ -61,6 +72,7 @@ test: all build/mouse-unit build/lang-unit build/net-unit build/clock-unit build
 	python3 tests/heap.py
 	python3 tests/user.py
 	python3 tests/multitask.py
+	python3 tests/notlang.py
 	python3 tests/mouse.py
 	python3 tests/process.py
 	python3 tests/storage.py

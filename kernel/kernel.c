@@ -15,6 +15,7 @@
 #include "process.h"
 #include "mouse.h"
 #include "gui.h"
+#include "notlang_bytecode.h"
 static char line[160];
 static unsigned used;
 static int dropped;
@@ -51,11 +52,13 @@ static void clock_command(const char *kind,const char *argument) {
     console_puts(" ms ticks=");console_uint(after_ticks-ticks);console_putc('\n');
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nmultitask-test  multitask-run SCENARIO\nmkfs  ls  cat NAME  write NAME TEXT  rm NAME\nspawn worker/spin/fault  ps  kill PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nrun-user PROGRAM  exec FILE\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nmultitask-test  multitask-run SCENARIO\nmkfs  ls  cat NAME  write NAME TEXT  rm NAME\nspawn worker/spin/fault  ps  kill PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
     else if(starts(s,"run ")) lang_run(s+4);
+    else if(starts(s,"run-user ")) nl_command("run-user",s+9);
+    else if(starts(s,"exec ")) nl_command("exec",s+5);
     else if(equal(s,"lang-reset")) {lang_reset();console_puts("LANG: variables cleared\n");}
     else if(equal(s,"net")) net_status();
     else if(starts(s,"dns ")) net_command("dns",s+4);

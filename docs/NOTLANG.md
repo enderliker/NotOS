@@ -33,3 +33,5 @@ factor    := integer | identifier | '(' expression ')' | ('+' | '-') factor
 - Las sentencias ya completadas conservan sus efectos si una posterior falla. Una asignación fallida no modifica su variable.
 
 No hay todavía funciones, bucles, cadenas, archivos, compilador ni programas aislados del kernel.
+
+Desde 0.2, `run-user` y `exec` ofrecen un compilador/VM separado en ring 3 y repeat anidado; ver [NOTLANG_USER.md](NOTLANG_USER.md). Este documento describe exclusivamente el intérprete 0.1 del comando `run`.

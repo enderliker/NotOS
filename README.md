@@ -48,6 +48,9 @@ clear
 echo Hola NotOS
 run let x = (2 + 3) * 4; print x
 run print x - 7
+run-user let n = 1; repeat 3 { let n = n * 2; }; print n
+write demo.nl print 42
+exec demo.nl
 lang-reset
 net
 dns example.com
@@ -99,7 +102,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - Lotes síncronos de hasta cuatro tareas ring 3, con round-robin por IRQ0 y espacios/pilas privados; gestor de cuatro procesos background; sin carga de aplicaciones externas ni instalador. El heap es fijo de 1 MiB y el gestor físico administra como máximo 64 MiB, según E820; no hay crecimiento automático.
 - Los fallos comprobados de las demos user terminan la ejecución y regresan a la shell; los fallos del kernel siguen siendo fatales. No hay pila independiente para double fault. Las IRQ de timer y teclado están activas, pero no hay APIC, SMP ni preemption del kernel. FPU/MMX/SSE no están soportados en tareas.
 - Interfaz gráfica mínima con ratón PS/2, toolbar y minimizar/restaurar; sin navegador ni gestor completo de ventanas.
-- NotLang es un intérprete pequeño, sin bucles, funciones ni acceso a archivos.
+- NotLang tiene intérprete 0.1 y compilador/VM ring3 0.2 con repeat y exec de archivos fuente; sin funciones ni acceso a archivos desde las aplicaciones.
 - Red con IP estática para QEMU, una solicitud a la vez, IPv4 y HTTP sin cifrar. Sin DHCP, IPv6, TLS/HTTPS, retransmisión TCP propia ni reensamblado de fragmentos IP. El cliente muestra el estado HTTP y la cantidad de bytes, no renderiza páginas web.
 - Pensado para pruebas de laboratorio; no usar para información sensible ni redes hostiles.
 
@@ -113,6 +116,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - [Almacenamiento](docs/STORAGE.md)
 - [Ratón y controles gráficos](docs/UI.md)
 - [NotLang](docs/NOTLANG.md)
+- [NotLang ring3 y programas](docs/NOTLANG_USER.md)
 - [Red](docs/NETWORK.md)
 - [Interrupciones y excepciones](docs/INTERRUPTS.md)
 - [Pruebas y resultados](docs/TESTING.md)

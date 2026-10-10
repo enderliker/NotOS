@@ -45,10 +45,10 @@ Se subió en tres avances comprobados: `feat(tareas)`, `feat(planificador)` y `f
 
 ## Próximos hitos, aún no implementados
 
-- **Completado en QEMU:** gestor con cuatro slots, PID, spawn/ps/kill, ejecución en segundo plano y recolección automática. Pendiente cargar aplicaciones desde archivos.
+- **Completado en QEMU:** gestor con cuatro slots, PID, spawn/ps/kill, ejecución en segundo plano y recolección automática. Integrado: exec de programas fuente NotLang; no cargador ELF.
 - **Completado básico en QEMU:** ratón PS/2 IRQ12, cursor, toolbar clickable y minimizar/restaurar ventana. No es un escritorio completo.
-- **Almacenamiento completado en QEMU:** ATA PIO y NotFS persistente con CRC/snapshots y CRUD. Pendiente integrar carga/ejecución de programas.
+- **Almacenamiento completado en QEMU:** ATA PIO y NotFS persistente con CRC/snapshots y CRUD. Integrado: archivos fuente NotLang compilados y ejecutados en ring 3.
 - Retransmisión TCP, configuración de red y, posteriormente, HTTPS.
-- Ampliaciones de NotLang y ejecución fuera del kernel.
+- **Completado básico en QEMU:** NotLang 0.2 con repeat anidado, compilador de bytecode, VM ring3 y exec de archivos persistentes. No incluye funciones ni un lenguaje general.
 
 Las primeras versiones son prototipos de laboratorio, no sustitutos de un sistema de escritorio. No se declara un hito completo solo por compilar, y no se afirma soporte para hardware que no se haya probado.
