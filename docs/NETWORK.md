@@ -1,4 +1,4 @@
-# Red de NotOS 0.4
+# Red de NotOS 0.9 (HTTP; no TLS)
 
 ## Entorno soportado
 
@@ -33,7 +33,7 @@ La salida incluye la IPv4 resuelta, estado HTTP y cantidad de bytes recibidos. `
 
 ## Pruebas
 
-`make test` inicia un servidor controlado en el host y arranca la imagen real en QEMU. Verifica tres peticiones HTTP consecutivas, una línea de estado enviada en dos partes, una respuesta mayor que el anillo RX, cierre de conexión y rechazo de hostname/puerto inválidos. No necesita internet público.
+`make test` inicia un servidor controlado en el host y arranca la imagen real en QEMU. Verifica siete peticiones HTTP (tres normales y cuatro con pérdidas inyectadas), una línea de estado enviada en dos partes, una respuesta mayor que el anillo RX, cierre de conexión y rechazo de hostname/puerto inválidos. No necesita internet público.
 
 `make test-online` verifica resolución de `example.com` y una respuesta HTTP pública. Requiere conectividad saliente del host; no equivale a una prueba de HTTPS.
 
@@ -41,6 +41,29 @@ La salida incluye la IPv4 resuelta, estado HTTP y cantidad de bytes recibidos. `
 
 ## Límites
 
-Una solicitud simultánea, red estática de QEMU y tiempo límite por solicitud. No hay reintentos/retransmisión propios, ventanas TCP dinámicas, reensamblado de datos fuera de orden, fragmentación IP, DHCP, IPv6, DNS por TCP o TLS. HTTP no expone el cuerpo a aplicaciones ni dibuja páginas. Desde NotOS 0.5, los timeouts usan el reloj actualizado por IRQ0, no el antiguo contador PIT sondeado. El reloj avanza durante comandos bloqueantes, pero las solicitudes y paquetes de red solo se procesan al volver al bucle principal; el planificador de tareas user no ejecuta el sondeo de red en segundo plano. Mantener IRQ desactivadas demasiado tiempo puede perder ticks.
+Una solicitud simultánea, red estática de QEMU y tiempo límite por solicitud. Hay retransmisión acotada de SYN y GET. No hay retransmisión de FIN propia, ventanas TCP dinámicas, reensamblado de datos fuera de orden, fragmentación IP, DHCP, IPv6, DNS por TCP o TLS. HTTP no expone el cuerpo a aplicaciones ni dibuja páginas. Desde NotOS 0.5, los timeouts usan el reloj actualizado por IRQ0, no el antiguo contador PIT sondeado. El reloj avanza durante comandos bloqueantes, pero las solicitudes y paquetes de red solo se procesan al volver al bucle principal; el event loop sondea entre pulsos background, aunque espera mientras se ejecuta un batch o comando kernel bloqueante. Mantener IRQ desactivadas demasiado tiempo puede perder ticks.
 
 Esto demuestra conectividad real del prototipo, no una pila de red completa o segura para producción.
+
+## Configuración IPv4 y recuperación TCP
+
+```text
+net-config 10.0.2.16 10.0.2.2 10.0.2.3
+```
+
+IP/Gateway/DNS en ese orden; subnet fija /24. Solo en estado idle con NIC activa. Rechaza multicast, loopback, direcciones de red/broadcast, gateway igual a IP o fuera del /24 y argumentos incompletos/extras. Valida todo antes de aplicar; invalida la caché ARP. Configuración en RAM, sin DHCP ni persistencia automática. La ruta de salida usa el gateway; no hay tabla general de routing.
+
+Una transmisión pendiente conserva su paquete Ethernet/TCP original, sin avanzar seq otra vez al reenviar. Timer inicial 500 ms, backoff exponencial y máximo cuatro retries; el timeout global de conexión/solicitud puede vencer antes. ACK parcial no descarta la transmisión; ACK fuera del límite enviado no la confirma. Aritmética serial admite wrap de 32 bits dentro de la ventana acotada. RX rechaza futuro fuera de orden y recorta prefijos ya ACKeados para no entregar bytes duplicados. No es TCP completo: sin congestion control, SACK, RTO adaptativo, reassembly fuera de orden ni TIME_WAIT completo.
+
+Fault injection de laboratorio (una pérdida, solo armable idle):
+
+```text
+net-drop syn
+net-drop request
+net-drop synack
+net-drop response
+```
+
+La siguiente solicitud correspondiente pierde ese paquete. El test real por NAT exige HTTP 200 y cantidad exacta de bytes después de cada pérdida, con IP alternativa 10.0.2.16; demuestra retries propios de SYN/GET y recuperación de retransmisiones del peer para RX. No sustituye tests exhaustivos de redes hostiles.
+
+**HTTPS no está implementado.** No hay TLS, validación de certificados ni cifrado; usar el puerto 443 con este cliente no cambia eso. No hay proxy host disfrazado de TLS del invitado.

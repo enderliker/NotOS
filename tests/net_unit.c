@@ -23,5 +23,21 @@ int main(void) {
     u8 bad[]={0xc0,50};offset=0;assert(!skip_name(bad,2,&offset));
     /* Every short DNS message must be safely ignored. */
     for(unsigned n=0;n<12;n++) {state=WAIT_DNS;dns_receive(bytes,n<sizeof(bytes)?n:sizeof(bytes));}
+    struct tcp_retry r;
+    tcp_retry_begin(&r,10,0xfffffff0u);
+    assert(!tcp_retry_due(&r,0xfffffff1u));
+    assert(tcp_retry_due(&r,484));
+    tcp_retry_ack(&r,9,10);assert(r.active);
+    tcp_retry_ack(&r,11,10);assert(r.active);
+    tcp_retry_ack(&r,10,10);assert(!r.active);
+    tcp_retry_begin(&r,2,0);
+    tcp_retry_ack(&r,0xfffffffeu,2);assert(r.active);
+    for(unsigned i=0;i<TCP_RETRY_LIMIT;i++) assert(tcp_retry_advance(&r,r.deadline));
+    assert(!tcp_retry_advance(&r,r.deadline) && !r.active);
+    io=1;state=IDLE;net_configure("10.0.2.16 10.0.2.2 10.0.2.3");
+    assert(local_ip[3]==16 && !gateway_known);
+    net_configure("224.1.2.3 224.1.2.2 10.0.2.3");assert(local_ip[3]==16);
+    net_configure("10.0.2.17 10.0.3.2 10.0.2.3");assert(local_ip[3]==16);
+    puts("PASS: bounded retry backoff, ACK validation/wrap and static config validation");
     puts("PASS: checksums, IPv4 parsing and bounded DNS decoding");
 }

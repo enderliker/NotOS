@@ -12,14 +12,14 @@ build/boot.bin: build/boot.o boot/link.ld
 build/entry.o: kernel/entry.S | build
 	$(CC) -m32 -c $< -o $@
 KERNEL_OBJS := build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
-build/notlang_vm.o: user/notlang_vm.c kernel/notlang_bytecode.h kernel/syscall_numbers.h | build
+build/notlang_vm.o: user/notlang_vm.c kernel/notlang_bytecode.h kernel/syscall_numbers.h kernel/base.h | build
 	$(CC) $(CFLAGS) -ffunction-sections -c $< -o $@
 build/notlang_vm.elf: build/notlang_vm.o user/link.ld
 	$(LD) -m elf_i386 -T user/link.ld $< -o $@
 build/notlang_vm.bin: build/notlang_vm.elf
 	objcopy -O binary $< $@
 build/notlang_blob.o: build/notlang_vm.bin
-	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.uservm,alloc,load,readonly,data,contents $< $@
+	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.uservm,alloc,load,readonly,data,contents --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=noload,readonly $< $@
 build/user_entry.o: kernel/user_entry.S | build
 	$(CC) -m32 -c $< -o $@
 build/user_program.o: kernel/user_program.S kernel/syscall_numbers.h kernel/user_test_abi.h | build
@@ -38,8 +38,8 @@ run: all
 	qemu-system-i386 -drive format=raw,file=build/notos.img -serial stdio -netdev user,id=net0 -device rtl8139,netdev=net0
 build/lang-unit: tests/lang_unit.c kernel/lang.c $(wildcard kernel/*.h) | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/lang_unit.c kernel/lang.c -o $@
-build/net-unit: tests/net_unit.c kernel/net.c $(wildcard kernel/*.h) | build
-	gcc -std=c11 -Wall -Wextra -Werror tests/net_unit.c -o $@
+build/net-unit: tests/net_unit.c kernel/net.c kernel/tcp_retry.c $(wildcard kernel/*.h) | build
+	gcc -std=c11 -Wall -Wextra -Werror tests/net_unit.c kernel/tcp_retry.c -o $@
 build/clock-unit: tests/clock_unit.c kernel/clock_math.h kernel/base.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/clock_unit.c -o $@
 build/physical-unit: tests/physical_unit.c kernel/physical_core.c kernel/physical_core.h kernel/base.h | build

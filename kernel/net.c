@@ -4,6 +4,7 @@
  */
 #include "base.h"
 #include "net.h"
+#include "tcp_retry.h"
 #define RX_RING 8192
 #define FRAME_MAX 1514
 static u16 local_tcp=49152;
@@ -16,14 +17,18 @@ static volatile u8 rx[RX_RING+16+1536] __attribute__((aligned(16)));
 static u8 tx[4][1536] __attribute__((aligned(16)));
 static unsigned rx_pos,tx_slot;
 static u8 frame[FRAME_MAX];
-static const u8 local_ip[4]={10,0,2,15};
-static const u8 gateway_ip[4]={10,0,2,2};
-static const u8 dns_ip[4]={10,0,2,3};
+static u8 local_ip[4]={10,0,2,15};
+static u8 gateway_ip[4]={10,0,2,2};
+static u8 dns_ip[4]={10,0,2,3};
 static u8 remote_ip[4];
 static char hostname[96];
 static u16 remote_port=80;
 static u16 dns_id;
-static u32 seq,ack;
+static u32 seq,ack,send_floor;
+static struct tcp_retry retry;
+static u8 retry_packet[FRAME_MAX];
+static unsigned retry_size,retransmissions,drop_mask;
+
 static unsigned now,deadline;
 static unsigned tcp_bytes,header_used;
 static char status_line[128];
@@ -54,7 +59,7 @@ static void ip_print(const u8 *ip) {
     for(unsigned i=0;i<4;i++) {if(i) console_putc('.');console_int(ip[i]);}
 }
 static void net_error(const char *message) {
-    console_puts("NET ERROR: ");console_puts(message);console_putc('\n');state=IDLE;
+    console_puts("NET ERROR: ");console_puts(message);console_putc('\n');state=IDLE;retry.active=0;
 }
 static u32 pci_read(unsigned reg) {outl(0xcf8,pci_addr|(reg&0xfc));return inl(0xcfc);}
 static int transmit(unsigned size) {
@@ -113,6 +118,7 @@ static void dns_send(void) {
     if(!transmit(42+n)) net_error("transmit busy");
 }
 static void tcp_send(u8 flags,const char *payload,unsigned size) {
+    if(size>FRAME_MAX-54) {net_error("TCP payload too large");return;}
     ip_header(6,remote_ip,20+size);
     u8 *tcp=frame+34;
     for(unsigned i=0;i<20;i++) tcp[i]=0;
@@ -121,13 +127,22 @@ static void tcp_send(u8 flags,const char *payload,unsigned size) {
     tcp[12]=0x50;tcp[13]=flags;set16(tcp+14,4096);
     if(size) copy(tcp+20,(const u8 *)payload,size);
     set16(tcp+16,transport_checksum(local_ip,remote_ip,6,tcp,20+size));
+    if((flags&2) || size) {
+        retry_size=54+size;copy(retry_packet,frame,retry_size);
+        tcp_retry_begin(&retry,seq+size+((flags&2)?1u:0u),now);
+        unsigned mask=(flags&2)?1u:2u;
+        if(drop_mask&mask) {
+            drop_mask&=~mask;
+            console_puts((flags&2)?"NET TEST: dropped SYN\n":"NET TEST: dropped request\n");return;
+        }
+    }
     if(!transmit(54+size)) net_error("transmit busy");
 }
 static void tcp_connect(void) {
     local_tcp++;
     if(local_tcp<49153) local_tcp=49153;
     seq=0x10203040+dns_id*1024;ack=0;
-    tcp_bytes=header_used=0;status_printed=0;
+    tcp_bytes=header_used=0;status_printed=0;retry.active=0;retransmissions=0;send_floor=seq;
     state=WAIT_SYN;deadline=now+8000;
     console_puts("NET: TCP connect ");ip_print(remote_ip);console_putc(':');console_int(remote_port);console_putc('\n');
     tcp_send(2,0,0);
@@ -195,14 +210,21 @@ static void tcp_receive(const u8 *ip,const u8 *p,unsigned n) {
     if(flags&4) {net_error("TCP connection reset");return;}
     if(state==WAIT_SYN) {
         if((flags&0x12)!=0x12 || peer_ack!=seq+1) return;
-        seq++;ack=peer_seq+1;
+        if(drop_mask&4u) {drop_mask&=~4u;console_puts("NET TEST: dropped SYN-ACK\n");return;}
+        tcp_retry_ack(&retry,peer_ack,seq+1);
+        seq++;send_floor=seq;ack=peer_seq+1;
         tcp_send(0x10,0,0);
         if(state!=IDLE) http_request();
         return;
     }
-    if(!(flags&0x10)||peer_ack!=seq) return;
+    if(!(flags&0x10) || (int)(peer_ack-seq)>0 || (int)(peer_ack-send_floor)<0) return;
+    tcp_retry_ack(&retry,peer_ack,seq);
     unsigned size=n-h;
-    if(peer_seq!=ack) {tcp_send(0x10,0,0);return;}
+    if(size && (drop_mask&8u)) {drop_mask&=~8u;console_puts("NET TEST: dropped response\n");return;}
+    if((int)(peer_seq-ack)>0) {tcp_send(0x10,0,0);return;}
+    unsigned skipped=ack-peer_seq;
+    if(skipped>size) {tcp_send(0x10,0,0);return;}
+    h+=skipped;size-=skipped; /* Trim an already-ACKed prefix without delivering it twice. */
     if(size) {
         tcp_bytes+=size;
         for(unsigned i=0;i<size && !status_printed;i++) {
@@ -223,8 +245,8 @@ static void tcp_receive(const u8 *ip,const u8 *p,unsigned n) {
         tcp_send(0x11,0,0);seq++;
         console_puts("HTTP: received ");console_int((int)tcp_bytes);console_puts(" bytes\n");
         if(!status_printed) console_puts("NET ERROR: incomplete HTTP status line\n");
-        state=IDLE;
-    } else if(size) tcp_send(0x10,0,0);
+        state=IDLE;retry.active=0;
+    } else if(size || skipped) tcp_send(0x10,0,0);
 }
 static void receive(const u8 *p,unsigned n) {
     if(n<14) return;
@@ -281,7 +303,7 @@ void net_init(void) {
     outl(io+0x30,(u32)(unsigned long)rx);outw(io+0x38,0xfff0);
     outl(io+0x44,0x0000078f);outl(io+0x40,0x03000700);
     outb(io+0x37,0x0c);
-    console_puts("NET: RTL8139 ready; IPv4 10.0.2.15\n");
+    console_puts("NET: RTL8139 ready; IPv4 ");ip_print(local_ip);console_putc('\n');
 }
 void net_poll(unsigned now_ms) {
     now=now_ms;
@@ -304,10 +326,18 @@ void net_poll(unsigned now_ms) {
     }
     outw(io+0x3e,0xffff);
     if(state!=IDLE && (int)(now-deadline)>=0) net_error("request timeout");
+    else if((state==WAIT_SYN || state==WAIT_HTTP) && tcp_retry_due(&retry,now)) {
+        if(!tcp_retry_advance(&retry,now)) {net_error("TCP retry budget exhausted");return;}
+        copy(frame,retry_packet,retry_size);
+        if(!transmit(retry_size)) {net_error("transmit busy during retry");return;}
+        retransmissions++;
+        console_puts("TCP: retransmission=");console_int((int)retransmissions);console_putc('\n');
+    }
 }
 void net_status(void) {
     if(!io) {console_puts("NET: unavailable (use QEMU RTL8139)\n");return;}
-    console_puts("NET: RTL8139 / IPv4 10.0.2.15\nGateway 10.0.2.2 / DNS 10.0.2.3\n");
+    console_puts("NET: RTL8139 / IPv4 ");ip_print(local_ip);
+    console_puts("\nGateway ");ip_print(gateway_ip);console_puts(" / DNS ");ip_print(dns_ip);console_putc('\n');
     console_puts(state==IDLE ? "NET: idle\n" : "NET: request pending\n");
 }
 static int parse_ipv4(const char *s,u8 *dst) {
@@ -356,4 +386,32 @@ void net_command(const char *kind,const char *host) {
     if(!literal) for(unsigned i=0;i<4;i++) remote_ip[i]=0;
     dns_id++;deadline=now+5000;
     if(gateway_known) begin_request();else {state=WAIT_ARP;arp_request();}
+}
+
+void net_configure(const char *argument) {
+    if(!io || state!=IDLE) {console_puts("NET ERROR: configure requires idle RTL8139\n");return;}
+    u8 addresses[3][4];
+    for(unsigned i=0;i<3;i++) {
+        char text[16];unsigned n=0;
+        while(*argument && *argument!=' ' && n<15) text[n++]=*argument++;
+        text[n]=0;
+        if(!parse_ipv4(text,addresses[i]) || addresses[i][0]>=224 || addresses[i][0]==127
+            || !addresses[i][3] || addresses[i][3]==255) {
+            console_puts("NET ERROR: invalid unicast IPv4\n");return;
+        }
+        if(i<2) {if(*argument!=' ') {console_puts("NET ERROR: expected IP GATEWAY DNS\n");return;}argument++;}
+        else if(*argument) {console_puts("NET ERROR: extra configuration input\n");return;}
+    }
+    if(!same(addresses[0],addresses[1],3) || same(addresses[0],addresses[1],4)) {
+        console_puts("NET ERROR: gateway must be another address in local /24\n");return;
+    }
+    copy(local_ip,addresses[0],4);copy(gateway_ip,addresses[1],4);copy(dns_ip,addresses[2],4);
+    gateway_known=0;console_puts("NET: static /24 configuration applied\n");
+}
+void net_drop_once(const char *kind) {
+    if(state!=IDLE) {console_puts("NET ERROR: loss injection requires idle state\n");return;}
+    unsigned mask=equal(kind,"syn")?1u:equal(kind,"request")?2u:
+        equal(kind,"synack")?4u:equal(kind,"response")?8u:0u;
+    if(!mask) {console_puts("NET ERROR: choose syn/request/synack/response\n");return;}
+    drop_mask=mask;console_puts("NET TEST: one-packet loss armed\n");
 }

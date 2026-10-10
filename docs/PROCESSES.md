@@ -14,6 +14,6 @@ El planificador puede reanudar un contexto durante un pulso: al vencer el quantu
 
 `kill` opera desde el loop, nunca destruye un contexto ejecutándose. Salida normal, fallo y presupuesto se reportan y recolectan automáticamente: frames y pila kernel se liberan fuera del handler. No hay zombies, pero tampoco almacenamiento persistente de resultados de procesos ya recolectados, espera/join, IPC, prioridades, bloqueo/wakeup ni PID concurrente por múltiples CPUs.
 
-Las demos batch de fase 5 siguen siendo síncronas. Los procesos background esperan mientras se ejecuta un batch o comando kernel bloqueante. `process_spawn_image` es la interfaz para futuros cargadores; no acepta imágenes mayores de una página.
+Las demos batch de fase 5 siguen siendo síncronas. Los procesos background esperan mientras se ejecuta un batch o comando kernel bloqueante. `process_spawn_image` es la interfaz usada por el cargador de la VM NotLang; no acepta imágenes mayores de una página.
 
 Pruebas reales: cuatro procesos, límite de slots, shell viva, kill, auto-reaping, fallo de uno y progreso de otro, restauración exacta de heap/frames y convivencia con batches. HTTP por NAT se prueba en la misma VM mientras cuatro spins background están activos. QEMU únicamente.

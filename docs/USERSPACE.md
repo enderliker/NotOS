@@ -20,7 +20,7 @@ Cada espacio tiene cinco frames propios: directorio de páginas, tabla user, có
 
 Se carga CR3 privado al entrar y se restaura CR3 del kernel al salir. El handler de probe lee el CR3 real. La demo crea dos espacios simultáneamente, los ejecuta secuencialmente con distintos datos en la misma dirección virtual y comprueba que sus escrituras no modifican los datos del otro. Una lectura del alias físico supervisor del espacio ajeno se rechaza por #PF.
 
-Al terminar se restauran pila/registros/flags/CR3 del llamador y se liberan los cinco frames. Nunca se destruye el directorio activo. No existe todavía una tabla de procesos persistentes; los lotes multitarea se describen en [TASKS.md](TASKS.md). Cada tarea agrega su pila kernel del heap; se libera solo después de retornar al contexto del llamador.
+Al terminar se restauran pila/registros/flags/CR3 del llamador y se liberan los cinco frames. Nunca se destruye el directorio activo. Los lotes multitarea se describen en [TASKS.md](TASKS.md), y el gestor background en [PROCESSES.md](PROCESSES.md). Cada tarea agrega su pila kernel del heap; se libera solo después de retornar al contexto del llamador.
 
 ## Syscalls INT 0x80
 
@@ -65,4 +65,4 @@ A diferencia de `fault ...`, estas demos de fallo user deben regresar a la shell
 
 Pruebas de CPL/TSS/CR3 reales en QEMU, aislamiento de datos, fault recovery, buffers inválidos, salida normal, timeout y restauración exacta de frames. Las pruebas principales usan 32 MiB; se añaden arranque/roots privados/fault recovery con 16 y 64 MiB. La red HTTP se prueba en el mismo invitado después de una ejecución user y de un #GP recuperado.
 
-Hay multitarea preemptiva básica por lotes, pero todavía no hay gestor persistente, ELF, carga de ejecutables externos, filesystem, señales, IPC, heap de aplicación, SMP, NX, ASLR ni pila alternativa para double fault. La demo usa un programa assembly incluido en el kernel, de hasta una página; NotLang sigue ejecutándose dentro del kernel. No es una auditoría de seguridad, un sandbox de producción ni una promesa de recuperación ante cualquier fallo de hardware o del kernel.
+Hay multitarea preemptiva básica por lotes y gestor background, NotFS y exec de fuente NotLang en VM ring3. No hay ELF, señales, IPC, heap de aplicación, SMP, NX, ASLR ni pila alternativa para double fault. La demo usa un programa assembly incluido en el kernel, de hasta una página; `run` conserva el intérprete kernel y `run-user`/`exec` usan la VM aislada. No es una auditoría de seguridad, un sandbox de producción ni una promesa de recuperación ante cualquier fallo de hardware o del kernel.

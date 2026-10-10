@@ -17,6 +17,14 @@ Cada tarea tiene un CR3 propio y una pila kernel de 16 KiB con canario. IRQ0 ent
 
 El quantum es de 5 ticks del PIT; el presupuesto máximo es de 250 ticks entregados a CPL3 por tarea, no de tiempo de pared ni tiempo de CPU exacto. Hasta cuatro tareas por lote; no hay SMP ni preemption del kernel. CR0.TS bloquea FPU/MMX/SSE: no se declara preservación de ese estado. Shell y red no se procesan mientras el lote ocupa la llamada síncrona.
 
+## Módulos añadidos en 0.9
+
+- `process.*`: propiedad de slots/PID y recolección; `scheduler_pulse` recupera el kernel después de cada quantum/yield/terminación para mantener el event loop vivo.
+- `disk.*` / `fs.*`: transporte ATA primary-slave separado de snapshots/CRC/CRUD; nunca escribir el boot drive.
+- `mouse_decode.*` / `mouse.*` / `gui.*`: parser puro, cola IRQ y event loop, rendering y acciones diferidas, respectivamente.
+- `notlang_compile.*` / `notlang_command.*` / `user/notlang_vm.c`: compilación acotada, carga y VM ejecutada en un espacio ring3; protocolo compartido `notlang_bytecode.h`.
+- `tcp_retry.*`: política pura de ACK/backoff separada del driver/protocolo; la pila sigue teniendo una solicitud activa y una transmisión pendiente a la vez.
+
 ## Reglas
 
 - Headers con guards y APIs explícitas; datos internos `static` cuando corresponda.

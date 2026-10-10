@@ -7,9 +7,9 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Hito | Implementación | Prueba |
 | --- | --- | --- |
 | Arranque | Cargador BIOS propio, imagen cruda, A20, GDT y modo protegido | Ejecución real del kernel C en QEMU |
-| Interfaz gráfica | VGA 320×200, fuente bitmap propia y ventana de terminal | Captura del framebuffer e interacción PS/2 |
-| Lenguaje | NotLang: `let`, `print`, variables y aritmética entera | Pruebas nativas y programas dentro del kernel |
-| Red | Driver RTL8139, ARP, IPv4, UDP/DNS y TCP/HTTP | Servidor de prueba por NAT y DNS/HTTP de internet |
+| Interfaz gráfica | VGA 320×200, PS/2 mouse, cursor, toolbar y minimizar/restaurar | Framebuffer, movimiento/clicks QMP y teclado PS/2 |
+| Lenguaje | NotLang 0.1 kernel y 0.2 compilador/VM ring3, repeat y exec de archivos | Aritmética, loops, errores, aislamiento y ejecución tras reinicio |
+| Red | Driver RTL8139, ARP, IPv4, UDP/DNS, TCP/HTTP, retry y config estática | NAT, pérdidas SYN/GET/SYN-ACK/respuesta y DNS/HTTP público; sin HTTPS |
 | Excepciones | IDT propia de 256 entradas, frame x86 y pantalla de panic | INT3 recuperable y fallos reales #DE, #UD y #GP |
 | Interrupciones | PIC 8259, PIT por IRQ0 y teclado por IRQ1 | HLT, reloj durante trabajo en primer plano y cola PS/2 |
 | Memoria física | Mapa BIOS E820 y frames de 4 KiB con bitmap | Agotamiento/liberación en QEMU con 16/32/64/128 MiB |
@@ -56,6 +56,7 @@ net
 dns example.com
 http example.com
 http 10.0.2.2:8080
+net-config 10.0.2.15 10.0.2.2 10.0.2.3
 uptime
 sleep 200
 busy 250
@@ -99,11 +100,11 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 ## Límites importantes
 
 - Solo PC BIOS/x86 y hardware emulado especificado; no UEFI ni soporte comprobado en equipos reales.
-- Lotes síncronos de hasta cuatro tareas ring 3, con round-robin por IRQ0 y espacios/pilas privados; gestor de cuatro procesos background; sin carga de aplicaciones externas ni instalador. El heap es fijo de 1 MiB y el gestor físico administra como máximo 64 MiB, según E820; no hay crecimiento automático.
+- Lotes síncronos de hasta cuatro tareas ring 3, con round-robin por IRQ0 y espacios/pilas privados; gestor de cuatro procesos background; exec de fuente NotLang persistente; sin cargador ELF ni instalador. El heap es fijo de 1 MiB y el gestor físico administra como máximo 64 MiB, según E820; no hay crecimiento automático.
 - Los fallos comprobados de las demos user terminan la ejecución y regresan a la shell; los fallos del kernel siguen siendo fatales. No hay pila independiente para double fault. Las IRQ de timer y teclado están activas, pero no hay APIC, SMP ni preemption del kernel. FPU/MMX/SSE no están soportados en tareas.
 - Interfaz gráfica mínima con ratón PS/2, toolbar y minimizar/restaurar; sin navegador ni gestor completo de ventanas.
 - NotLang tiene intérprete 0.1 y compilador/VM ring3 0.2 con repeat y exec de archivos fuente; sin funciones ni acceso a archivos desde las aplicaciones.
-- Red con IP estática para QEMU, una solicitud a la vez, IPv4 y HTTP sin cifrar. Sin DHCP, IPv6, TLS/HTTPS, retransmisión TCP propia ni reensamblado de fragmentos IP. El cliente muestra el estado HTTP y la cantidad de bytes, no renderiza páginas web.
+- Red con IP estática para QEMU, una solicitud a la vez, IPv4 y HTTP sin cifrar. Configuración estática /24 y retransmisión SYN/GET con backoff; sin DHCP, IPv6, TLS/HTTPS ni reensamblado de fragmentos IP. El cliente muestra el estado HTTP y la cantidad de bytes, no renderiza páginas web.
 - Pensado para pruebas de laboratorio; no usar para información sensible ni redes hostiles.
 
 ## Documentación

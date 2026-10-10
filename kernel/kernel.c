@@ -52,7 +52,7 @@ static void clock_command(const char *kind,const char *argument) {
     console_puts(" ms ticks=");console_uint(after_ticks-ticks);console_putc('\n');
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nrun-user PROGRAM  exec FILE\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nmultitask-test  multitask-run SCENARIO\nmkfs  ls  cat NAME  write NAME TEXT  rm NAME\nspawn worker/spin/fault  ps  kill PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nrun-user PROGRAM  exec FILE\nnet  dns HOST  http HOST[:PORT]\nnet-config IP GATEWAY DNS  net-drop LOSS\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nmultitask-test  multitask-run SCENARIO\nmkfs  ls  cat NAME  write NAME TEXT  rm NAME\nspawn worker/spin/fault  ps  kill PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
@@ -60,6 +60,8 @@ static void command(const char *s) {
     else if(starts(s,"run-user ")) nl_command("run-user",s+9);
     else if(starts(s,"exec ")) nl_command("exec",s+5);
     else if(equal(s,"lang-reset")) {lang_reset();console_puts("LANG: variables cleared\n");}
+    else if(starts(s,"net-config ")) net_configure(s+11);
+    else if(starts(s,"net-drop ")) net_drop_once(s+9);
     else if(equal(s,"net")) net_status();
     else if(starts(s,"dns ")) net_command("dns",s+4);
     else if(starts(s,"http ")) net_command("http",s+5);
@@ -198,7 +200,7 @@ void kernel_main(void) {
     if(mouse_ready) pic_unmask(12);
     if(keyboard_ready) pic_unmask(1);
     __asm__ volatile("sti" ::: "memory");
-    console_puts("NotOS 0.8\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
+    console_puts("NotOS 0.9\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
     console_puts("IDT: 256 gates installed\n");
     console_puts("IRQ: PIC remapped; PIT ~1000 Hz\n");
     console_puts(keyboard_ready?"KEYBOARD: IRQ1 ready\n":"KEYBOARD: unavailable; use serial\n");

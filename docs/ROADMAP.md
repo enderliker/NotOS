@@ -43,12 +43,18 @@ Se subió en dos avances comprobados: `feat(ring3)` y `feat(aislamiento)`. Las d
 
 Se subió en tres avances comprobados: `feat(tareas)`, `feat(planificador)` y `feat(multitarea)`. Ver [contratos, pruebas y límites](TASKS.md).
 
-## Próximos hitos, aún no implementados
+## Hitos posteriores — estado en NotOS 0.9
 
 - **Completado en QEMU:** gestor con cuatro slots, PID, spawn/ps/kill, ejecución en segundo plano y recolección automática. Integrado: exec de programas fuente NotLang; no cargador ELF.
 - **Completado básico en QEMU:** ratón PS/2 IRQ12, cursor, toolbar clickable y minimizar/restaurar ventana. No es un escritorio completo.
 - **Almacenamiento completado en QEMU:** ATA PIO y NotFS persistente con CRC/snapshots y CRUD. Integrado: archivos fuente NotLang compilados y ejecutados en ring 3.
-- Retransmisión TCP, configuración de red y, posteriormente, HTTPS.
+- **Red parcialmente completada en QEMU:** retransmisión SYN/GET con backoff, recuperación de pérdidas, validación de ACK y configuración IPv4 estática /24. **HTTPS/TLS sigue pendiente.** No se declara completado el hito de red completo.
 - **Completado básico en QEMU:** NotLang 0.2 con repeat anidado, compilador de bytecode, VM ring3 y exec de archivos persistentes. No incluye funciones ni un lenguaje general.
 
 Las primeras versiones son prototipos de laboratorio, no sustitutos de un sistema de escritorio. No se declara un hito completo solo por compilar, y no se afirma soporte para hardware que no se haya probado.
+
+## Pendiente del alcance originalmente solicitado
+
+- **HTTPS real:** TLS, validación de cadena/hostname/fechas, raíces de confianza y una fuente adecuada de entropía. No existe todavía; HTTP en puerto 443 no se considera HTTPS. Es necesario validar conexiones correctas y rechazo de certificados inválidos antes de darlo por terminado.
+
+Los límites de cada módulo (ELF, funciones de lenguaje, USB, kernel preemptivo, filesystem general, DHCP/IPv6, etc.) están documentados; no se han convertido silenciosamente en capacidades implementadas.

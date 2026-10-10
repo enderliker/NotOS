@@ -203,3 +203,15 @@ Tests `process.py` y `multitask.py` — PASS: cuatro slots ocupados a la vez, PI
 ## NotLang 0.2 y archivos de programas
 
 `make test` — PASS en QEMU 9.2.4. Compilador nativo acotado, VM de 1264 bytes enlazada en 0x08000000; loops/anidamiento y aritmética ejecutados en ring3, overflow/división por cero terminan con 65, errores de compile no crean proceso. Fuente guardada en NotFS, reinicio y exec con salida 42. Frames/heap restaurados; todas las regresiones anteriores pasan. Logs `build/notlang.log`, `build/notlang-reboot.log`. La VM no usa el intérprete kernel; no es un cargador ELF ni incluye funciones.
+
+## NotOS 0.9, red y validación final conjunta
+
+`make clean test` y `make test-online` — PASS en QEMU 9.2.4, compilación `-Wall -Wextra -Werror`, sin warnings observados.
+
+- Política pura de retry: ACK parcial/fuera del límite, wrap de secuencia/timer, backoff y límite de intentos. Configuración IPv4 válida/ inválida probada nativamente.
+- Siete respuestas HTTP por NAT: tres normales con spins background y cuatro después de perder SYN, GET, SYN-ACK o primer payload de respuesta. Todas HTTP 200, cantidad exacta de bytes y sin duplicar solicitudes entregadas al servidor. Configuración alternativa 10.0.2.16 funciona y vuelve a default. Retransmisiones propias SYN/GET verificadas en logs.
+- DNS externo y HTTP 200 OK/891 bytes pasan con todos los avances juntos. **No se probó HTTPS: no está implementado.**
+- Todas las regresiones: gráficos/teclado/ratón, excepciones, IRQ, E820 16/32/64/128 MiB, paginación, heap, CPL3 y aislamiento, seis escenarios de multitarea con 16/32/64 MiB, procesos background, persistencia/reboot/CRC y NotLang ring3 desde archivo.
+- Imagen kernel rellenada a 65536 bytes; payload observado hasta 0x1c020 y BSS hasta 0x58414, debajo de sus límites comprobados por el linker. Tamaños pueden variar con el compilador.
+
+Logs `build/network.log`, `build/online.log`, `build/process.log`, `build/storage-*.log`, `build/mouse.log`, `build/notlang*.log` y las suites anteriores. No se han verificado CI remota ni hardware real. Los módulos nuevos son propios; no se añadió kernel/runtime Linux ni proxy host para aparentar capacidades del invitado.
