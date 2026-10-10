@@ -155,3 +155,9 @@ Log `build/user-ring3.log`. No se afirma todavía aislamiento por CR3 ni recuper
 - DNS e internet HTTP 200 OK/891 bytes pasan después de la demo de buffers inválidos en el mismo invitado.
 
 Logs `build/user-isolation.log`, `build/user-16M.log`, `build/user-64M.log`. CI remota y hardware real no se han verificado aquí. El kernel conserva el límite de payload de 64 KiB y el límite de BSS anterior al guard 0x80000, comprobados por el linker.
+
+## Fase 5, preparación de la arquitectura
+
+`make clean test` — PASS. Se separó el monolito de demos user en task (ciclo de vida), syscall (ABI/validación) y user (diagnóstico). Las constantes de syscall se comparten entre C y assembly.
+
+El comportamiento previo sigue intacto: roots privados, fallos recuperables, presupuesto, buffers validados, memoria, gráficos, NotLang, IRQ y HTTP local. Todavía no se declara planificación concurrente en este avance.

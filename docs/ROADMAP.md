@@ -35,9 +35,10 @@ Se subió en tres avances comprobados: `feat(memoria)`, `feat(paginacion)` y `fe
 
 Se subió en dos avances comprobados: `feat(ring3)` y `feat(aislamiento)`. Las demos son síncronas, no un sistema de procesos completo. Ver [alcance y límites](USERSPACE.md).
 
-## Fase 5 prevista: multitarea básica
+## Fase 5: multitarea básica (en curso)
 
-Planificador y cambio entre varias tareas user con sus propios contextos/pilas. Todavía no están implementados.
+- **Completado:** modelo de tareas y separación entre runtime, syscalls y diagnóstico, conservando las regresiones.
+- **Pendiente:** política round-robin, contextos/pilas propios y cambios por IRQ.
 
 ## Próximos hitos, aún no implementados
 

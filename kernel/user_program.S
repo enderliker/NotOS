@@ -1,37 +1,38 @@
+#include "syscall_numbers.h"
 .section .rodata.user,"a"
 .code32
 .global user_blob_start,user_blob_end
 user_blob_start:
-    mov $2, %eax
+    mov $SYS_PROBE, %eax
     int $0x80
     cmp $3, %eax
     jne user_fail
     std
-    mov $2, %eax
+    mov $SYS_PROBE, %eax
     int $0x80
     pushfl
     pop %edx
     test $0x400, %edx
     jz user_fail
     cld
-    mov $1, %eax
+    mov $SYS_TICKS, %eax
     int $0x80
     mov %eax, 0x08001004
 user_wait:
-    mov $1, %eax
+    mov $SYS_TICKS, %eax
     int $0x80
     sub 0x08001004, %eax
     cmp $20, %eax
     jb user_wait
     movl $0x12345678, 0x08001008
     mov 0x0800100c, %ebx
-    mov $4, %eax
+    mov $SYS_TEST_REPORT, %eax
     int $0x80
     cmp $1, %eax
     jne user_fail
     mov $255, %eax
     int $0x80
-    cmp $-38, %eax
+    cmp $-ERROR_NO_SYSCALL, %eax
     jne user_fail
     mov 0x08001000, %eax
     cmp $1, %eax
@@ -79,7 +80,7 @@ foreign_read:
 spin_forever:
     jmp spin_forever
 .macro reject_buffer pointer, length, expected
-    mov $3, %eax
+    mov $SYS_WRITE, %eax
     mov $\pointer, %ebx
     mov $\length, %ecx
     int $0x80
@@ -95,7 +96,7 @@ bad_buffers:
     reject_buffer 0xffffffff, 0, 0
     jmp user_success
 valid_write:
-    mov $3, %eax
+    mov $SYS_WRITE, %eax
     mov $(0x08000000+user_text-user_blob_start), %ebx
     mov $(user_text_end-user_text), %ecx
     int $0x80
@@ -106,7 +107,7 @@ user_fail:
     cld
     mov $93, %ebx
 user_exit:
-    xor %eax, %eax
+    mov $SYS_EXIT, %eax
     int $0x80
     ud2
 user_text: .ascii "hello from ring3\n"

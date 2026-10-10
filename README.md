@@ -88,6 +88,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 
 ## Documentación
 
+- [Arquitectura y convenciones](docs/ARCHITECTURE.md)
 - [Ejecución de usuario](docs/USERSPACE.md)
 - [Memoria](docs/MEMORY.md)
 - [NotLang](docs/NOTLANG.md)

@@ -3,7 +3,8 @@
 #include "pic.h"
 #include "clock.h"
 #include "keyboard.h"
-#include "user.h"
+#include "task.h"
+#include "syscall.h"
 struct idt_gate {u16 low,selector;u8 zero,flags;u16 high;} __attribute__((packed));
 struct idt_pointer {u16 limit;u32 base;} __attribute__((packed));
 static struct idt_gate idt[256] __attribute__((aligned(16)));
@@ -66,8 +67,8 @@ unsigned interrupts_irq_count(unsigned irq) {return irq<16?irq_counts[irq]:0;}
 unsigned interrupts_spurious_count(unsigned irq) {return irq==7?spurious7:irq==15?spurious15:0;}
 unsigned interrupts_stray_count(void) {return stray;}
 void interrupt_dispatch(struct interrupt_frame *frame) {
-    if(frame->vector<32 && (frame->cs&3)==3) user_fault(frame);
-    if(frame->vector==128) {user_syscall(frame);return;}
+    if(frame->vector<32 && (frame->cs&3)==3) task_handle_fault(frame);
+    if(frame->vector==128) {syscall_dispatch(frame);return;}
     if(frame->vector==3) {breakpoints++;return;}
     if(frame->vector>=32 && frame->vector<48) {
         unsigned irq=frame->vector-32;
@@ -76,7 +77,7 @@ void interrupt_dispatch(struct interrupt_frame *frame) {
             return;
         }
         irq_counts[irq]++;
-        if(irq==0) {clock_irq();pic_eoi(irq);user_timer(frame);return;}
+        if(irq==0) {clock_irq();pic_eoi(irq);task_handle_timer(frame);return;}
         else if(irq==1) keyboard_irq();
         else {stray++;pic_mask(irq);}
         pic_eoi(irq);
