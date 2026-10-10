@@ -11,6 +11,7 @@
 #include "arch.h"
 #include "user.h"
 #include "multitask.h"
+#include "fs.h"
 static char line[160];
 static unsigned used;
 static int dropped;
@@ -47,7 +48,7 @@ static void clock_command(const char *kind,const char *argument) {
     console_puts(" ms ticks=");console_uint(after_ticks-ticks);console_putc('\n');
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nmultitask-test  multitask-run SCENARIO\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nmultitask-test  multitask-run SCENARIO\nmkfs  ls  cat NAME  write NAME TEXT  rm NAME\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
@@ -104,6 +105,10 @@ static void command(const char *s) {
     else if(starts(s,"user-run ")) user_command(s+9);
     else if(equal(s,"multitask-test")) multitask_command("workers");
     else if(starts(s,"multitask-run ")) multitask_command(s+14);
+    else if(equal(s,"mkfs") || equal(s,"ls")) fs_command(s, "");
+    else if(starts(s,"write ")) fs_command("write",s+6);
+    else if(starts(s,"cat ")) fs_command("cat",s+4);
+    else if(starts(s,"rm ")) fs_command("rm",s+3);
     else if(*s) console_puts("ERROR: unknown command\n");
 }
 static void input(char c) {
@@ -190,6 +195,7 @@ void kernel_main(void) {
     paging_status();
     heap_status();
     console_puts("ARCH: TSS selector=0x28; user gate ready\n");
+    fs_init();
     net_init();
     console_puts("notos> ");
     for(;;) {

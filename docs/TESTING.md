@@ -185,3 +185,7 @@ Log `build/multitask.log`. La ejecución sigue siendo un lote síncrono, no un g
 Logs `build/multitask-16M.log`, `build/multitask-32M.log`, `build/multitask-64M.log`, `build/network.log`, `build/online.log`. Payload observado hasta 0x19006, antes de firma 0x1fffc; BSS hasta 0x4f1f0, antes del guard 0x80000. El linker comprueba los límites; estos tamaños pueden variar por compilador.
 
 No se han comprobado CI remota ni hardware real. Los budgets son muestras CPL3, no una garantía estricta de consumo CPU/tiempo de pared; no hay preemption del kernel. Shell/red esperan el fin del lote y FPU/SIMD no están soportados. Ver [contratos y límites](TASKS.md).
+
+## Almacenamiento ATA / NotFS
+
+`make test` — PASS en QEMU 9.2.4. Nuevo test storage: disco ausente, formato explícito del primary-slave, CRUD, reinicio, recuperación del snapshot anterior al corromper el último, límite de ocho archivos y formato persistente. Imagen de arranque sin modificar. Todas las regresiones previas pasan. Logs `build/storage-*.log`; no se han probado fallos eléctricos ni discos físicos.

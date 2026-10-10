@@ -47,7 +47,7 @@ Se subió en tres avances comprobados: `feat(tareas)`, `feat(planificador)` y `f
 
 - Gestor de procesos persistentes y ejecución en segundo plano.
 - Ratón y UI interactiva más allá de la terminal.
-- Almacenamiento persistente y archivos de programas.
+- **Almacenamiento completado en QEMU:** ATA PIO y NotFS persistente con CRC/snapshots y CRUD. Pendiente integrar carga/ejecución de programas.
 - Retransmisión TCP, configuración de red y, posteriormente, HTTPS.
 - Ampliaciones de NotLang y ejecución fuera del kernel.
 

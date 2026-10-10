@@ -9,7 +9,7 @@ import tempfile
 import time
 
 class Machine:
-    def __init__(self, network=False, logname="smoke", memory="32M"):
+    def __init__(self, network=False, logname="smoke", memory="32M", data_disk=None):
         self.tmp = tempfile.TemporaryDirectory(prefix='notos-')
         self.output = bytearray()
         self.logname = logname
@@ -20,6 +20,8 @@ class Machine:
                 '-drive', 'format=raw,file=build/notos.img', '-display', 'none',
                 '-qmp', f'unix:{monitor},server=on,wait=off',
                 '-serial', 'stdio', '-no-reboot']
+        if data_disk is not None:
+            args += ['-drive', f'if=ide,index=1,format=raw,file={data_disk}']
         if os.environ.get('QEMU_TRACE'):
             args += ['-d', 'int,cpu_reset', '-D', 'build/qemu-trace.log']
         if network:

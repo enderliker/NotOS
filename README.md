@@ -16,6 +16,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Paginación | CR0.PG/WP, código de solo lectura y ventana virtual | Aliases, TLB y fallos #PF reales con CR2 |
 | Heap | kmalloc/kcalloc/kfree, split/coalesce y alineación de 16 bytes | 20000 operaciones nativas y asignaciones reales en el kernel |
 | Aislamiento básico | GDT/TSS, CR3 privados, INT 0x80 y buffers validados | CPL3 real, datos separados, fallos user y timeout recuperables |
+| Archivos | ATA PIO y NotFS propio en disco de datos separado | Reinicios, CRC, rollback y CRUD persistente |
 | Multitarea básica | Round-robin por IRQ0, cuatro slots, pilas privadas y SYS_YIELD | Contextos/registros, lotes mixtos, presupuesto, FPU rechazada y rollback OOM |
 
 Cada avance se sube en un commit `feat(alcance) mensaje` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
@@ -65,6 +66,11 @@ free 0
 heap-test
 ring3-test
 multitask-test
+mkfs
+write hello.txt Hola
+cat hello.txt
+ls
+rm hello.txt
 multitask-run four
 multitask-run yield
 multitask-run fault
@@ -86,7 +92,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 ## Límites importantes
 
 - Solo PC BIOS/x86 y hardware emulado especificado; no UEFI ni soporte comprobado en equipos reales.
-- Lotes síncronos de hasta cuatro tareas ring 3, con round-robin por IRQ0 y espacios/pilas privados; sin gestor persistente, carga de aplicaciones externas, sistema de archivos persistente o instalador. El heap es fijo de 1 MiB y el gestor físico administra como máximo 64 MiB, según E820; no hay crecimiento automático.
+- Lotes síncronos de hasta cuatro tareas ring 3, con round-robin por IRQ0 y espacios/pilas privados; sin gestor persistente, carga de aplicaciones externas, instalador. El heap es fijo de 1 MiB y el gestor físico administra como máximo 64 MiB, según E820; no hay crecimiento automático.
 - Los fallos comprobados de las demos user terminan la ejecución y regresan a la shell; los fallos del kernel siguen siendo fatales. No hay pila independiente para double fault. Las IRQ de timer y teclado están activas, pero no hay APIC, SMP ni preemption del kernel. FPU/MMX/SSE no están soportados en tareas.
 - Interfaz gráfica mínima, sin ratón, navegador ni gestor completo de ventanas.
 - NotLang es un intérprete pequeño, sin bucles, funciones ni acceso a archivos.
@@ -99,6 +105,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - [Ejecución de usuario](docs/USERSPACE.md)
 - [Multitarea y planificador](docs/TASKS.md)
 - [Memoria](docs/MEMORY.md)
+- [Almacenamiento](docs/STORAGE.md)
 - [NotLang](docs/NOTLANG.md)
 - [Red](docs/NETWORK.md)
 - [Interrupciones y excepciones](docs/INTERRUPTS.md)
