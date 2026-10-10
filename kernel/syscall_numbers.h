@@ -11,6 +11,12 @@
 #define SYS_MMAP 7
 #define SYS_MUNMAP 8
 #define SYS_SLEEP 9
+#define SYS_FD_WRITE 10
+#define SYS_TIME 11
+#define SYS_ENTROPY 12
+#define SYS_PID 13
+#define ERROR_BAD_FD 9
+#define ERROR_IO 5
 #define ERROR_UNSUPPORTED 95
 #define ERROR_MEMORY 12
 #define SYSCALL_WRITE_LIMIT 160

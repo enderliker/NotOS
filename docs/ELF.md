@@ -37,7 +37,7 @@ Solo después de validar todo el plan se adquieren frames. Cada segmento se copi
 
 Cada espacio tiene PDPT/directorio privado y tablas user creadas bajo demanda. La destrucción recorre exclusivamente la región user; nunca libera mappings supervisor compartidos. No hay una lista grande de propietarios dentro de la estructura task. El layout de las demos antiguas de una página y de NotLang se conserva.
 
-## ABI incremental, no libc POSIX
+## ABI incremental, no ABI Linux/POSIX completa
 
 INT 0x80: EAX número/resultado, EBX primer argumento, ECX segundo. Se conservan todos los números existentes.
 
@@ -47,7 +47,7 @@ INT 0x80: EAX número/resultado, EBX primer argumento, ECX segundo. Se conservan
 
 Validación de buffers recorre todos los PDE/PTE involucrados, incluyendo cruces de 2 MiB. Se invalida TLB al cambiar mappings del proceso activo. El kernel sigue sin preemption/SMP.
 
-Esto **no** es ABI Linux, ni mmap POSIX completo, ni errno/stdio/malloc de una libc portada. La entrada standalone C no prepara argc/argv/envp/auxv ni thread-local storage; estos son trabajo posterior del port de libc.
+Esto **no** es ABI Linux, ni mmap POSIX completo, ni una implementación completa de mmap POSIX. Desde 0.14, el runtime de Picolibc prepara argc/argv, envp vacío y AT_NULL, con errno/stdio/malloc reales; ver LIBC.md. Las demos standalone conservan su entry propio. Thread-local storage sigue sin soporte.
 
 ## Pruebas
 
@@ -58,9 +58,13 @@ Esto **no** es ABI Linux, ni mmap POSIX completo, ni errno/stdio/malloc de una l
 - Fallos reales #PF: ejecución de heap/pila (NX), guard y escritura de texto RX; kernel continúa.
 - OOM al crear root/tablas, al crecer heap/mmap después de cruzar una tabla PAE y al reservar pila kernel. Frames/breaks originales restaurados.
 
-No se afirma soporte para binarios arbitrarios, libc, señales, FDs/sockets, curl, kernel preemptivo ni hardware físico.
+No se afirma soporte para binarios arbitrarios, libc completa, señales, FDs/sockets, curl, kernel preemptivo ni hardware físico.
 
 ## Espera por syscall
 
 NotOS 0.13 agrega SYS_SLEEP=9 para procesos gestionados: 0..60000 ms, cero yield y retorno 0 al despertar.
 TASK_BLOCKED conserva el frame privado y no es seleccionado hasta vencer el timeout. Ver PROCESSES.md para restricciones de lotes síncronos y el trabajo pendiente de poll/sockets.
+
+## Startup y libc en 0.14
+
+`process_spawn_elf_args` añade nombre y un argumento acotados al stack privado, seguido de argv NULL, envp vacío y auxv AT_NULL. ESP inicial alineado a 16 bytes; copy se realiza por aliases supervisor antes de ejecutar. El CRT separado conserva segmentos W^X y ejecuta arrays init/fini. Ver LIBC.md para syscalls 10..13 y límites del port.

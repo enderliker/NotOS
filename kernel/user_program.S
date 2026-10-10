@@ -105,6 +105,44 @@ bad_buffers:
     reject_buffer 0xfffffff8, 16, -14
     reject_buffer 0x08001000, 161, -22
     reject_buffer 0xffffffff, 0, 0
+    /* Platform ABI validates full spans and rejects writes to user text. */
+    mov $SYS_FD_WRITE, %eax
+    mov $77, %ebx
+    mov $0x08001000, %ecx
+    mov $1, %edx
+    int $0x80
+    cmp $-ERROR_BAD_FD, %eax
+    jne user_fail
+    mov $SYS_FD_WRITE, %eax
+    mov $1, %ebx
+    mov $0x10000, %ecx
+    int $0x80
+    cmp $-ERROR_BAD_ADDRESS, %eax
+    jne user_fail
+    mov $SYS_TIME, %eax
+    mov $1, %ebx
+    mov $0x08000000, %ecx
+    int $0x80
+    cmp $-ERROR_BAD_ADDRESS, %eax
+    jne user_fail
+    mov $SYS_TIME, %eax
+    mov $1, %ebx
+    mov $0x08001020, %ecx
+    int $0x80
+    test %eax, %eax
+    jne user_fail
+    cmpl $1000000000, 0x08001028
+    jae user_fail
+    mov $SYS_ENTROPY, %eax
+    mov $0x08000000, %ebx
+    mov $1, %ecx
+    int $0x80
+    cmp $-ERROR_BAD_ADDRESS, %eax
+    jne user_fail
+    mov $SYS_PID, %eax
+    int $0x80
+    cmp $1, %eax
+    jne user_fail
     /* Synchronous diagnostic batches cannot register a managed-process wait. */
     mov $SYS_SLEEP, %eax
     mov $1, %ebx

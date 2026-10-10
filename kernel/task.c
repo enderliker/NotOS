@@ -18,7 +18,7 @@ static void initialize_context(struct task *task) {
     context->registers.eip = task->space.entry;
     context->registers.cs = 0x1b;
     context->registers.eflags = 0x202;
-    context->user.esp = task->space.stack_top - 16;
+    context->user.esp = task->space.initial_stack ? task->space.initial_stack : task->space.stack_top - 16;
     context->user.ss = 0x23;
     task->context = &context->registers;
     *(u32 *)task->kernel_stack = TASK_STACK_CANARY;

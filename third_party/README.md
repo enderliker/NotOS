@@ -21,3 +21,14 @@ Build uses a custom config (kernel/notos_mbedtls_config.h), no host system heade
 Platform allocator, RTC UTC and external PSA entropy hooks are explicit. BearSSL is retained only for entropy DRBG/SHA256 and its known-answer test, not TLS negotiation.
 SHA1 is compiled to recognize historical anchor signature OIDs; the verification profile and advertised signature algorithms exclude SHA1 chains.
 The small freestanding headers are kernel crypto adapters, not a ported libc and not sufficient for curl.
+
+## Userspace C library
+
+Picolibc 1.8.11, Keith Packard / The Newlib Project and per-file contributors.
+Source: https://github.com/picolibc/picolibc/releases/download/1.8.11/picolibc-1.8.11.tar.xz
+SHA256: b4671ddeecbe427b77fa9a863be92c74a9059e0373a5b31343c791ff2337db64
+
+Upstream sources unchanged, SHA checked before safe extraction. Offline: PICOLIBC_ARCHIVE=/path/to/archive.
+The selected libc sources use their upstream BSD/MIT/newlib and other per-file notices; this is not one blanket project license. See the complete upstream copyright/license inventory in Picolibc-COPYING.txt. The source distribution also contains an AGPL-3 script (scripts/GeneratePicolibcCrossFile.sh); NotOS does not use or incorporate it, and generates its own Meson cross file. Keep the full inventory with binary distributions and review licenses when selecting additional components.
+
+Meson builds freestanding i386/i486 without system headers, host libc, semihosting, multilib, picocrt, thread-local storage or thread locks. Integer/long-long stdio is selected. A NotOS startup and explicit syscall adapter in user/libc provide console output, sbrk, process exit, time, sleep and entropy. Missing filesystem/stdin facilities fail with ENOSYS. Link-time garbage collection selects only needed upstream functions; float/libm and a full POSIX environment are not claimed. Headers and libc.a are installed under build/sysroot; nothing is installed into the host system. See docs/LIBC.md.

@@ -18,20 +18,29 @@ u32 process_spawn_image(const char *name, const u8 *code, u32 bytes,
         || (data_bytes && !data)) return 0;
     unsigned index = 0;
     while (index < SCHEDULER_CAPACITY && slots[index].task.state != TASK_UNUSED) index++;
-    if (index == SCHEDULER_CAPACITY || !next_pid) return 0;
+    if (index == SCHEDULER_CAPACITY || !next_pid || next_pid>0x7fffffffu) return 0;
     struct process_slot *slot = &slots[index];
     if (!task_create(&slot->task, next_pid, code, bytes)) return 0;
     for (unsigned i = 0; (slot->name[i] = name[i]); ++i) {}
     for (unsigned i = 0; i < data_bytes; ++i) ((u8 *)slot->task.space.data)[i] = data[i];
     return next_pid++;
 }
-u32 process_spawn_elf(const char *name,const u8 *image,u32 bytes) {
-    if (!name || length(name)>=PROCESS_NAME_BYTES || !next_pid) return 0;
+u32 process_spawn_elf_args(const char *name,const u8 *image,u32 bytes,const char *argument) {
+    if (!name || length(name)>=PROCESS_NAME_BYTES || !next_pid || next_pid>0x7fffffffu) return 0;
     unsigned index=0;
     while (index<SCHEDULER_CAPACITY && slots[index].task.state!=TASK_UNUSED) index++;
     if (index==SCHEDULER_CAPACITY || !task_create_elf(&slots[index].task,next_pid,image,bytes)) return 0;
+    if (!space_arguments(&slots[index].task.space,name,argument)) {
+        task_destroy(&slots[index].task);return 0;
+    }
+    /* Creation built a context before argc/argv existed; update only its saved ESP. */
+    struct user_interrupt_tail *tail=(struct user_interrupt_tail *)(slots[index].task.context+1);
+    tail->esp=slots[index].task.space.initial_stack;
     for (unsigned i=0;(slots[index].name[i]=name[i]);i++) {}
     return next_pid++;
+}
+u32 process_spawn_elf(const char *name,const u8 *image,u32 bytes) {
+    return process_spawn_elf_args(name,image,bytes,0);
 }
 static void collect(struct process_slot *slot) {
     console_puts("PROCESS: pid="); console_uint(slot->task.id);

@@ -91,7 +91,7 @@ int tls_start(const char *host) {
     if (error) {protocol_error(error);tls_stop();return 0;}
     mbedtls_ssl_set_bio(&connection->ssl,connection,send_record,receive_record,0);
     char *p=connection->request;
-    const char *parts[]={"GET / HTTP/1.0\r\nHost: ",host,"\r\nUser-Agent: NotOS/0.13\r\nConnection: close\r\n\r\n"};
+    const char *parts[]={"GET / HTTP/1.0\r\nHost: ",host,"\r\nUser-Agent: NotOS/0.14\r\nConnection: close\r\n\r\n"};
     for (unsigned i=0;i<3;i++) for (const char *s=parts[i];*s;s++) *p++=*s;
     connection->request_bytes=(unsigned)(p-connection->request);return 1;
 }

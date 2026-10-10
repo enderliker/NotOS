@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include "../kernel/clock_math.h"
 int main(void) {
-    struct clock_state state={0,0,0};
+    struct clock_state state={0};
     for(unsigned i=1;i<=1000000;i++) {
         clock_advance(&state);
         unsigned long long expected=(unsigned long long)i*PIT_DIVISOR*1000u;
@@ -13,7 +13,7 @@ int main(void) {
     state.ticks=0xffffffffu;state.elapsed=0xffffffffu;state.fraction=PIT_HZ-1;
     unsigned begin=state.elapsed;
     clock_advance(&state);
-    assert(state.ticks==0 && state.elapsed==0);
+    assert(state.ticks==0 && state.elapsed==0 && state.elapsed_high==1);
     assert((unsigned)(state.elapsed-begin)==1);
     assert(state.fraction==PIT_DIVISOR*1000u-1);
     state.elapsed=0xfffffffau;state.ticks=0;state.fraction=0;

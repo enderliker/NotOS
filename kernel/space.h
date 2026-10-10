@@ -9,11 +9,12 @@
 #define USER_STACK_LIMIT 0x09000000u
 struct user_space {
     u32 root,directory,table,code,data,stack;
-    u32 entry,stack_low,stack_top,heap_end;
+    u32 entry,stack_low,stack_top,heap_end,initial_stack;
 };
 /* Destination must be zero initialized. Failures release every acquired frame. */
 int space_create(struct user_space *space,const u8 *image,unsigned bytes);
 int space_create_elf(struct user_space *space,const u8 *image,u32 bytes);
+int space_arguments(struct user_space *space,const char *name,const char *argument);
 int space_destroy(struct user_space *space);
 int space_range(const struct user_space *space,u32 address,u32 bytes,int writable);
 /* Return old break on failure. These are NotOS APIs, not a Linux syscall ABI. */

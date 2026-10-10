@@ -14,7 +14,7 @@ build/entry.o: kernel/entry.S | build
 	$(CC) -m32 -c $< -o $@
 ELF_DEMOS := demo nx-heap nx-stack stack-guard readonly sleep
 ELF_DEMO_OBJS := $(addprefix build/elf-,$(addsuffix -blob.o,$(ELF_DEMOS)))
-KERNEL_OBJS := $(ELF_DEMO_OBJS) build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
+KERNEL_OBJS := build/libc-demo-blob.o $(ELF_DEMO_OBJS) build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
 build/notlang_vm.o: user/notlang_vm.c kernel/notlang_bytecode.h kernel/syscall_numbers.h kernel/base.h | build
 	$(CC) $(CFLAGS) -ffunction-sections -c $< -o $@
 build/notlang_vm.elf: build/notlang_vm.o user/link.ld
@@ -103,6 +103,7 @@ test: all build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit 
 	python3 tests/physical.py
 	python3 tests/paging.py
 	python3 tests/heap.py
+	python3 tests/libc.py
 	python3 tests/elf.py
 	python3 tests/user.py
 	python3 tests/multitask.py
@@ -159,3 +160,26 @@ build/elf-unit: tests/elf_unit.c kernel/elf.c kernel/elf.h kernel/base.h build/e
 
 build/wait-unit: tests/wait_unit.c kernel/wait_policy.h kernel/base.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/wait_unit.c -o $@
+
+build/picolibc.ready: tools/fetch_picolibc.py | build
+	python3 tools/fetch_picolibc.py
+build/picolibc-built.ready: build/picolibc.ready tools/build_picolibc.py Makefile
+	CC="$(CC)" NOTOS_CFLAGS="$(CFLAGS)" python3 tools/build_picolibc.py
+LIBC_INCLUDES := -nostdinc -isystem build/sysroot/include/notos -isystem $(shell $(CC) -print-file-name=include)
+LIBC_FLAGS := $(CFLAGS) $(LIBC_INCLUDES) -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -D_POSIX_MONOTONIC_CLOCK=200809L -U__linux__ -U__unix__ -D__NOTOS__
+build/libc-demo.o: user/libc/demo.c user/libc/os.h kernel/platform_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
+	$(CC) $(LIBC_FLAGS) -c $< -o $@
+build/libc-port.o: user/libc/port.c user/libc/os.h kernel/platform_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
+	$(CC) $(LIBC_FLAGS) -c $< -o $@
+build/libc-start.o: user/libc/start.c build/picolibc-built.ready
+	$(CC) $(LIBC_FLAGS) -c $< -o $@
+build/libc-crt.o: user/libc/crt0.S | build
+	$(CC) -m32 -c $< -o $@
+build/user-integer-runtime.o: kernel/integer_runtime.c kernel/base.h | build
+	$(CC) $(CFLAGS) -c $< -o $@
+build/libc-demo.elf: build/libc-demo.o build/libc-port.o build/libc-start.o build/libc-crt.o build/user-integer-runtime.o user/elf_link.ld
+	$(LD) -m elf_i386 --gc-sections -z noexecstack -z max-page-size=16 -T user/elf_link.ld --Map=build/libc-demo.map $(filter %.o,$^) build/sysroot/lib/notos/libc.a -o $@
+
+build/libc-demo-blob.o: build/libc-demo.elf
+	objcopy --strip-all $< build/libc-app.elf
+	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.libcimage,alloc,load,readonly,data,contents --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=noload,readonly build/libc-app.elf $@

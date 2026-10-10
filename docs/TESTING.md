@@ -286,3 +286,22 @@ Logs `build/elf-16M.log`, `build/elf-64M.log`. CI remota y equipos físicos no v
 - HTTPS público sigue negociando TLSv1.3 y los peers controlados cubren 1.2/1.3.
 
 Log `build/blocked-wait.log`. No equivale a poll/select ni sockets bloqueantes de libc; ver PROCESSES.md. Sin verificación de CI remota/hardware físico.
+
+## NotOS 0.14: Picolibc de usuario
+
+`make clean test` y `make test-online` PASS en QEMU 9.2.4. Después de añadir copia bytewise para buffers SYS_TIME desalineados se repitieron `make test` y `make test-online`; resultados conservados en los logs del port.
+
+- Picolibc upstream 1.8.11 enlazada estáticamente en un ELF independiente; mapa de enlace comprueba libc.a del sysroot, sin host libc/libgcc ni semihosting.
+- Arranque CPL3 con argc/argv/envp, constructor, main, atexit, destructor y vaciado de stdio; salida explícita 23 y retorno 0.
+- Strings/memoria, formato integer/long-long y truncamiento snprintf, strtol/strtoll/overflow, qsort/bsearch y environment.
+- 2500 operaciones malloc/free, alineación, calloc cero y overflow, realloc crecer/reducir, OOM que conserva la asignación original y rechazo de sbrk(INTPTR_MIN).
+- Dos procesos secuenciales y cuatro concurrentes en 16/64 MiB; errno privado conservado a través de nanosleep, quinto slot rechazado y frames/heap restaurados exactamente.
+- stdout/stderr reales, EBADF/EFAULT, reloj inválido, SYS_TIME desalineado, stdin/fgetc y fopen fallan explícitamente; no se afirma VFS.
+- getentropy rechaza rangos readonly/tamaños inválidos y falla cerrado sin semilla. Los bytes aleatorios no se imprimen ni guardan en logs.
+- time_t64, calendario 2040 y RTC real 2050; monotónico/resoluciones y nanosleep inválido. Carry del contador ms bajo probado nativamente.
+- División/remainder signed/unsigned de 64 bits: límites y 100000 comparaciones. Helpers propios enlazados separadamente en kernel y aplicación.
+- Regresiones de arranque/UI/IRQ/memoria/ELF/aislamiento/multitarea/NotLang/esperas/archivos/red/TLS pasan. Internet: DNS y HTTP200; HTTPS example.com negoció TLSv1.3, HTTP200 y cierre autenticado. TLS1.2 mantiene cobertura con peers controlados.
+
+Código propio con `-Wall -Wextra -Werror`. La biblioteca upstream se compila sin elevar sus warnings a errores; se observó un warning de prototype de `_set_tls` en machine/x86/tls.c, con TLS de threads desactivado. No se silencian ni se presentan las fuentes upstream como libres de warnings.
+
+Logs `build/libc-16M.log`, `build/libc-64M.log`, `build/libc-noentropy.log`, `build/libc-time2050.log`; ELF/símbolos/mapa en build. No se probaron CI remota ni hardware físico. Port inicial single-thread/stdio entero, sin archivos POSIX/stdin funcional/sockets/poll/float/libm ni curl upstream: ver LIBC.md.

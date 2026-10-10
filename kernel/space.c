@@ -171,6 +171,37 @@ int space_range(const struct user_space *space,u32 address,u32 bytes,int writabl
     }
     return 1;
 }
+static int copy_to_space(struct user_space *space,u32 address,const void *data,u32 bytes) {
+    if (!space_range(space,address,bytes,1)) return 0;
+    const u8 *source=data;
+    while (bytes) {
+        u32 offset=address&4095u,n=4096-offset;
+        if (n>bytes) n=bytes;
+        u8 *destination=(u8 *)(frame_at(space,address)+offset);
+        for (u32 i=0;i<n;i++) destination[i]=source[i];
+        source+=n;address+=n;bytes-=n;
+    }
+    return 1;
+}
+int space_arguments(struct user_space *space,const char *name,const char *argument) {
+    if (!space || !space->root || !name || !*name || length(name)>64
+        || (argument && length(argument)>64)) return 0;
+    u32 argc=argument?2:1,cursor=space->stack_top;
+    cursor-=length(name)+1;u32 name_address=cursor;
+    if (!copy_to_space(space,cursor,name,length(name)+1)) return 0;
+    u32 argument_address=0;
+    if (argument) {
+        cursor-=length(argument)+1;argument_address=cursor;
+        if (!copy_to_space(space,cursor,argument,length(argument)+1)) return 0;
+    }
+    u32 words[7]={argc,name_address,0,0,0,0,0};
+    if (argument) words[2]=argument_address;
+    /* argc, argv pointers+NULL, empty envp, AT_NULL pair. */
+    u32 bytes=(argc+5)*sizeof(u32),stack=(cursor-bytes)&~15u;
+    if (!copy_to_space(space,stack,words,bytes)) return 0;
+    space->initial_stack=stack;
+    return 1;
+}
 u32 space_brk(struct user_space *space,u32 requested) {
     if (!space || !space->root) return 0;
     u32 previous=space->heap_end;

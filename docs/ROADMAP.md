@@ -43,9 +43,9 @@ Se subió en dos avances comprobados: `feat(ring3)` y `feat(aislamiento)`. Las d
 
 Se subió en tres avances comprobados: `feat(tareas)`, `feat(planificador)` y `feat(multitarea)`. Ver [contratos, pruebas y límites](TASKS.md).
 
-## Hitos posteriores — estado en NotOS 0.13
+## Hitos posteriores — estado en NotOS 0.14
 
-- **Completado en QEMU:** gestor con cuatro slots, PID, spawn/ps/kill, ejecución en segundo plano y recolección automática. Integrado: exec de programas fuente NotLang; no cargador ELF.
+- **Completado en QEMU:** gestor con cuatro slots, PID, spawn/ps/kill, ejecución en segundo plano y recolección automática. Integrado: exec de programas fuente NotLang y ELF32 estáticos embebidos; sin carga de ejecutables desde VFS.
 - **Completado básico en QEMU:** ratón PS/2 IRQ12, cursor, toolbar clickable y minimizar/restaurar ventana. No es un escritorio completo.
 - **Almacenamiento completado en QEMU:** ATA PIO y NotFS persistente con CRC/snapshots y CRUD. Integrado: archivos fuente NotLang compilados y ejecutados en ring 3.
 - **Completado básico en QEMU:** retransmisión TCP con backoff, pérdidas, ACK validado, config IPv4 /24 y HTTPS/TLS1.2/1.3 con cadena/DNS/SAN/EKU/fecha verificados. Límites documentados en TLS.md.
@@ -70,9 +70,15 @@ Ver [CURL_PORT](CURL_PORT.md) para los gates de ELF, memoria user, libc, sockets
 - Heap por proceso, brk y mmap anónimo bajo demanda, munmap/TLB y rollback OOM.
 - Ejecución y fallos recuperables en ring3, coexistencia con NotLang y cuatro procesos.
 
-Ver ELF.md. No es todavía startup/libc POSIX, sockets BSD ni curl upstream.
+Ver ELF.md. El startup/libc inicial de 0.14 está descrito en LIBC.md; no es POSIX completo, sockets BSD ni curl upstream.
 
 ## Esperas temporizadas de procesos gestionados
 
 TASK_BLOCKED y SYS_SLEEP: guardado del frame, devolución al event loop, despertar relativo, cancelación y recolección.
 Esto prepara el bloqueo de libc/poll, pero no incluye FDs, sockets ni un poll POSIX. Los lotes diagnósticos síncronos rechazan esta espera de forma explícita.
+
+## Libc de usuario — port inicial comprobado
+
+Picolibc upstream estática con sysroot, startup argc/argv/envp, init/fini/atexit, malloc/calloc/realloc/free sobre brk privado, stdio entero, errno por proceso, time_t64 y espera/entropía. Pruebas en ELF ring3, cuatro procesos concurrentes, OOM y recursos restaurados.
+
+El siguiente gate de curl es FDs/VFS y después sockets/poll/DNS, no renombrar el cliente HTTPS. No hay stdin funcional, archivos POSIX ni float/libm comprobados. Ver LIBC.md y CURL_PORT.md.

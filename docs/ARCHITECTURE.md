@@ -61,3 +61,11 @@ La validación de buffers recorre PDEs de 2 MiB; la propiedad se recupera camina
 `wait_policy.h` contiene la comparación relativa pura (sin I/O ni asignación). SYS_SLEEP valida y registra duración; scheduler_block conserva el frame y devuelve el kernel para procesos gestionados.
 `process_poll` despierta vencidos antes del round-robin. Ningún handler IRQ asigna o libera procesos; kill/recolección siguen perteneciendo al event loop.
 Los lotes síncronos no registran una espera que no puedan despertar: devuelven un error definido.
+
+## Libc de usuario en 0.14
+
+`user/libc/crt0.S` y `start.c` son el CRT de aplicaciones; `port.c` traduce ABI/errno y encapsula los hooks OS de Picolibc. `demo.c` es la batería ejecutada en ring3, no una implementación alternativa de libc. `tools/fetch_picolibc.py` fija/verifica fuente; `build_picolibc.py` genera el cross-build Meson y sysroot. `libc_command.*` solo lanza el ELF; no contiene asignador ni stdio.
+
+`platform_abi.h` fija límites y layout wire del tiempo. Las syscalls validan rangos/permisos antes de tocar buffers; el runtime de usuario no puede desactivar esa comprobación. `clock_uptime_ms` toma una instantánea atómica de 64 bits con IF preservado. `integer_runtime.*` proporciona división/remainder signed y unsigned al kernel y al ELF por enlaces separados, sin libgcc host.
+
+Los hooks no soportados no devuelven éxito ficticio. libc privada single-thread no significa threads, VFS, sockets ni conformidad POSIX. Ver LIBC.md.
