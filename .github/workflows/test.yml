@@ -1,0 +1,16 @@
+name: Boot and subsystem tests
+on: [push, pull_request]
+jobs:
+  qemu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc binutils make python3 qemu-system-x86
+      - name: Build and boot
+        run: make clean test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: notos-test-output
+          path: build/
