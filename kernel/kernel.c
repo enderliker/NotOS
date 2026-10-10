@@ -16,6 +16,8 @@
 #include "mouse.h"
 #include "gui.h"
 #include "notlang_bytecode.h"
+#include "tls.h"
+#include "platform_tls.h"
 static char line[160];
 static unsigned used;
 static int dropped;
@@ -62,6 +64,8 @@ static void command(const char *s) {
     else if(equal(s,"lang-reset")) {lang_reset();console_puts("LANG: variables cleared\n");}
     else if(starts(s,"net-config ")) net_configure(s+11);
     else if(starts(s,"net-drop ")) net_drop_once(s+9);
+    else if(equal(s,"tls")) tls_status();
+    else if(equal(s,"tls-selftest")) console_puts(tls_selftest()?"TLS: SHA256/profile/RTC selftest PASS\n":"TLS ERROR: selftest failed\n");
     else if(equal(s,"net")) net_status();
     else if(starts(s,"dns ")) net_command("dns",s+4);
     else if(starts(s,"http ")) net_command("http",s+5);
@@ -210,6 +214,7 @@ void kernel_main(void) {
     paging_status();
     heap_status();
     console_puts("ARCH: TSS selector=0x28; user gate ready\n");
+    entropy_init();
     fs_init();
     net_init();
     console_puts("notos> ");

@@ -219,3 +219,7 @@ Logs `build/network.log`, `build/online.log`, `build/process.log`, `build/storag
 ## Preparación TLS: cargador de 192 KiB
 
 `make clean test` — PASS en QEMU 9.2.4. Cargador BIOS ampliado a seis lecturas de 32 KiB, sin cruzar límites de 64 KiB por transferencia; firma en 0x3fffc. BSS permanece debajo del guard 0x80000, comprobado por linker. Todas las suites, incluidas persistencia y siete respuestas HTTP con pérdidas, pasan. Este avance aún no habilita TLS.
+
+## Preparación TLS: criptografía y plataforma
+
+`make test` — PASS en QEMU 9.2.4. SHA256/abc known answer, perfil TLS12-only, UTC/Gregorian epoch y fechas inválidas, semilla fw_cfg presente/ausente, autoprueba después de ring3/CR0.TS y heap restaurado. Todas las regresiones previas pasan. BearSSL portable sin OS RNG/time ni SIMD; roots obtenidas del snapshot comprometido. Todavía no se afirma transporte HTTPS en este avance. Logs `build/tls-platform-*.log`.

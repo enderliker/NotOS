@@ -9,7 +9,7 @@ import tempfile
 import time
 
 class Machine:
-    def __init__(self, network=False, logname="smoke", memory="32M", data_disk=None):
+    def __init__(self, network=False, logname="smoke", memory="32M", data_disk=None, entropy=True, rtc=None, image="build/notos.img"):
         self.tmp = tempfile.TemporaryDirectory(prefix='notos-')
         self.output = bytearray()
         self.logname = logname
@@ -17,9 +17,15 @@ class Machine:
         self.sock = None
         monitor = self.tmp.name + '/monitor'
         args = [os.environ.get('QEMU', 'qemu-system-i386'), '-machine', 'pc', '-m', memory,
-                '-drive', 'format=raw,file=build/notos.img', '-display', 'none',
+                '-drive', f'format=raw,file={image}', '-display', 'none',
                 '-qmp', f'unix:{monitor},server=on,wait=off',
                 '-serial', 'stdio', '-no-reboot']
+        if entropy:
+            seed = Path(self.tmp.name, 'entropy.bin')
+            seed.write_bytes(os.urandom(64)); seed.chmod(0o600)
+            args += ['-fw_cfg', f'name=opt/notos/entropy,file={seed}']
+        if rtc is not None:
+            args += ['-rtc', f'base={rtc},clock=vm']
         if data_disk is not None:
             args += ['-drive', f'if=ide,index=1,format=raw,file={data_disk}']
         if os.environ.get('QEMU_TRACE'):
