@@ -11,7 +11,11 @@ NotOS es un kernel educativo freestanding. Las capas de ejecución se mantienen 
 | `user.*` | demos, resultados esperados y diagnóstico de shell | manejar directamente interrupciones |
 | `syscall_numbers.h` | constantes ABI compartidas entre C y assembly | contener tipos C que rompan el assembler |
 
-El planificador se añadirá como módulo separado de la política de selección y de la gestión de recursos. En el avance de preparación todavía se ejecuta una tarea a la vez.
+`scheduler_policy.*` contiene round-robin puro y probado nativamente. `scheduler.*` mantiene el lote activo, quantum, trazas y cambios de contexto; `multitask.*` crea y verifica las demos sin participar en IRQ.
+
+Cada tarea tiene un CR3 propio y una pila kernel de 16 KiB con canario. IRQ0 entrega EOI antes de elegir el siguiente contexto; el dispatcher devuelve el frame a restaurar por assembly. Al cambiar se actualizan CR3 y ESP0 de la TSS. El kernel conserva su frame de entrada y recupera su CR3 al terminar el lote.
+
+El quantum es de 5 ticks del PIT; el presupuesto máximo es de 250 ticks de CPU por tarea, no de tiempo de pared. Hasta cuatro tareas por lote; no hay SMP ni preemption del kernel. CR0.TS bloquea FPU/MMX/SSE: no se declara preservación de ese estado. Shell y red no se procesan mientras el lote ocupa la llamada síncrona.
 
 ## Reglas
 

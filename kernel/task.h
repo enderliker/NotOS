@@ -2,15 +2,11 @@
 #define NOTOS_TASK_H
 #include "interrupt.h"
 #include "space.h"
+#include "scheduler_policy.h"
 
 #define TASK_EXECUTION_BUDGET 250u
-
-enum task_state {
-    TASK_UNUSED,
-    TASK_READY,
-    TASK_RUNNING,
-    TASK_FINISHED
-};
+#define TASK_KERNEL_STACK_BYTES 16384u
+#define TASK_STACK_CANARY 0x5354414bu
 
 enum task_exit_reason {
     TASK_EXIT_NORMAL,
@@ -33,6 +29,9 @@ struct task_statistics {
     u32 observed_root;
     u32 elapsed_ticks;
     u32 stack_valid;
+    u32 cpu_ticks;
+    u32 dispatches;
+    u32 preemptions;
 };
 
 struct task {
@@ -42,14 +41,16 @@ struct task {
     struct task_result result;
     struct task_statistics statistics;
     u32 expected_marker;
-    u32 started_ms;
+    u32 first_tick;
+    u8 *kernel_stack;
+    struct interrupt_frame *context;
 };
 
 int task_create(struct task *task, u32 id, const u8 *image, u32 bytes);
 int task_destroy(struct task *task);
 int task_run_single(struct task *task);
 struct task *task_current(void);
-void task_finish(u32 status, enum task_exit_reason reason) __attribute__((noreturn));
-void task_handle_fault(struct interrupt_frame *frame);
-void task_handle_timer(struct interrupt_frame *frame);
+int task_context_valid(const struct task *task, const struct interrupt_frame *frame);
+struct interrupt_frame *task_finish(struct interrupt_frame *frame, u32 status, enum task_exit_reason reason);
+struct interrupt_frame *task_handle_fault(struct interrupt_frame *frame);
 #endif

@@ -38,11 +38,12 @@ Se subió en dos avances comprobados: `feat(ring3)` y `feat(aislamiento)`. Las d
 ## Fase 5: multitarea básica (en curso)
 
 - **Completado:** modelo de tareas y separación entre runtime, syscalls y diagnóstico, conservando las regresiones.
-- **Pendiente:** política round-robin, contextos/pilas propios y cambios por IRQ.
+- **Completado:** round-robin, contextos/pilas propios y cambios por IRQ0 comprobados con workers sin yield.
+- **Pendiente:** cesión explícita, lotes mixtos y pruebas de recuperación concurrente.
 
 ## Próximos hitos, aún no implementados
 
-- Multitarea, planificador y gestor de procesos persistentes.
+- Gestor de procesos persistentes y ejecución en segundo plano.
 - Ratón y UI interactiva más allá de la terminal.
 - Almacenamiento persistente y archivos de programas.
 - Retransmisión TCP, configuración de red y, posteriormente, HTTPS.

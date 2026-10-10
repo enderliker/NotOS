@@ -1294,7 +1294,9 @@ isr_common:
     sub $12, %esp
     pushl %ebx
     call interrupt_dispatch
-    mov %ebx, %esp
+    mov %eax, %esp
+.global interrupt_restore
+interrupt_restore:
     popl %eax
     mov %ax, %gs
     popl %eax

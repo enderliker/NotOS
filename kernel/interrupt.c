@@ -5,6 +5,7 @@
 #include "keyboard.h"
 #include "task.h"
 #include "syscall.h"
+#include "scheduler.h"
 struct idt_gate {u16 low,selector;u8 zero,flags;u16 high;} __attribute__((packed));
 struct idt_pointer {u16 limit;u32 base;} __attribute__((packed));
 static struct idt_gate idt[256] __attribute__((aligned(16)));
@@ -66,22 +67,37 @@ unsigned interrupts_breakpoints(void) {return breakpoints;}
 unsigned interrupts_irq_count(unsigned irq) {return irq<16?irq_counts[irq]:0;}
 unsigned interrupts_spurious_count(unsigned irq) {return irq==7?spurious7:irq==15?spurious15:0;}
 unsigned interrupts_stray_count(void) {return stray;}
-void interrupt_dispatch(struct interrupt_frame *frame) {
-    if(frame->vector<32 && (frame->cs&3)==3) task_handle_fault(frame);
-    if(frame->vector==128) {syscall_dispatch(frame);return;}
-    if(frame->vector==3) {breakpoints++;return;}
-    if(frame->vector>=32 && frame->vector<48) {
-        unsigned irq=frame->vector-32;
-        if(pic_spurious(irq)) {
-            if(irq==7) spurious7++;else spurious15++;
-            return;
+struct interrupt_frame *interrupt_dispatch(struct interrupt_frame *frame) {
+    if (frame->vector < 32 && (frame->cs & 3) == 3) {
+        struct interrupt_frame *next = task_handle_fault(frame);
+        if (next != frame || (task_current() && task_current()->state != TASK_RUNNING)) {
+            return next;
+        }
+        /* Only system-fatal exceptions return without terminating a user task. */
+        panic(frame);
+    }
+    if (frame->vector == 128) {
+        return syscall_dispatch(frame);
+    }
+    if (frame->vector == 3) {
+        breakpoints++;
+        return frame;
+    }
+    if (frame->vector >= 32 && frame->vector < 48) {
+        unsigned irq = frame->vector - 32;
+        if (pic_spurious(irq)) {
+            if (irq == 7) spurious7++; else spurious15++;
+            return frame;
         }
         irq_counts[irq]++;
-        if(irq==0) {clock_irq();pic_eoi(irq);task_handle_timer(frame);return;}
-        else if(irq==1) keyboard_irq();
-        else {stray++;pic_mask(irq);}
+        if (irq == 0) {
+            clock_irq();
+            pic_eoi(irq); /* Required even if scheduling never returns to this stack. */
+            return scheduler_tick(frame);
+        }
+        if (irq == 1) keyboard_irq(); else {stray++; pic_mask(irq);}
         pic_eoi(irq);
-        return;
+        return frame;
     }
     panic(frame);
 }

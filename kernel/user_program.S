@@ -15,6 +15,8 @@ user_blob_start:
     test $0x400, %edx
     jz user_fail
     cld
+    cmpl $10, 0x08001000
+    je worker_begin
     mov $SYS_TICKS, %eax
     int $0x80
     mov %eax, 0x08001004
@@ -110,6 +112,45 @@ user_exit:
     mov $SYS_EXIT, %eax
     int $0x80
     ud2
+/* Register/DF canaries remain live across timer preemptions. No SYS_YIELD. */
+worker_begin:
+    mov 0x0800100c, %ebx
+    mov $0x33445566, %edx
+    mov $0x55667788, %esi
+    mov $0x66778899, %edi
+    mov $0x778899aa, %ebp
+    mov $SYS_TICKS, %eax
+    int $0x80
+    mov %eax, 0x08001010
+    std
+worker_loop:
+    cmp 0x0800100c, %ebx
+    jne user_fail
+    cmp $0x33445566, %edx
+    jne user_fail
+    cmp $0x55667788, %esi
+    jne user_fail
+    cmp $0x66778899, %edi
+    jne user_fail
+    cmp $0x778899aa, %ebp
+    jne user_fail
+    pushfl
+    pop %ecx
+    test $0x400, %ecx
+    jz user_fail
+    incl 0x08001018
+    mov $SYS_TICKS, %eax
+    int $0x80
+    sub 0x08001010, %eax
+    cmp $80, %eax
+    jb worker_loop
+    cld
+    mov $SYS_TEST_REPORT, %eax
+    int $0x80
+    cmp $1, %eax
+    jne user_fail
+    movl $0x12345678, 0x08001008
+    jmp user_success
 user_text: .ascii "hello from ring3\n"
 user_text_end:
 user_blob_end:

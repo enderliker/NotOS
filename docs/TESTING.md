@@ -161,3 +161,9 @@ Logs `build/user-isolation.log`, `build/user-16M.log`, `build/user-64M.log`. CI 
 `make clean test` — PASS. Se separó el monolito de demos user en task (ciclo de vida), syscall (ABI/validación) y user (diagnóstico). Las constantes de syscall se comparten entre C y assembly.
 
 El comportamiento previo sigue intacto: roots privados, fallos recuperables, presupuesto, buffers validados, memoria, gráficos, NotLang, IRQ y HTTP local. Todavía no se declara planificación concurrente en este avance.
+
+## Fase 5, round-robin preemptivo
+
+`make test` — PASS. Política pura: rotación de cuatro slots, fairness, wrap, exclusión de terminadas y entradas inválidas. Imagen real: tres lotes de dos workers sin SYS_YIELD, cambios IRQ0 en ambos sentidos, CR3/pilas distintos, registros/DF/canarios privados y salida 42 de ambos. Frames y heap se restauran exactamente; INT3, espera por IRQ y heap funcionan después. Todas las regresiones previas, incluyendo HTTP local, pasan.
+
+Log `build/multitask.log`. La ejecución sigue siendo un lote síncrono, no un gestor de procesos en segundo plano.

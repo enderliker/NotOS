@@ -41,16 +41,16 @@ static void write_console(struct task *task, struct interrupt_frame *frame) {
     frame->eax = bytes;
 }
 
-void syscall_dispatch(struct interrupt_frame *frame) {
+struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     struct task *task = task_current();
     if (!task || (frame->cs & 3) != 3) {
         frame->eax = (u32)-ERROR_PERMISSION;
-        return;
+        return frame;
     }
     task->statistics.syscalls++;
     switch (frame->eax) {
     case SYS_EXIT:
-        task_finish(frame->ebx, TASK_EXIT_NORMAL);
+        return task_finish(frame, frame->ebx, TASK_EXIT_NORMAL);
     case SYS_TICKS:
         frame->eax = clock_ms();
         break;
@@ -68,4 +68,5 @@ void syscall_dispatch(struct interrupt_frame *frame) {
         frame->eax = (u32)-ERROR_NO_SYSCALL;
         break;
     }
+    return frame;
 }

@@ -9,7 +9,7 @@ struct interrupt_frame {
 };
 struct user_interrupt_tail {u32 esp,ss;};
 void interrupts_init(void);
-void interrupt_dispatch(struct interrupt_frame *frame);
+struct interrupt_frame *interrupt_dispatch(struct interrupt_frame *frame);
 int interrupt_selftest(void);
 unsigned interrupts_breakpoints(void);
 unsigned interrupts_irq_count(unsigned irq);
