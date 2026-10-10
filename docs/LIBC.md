@@ -52,11 +52,11 @@ EAX número/resultado; EBX, ECX y EDX argumentos. Se preservan los números ante
 
 SYS_TIME escribe una estructura wire de 12 bytes: segundos low/high de 32 bits y nanosegundos de 32 bits. No expone padding ni tipos nativos del kernel. En este target Picolibc, `timespec`/`timeval` tienen esa misma disposición, protegida por static assertions. El adaptador traduce también identificadores de reloj. El kernel valida todo el rango y permisos antes de leer/escribir un puntero de usuario.
 
-## Límites explícitos y curl (actualizado en 0.16)
+## Límites explícitos y curl (actualizado en 0.17)
 
 - Desde 0.15 hay FDs por proceso, archivos tmpfs, snapshots NotFS read-only y open/read/write/close/seek/stat/dup/ftruncate/fcntl; `fopen` opera sobre ellos. Ver VFS.md para cuotas y operaciones ausentes; no es VFS POSIX completo.
-- Stdin bloquea hasta datos/EOF entregados con feed/feed-eof al PID; NONBLOCK produce EAGAIN y stdio diferencia EOF de error. stdout/stderr comparten la consola y dup2 permite redirección a archivos. No hay raw TTY/job control ni poll.
-- Desde 0.16 hay API BSD parcial TCP/IPv4 y getaddrinfo DNS; ver SOCKETS.md. Sin `poll`/`select`, señales, fork, ejecutables desde archivos, enlazado dinámico ni TLS de threads.
+- Stdin bloquea hasta datos/EOF entregados con feed/feed-eof al PID; NONBLOCK produce EAGAIN y stdio diferencia EOF de error. stdout/stderr comparten la consola y dup2 permite redirección a archivos. Desde 0.17 hay poll; no hay raw TTY/job control.
+- Desde 0.16 hay API BSD parcial TCP/IPv4 y getaddrinfo DNS; ver SOCKETS.md. Desde 0.17 hay poll de FDs (POLL.md); sin `select`, señales, fork, ejecutables desde archivos, enlazado dinámico ni TLS de threads.
 - FPU/MMX/SSE siguen rechazados por el kernel. No se declara `libm`, conversión/formato float ni conformidad C/POSIX completa. La configuración selecciona stdio entero; el archive upstream contiene componentes adicionales no preparados para este runtime.
 - `mmap`/`munmap` básicos del kernel siguen disponibles por ABI, pero no se presenta un wrapper POSIX completo. El asignador comprobado usa `sbrk`.
 - Solo QEMU/TCG y hardware emulado del proyecto; no prueba en hardware físico ni auditoría de seguridad.

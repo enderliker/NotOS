@@ -198,3 +198,24 @@ int fd_socket_handle(struct fd_table *table,int fd) {
 int fd_nonblocking(struct fd_table *table,int fd) {
     struct open_file *file=get(table,fd);return file && (file->flags&NOTOS_O_NONBLOCK);
 }
+
+static u16 ready(struct open_file *file) {
+    if (!file) return NOTOS_POLLNVAL;
+    if (file->kind==FILE_SOCKET) return socket_ready(file->socket);
+    if (file->kind==FILE_REGULAR || file->kind==FILE_NULL) return NOTOS_POLLIN|NOTOS_POLLOUT;
+    u16 events=file->kind==FILE_OUTPUT || file->kind==FILE_CONSOLE?NOTOS_POLLOUT:0;
+    if (file->kind==FILE_INPUT || file->kind==FILE_CONSOLE) {
+        if (file->terminal->input_count || file->terminal->input_eof) events|=NOTOS_POLLIN;
+        if (file->terminal->input_eof) events|=NOTOS_POLLHUP;
+    }
+    return events;
+}
+int fd_poll(struct fd_table *table,struct notos_pollfd *fds,u32 count) {
+    int result=0;
+    for (u32 i=0;i<count;i++) {
+        u16 events=fds[i].fd<0?0:ready(get(table,fds[i].fd));
+        fds[i].revents=events&(fds[i].events|NOTOS_POLL_ALWAYS);
+        if (fds[i].revents) result++;
+    }
+    return result;
+}

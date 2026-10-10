@@ -1,6 +1,7 @@
 #ifndef NOTOS_FD_H
 #define NOTOS_FD_H
 #include "file_abi.h"
+#include "poll_abi.h"
 /* Descriptor slots own references to shared open-file descriptions. */
 struct fd_table {
     u16 slots[NOTOS_FD_COUNT];
@@ -27,4 +28,6 @@ u32 fd_description_count(void);
 int fd_socket_open(struct fd_table *,u32 flags);
 int fd_socket_handle(struct fd_table *,int fd);
 int fd_nonblocking(struct fd_table *,int fd);
+/* Trusted vectors only. Invalid fds report NVAL, negative entries are ignored. */
+int fd_poll(struct fd_table *,struct notos_pollfd *,u32 count);
 #endif

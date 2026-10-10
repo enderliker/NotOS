@@ -24,4 +24,5 @@ void socket_connect_timeout(int handle);
 int socket_resolve_start(struct fd_table *owner,const char *name);
 int socket_resolve_result(struct fd_table *owner,u32 token,u8 result[4]);
 void socket_resolve_cancel(struct fd_table *owner);
+u16 socket_ready(int handle);
 #endif

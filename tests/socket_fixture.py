@@ -24,7 +24,10 @@ class Handler(socketserver.BaseRequestHandler):
         try:
             if mode=='reset':
                 assert self.request.recv(1)==b'r'
-                time.sleep(.5);self.request.setsockopt(socket.SOL_SOCKET,socket.SO_LINGER,struct.pack('ii',1,0));return
+                time.sleep(.5)
+                self.request.setsockopt(socket.SOL_SOCKET,socket.SO_LINGER,struct.pack('ii',1,0))
+                # Bypass socketserver's graceful shutdown_request(), which sends FIN first.
+                self.request.close();return
             if mode=='pool':
                 self.request.recv(1);time.sleep(2);return
             if mode=='hold':

@@ -1,5 +1,6 @@
 /* Real ring-3 integration checks; every byte crosses the NIC and TCP stack. */
 #include "libc/os.h"
+#include "poll_demo.h"
 #include <arpa/inet.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
@@ -36,6 +37,7 @@ static void small_exchange(int fd) {
 int main(int argc,char **argv) {
     CHECK(argc==2);char *separator=strchr(argv[1],' ');CHECK(separator);*separator++=0;
     const char *mode=argv[1];unsigned port=(unsigned)strtoul(separator,0,10);CHECK(port>0 && port<=65535);
+    if (!strncmp(mode,"poll",4)) return poll_demo(mode,separator);
     struct in_addr numeric;CHECK(inet_pton(AF_INET,"10.0.2.2",&numeric)==1);
     struct in_addr preserved=numeric;CHECK(inet_pton(AF_INET,"256.0.2.2",&numeric)==0);
     CHECK(inet_pton(AF_INET,"010.0.2.2",&numeric)==0);CHECK(numeric.s_addr==preserved.s_addr);

@@ -21,6 +21,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Espera de procesos | SYS_SLEEP, TASK_BLOCKED y despertar por tiempo | Shell/worker concurrentes, cancelación, slots bloqueados y clock wrap |
 | VFS y FDs | tmpfs, NotFS read-only, FDs privados, dup/seek y stdin bloqueante | Stdio binario ring3, cuotas/OOM, cuatro procesos, EOF y kill/fault sin fugas |
 | Sockets de usuario | lwIP TCP/IPv4, API BSD parcial, DNS y bloqueo por proceso | 32 KiB binarios, HTTP->tmpfs, cuatro procesos, pérdidas, TIME_WAIT, errores y cancelación |
+| Multiplexación | poll de hasta 64 entradas sobre sockets/FDs, espera por proceso | Eventos TCP/stdin, timeouts, backpressure, cuatro esperas y cancelación |
 | Archivos | ATA PIO y NotFS propio en disco de datos separado | Reinicios, CRC, rollback y CRUD persistente |
 | Multitarea básica | Round-robin por IRQ0, cuatro slots, pilas privadas y SYS_YIELD | Contextos/registros, lotes mixtos, presupuesto, FPU rechazada y rollback OOM |
 
@@ -87,6 +88,8 @@ libc-run stdin
 vfs
 sockets
 socket-run web 80
+socket-run poll-basic 1
+socket-run poll-web 80
 feed 1 hello-vfs
 feed-eof 1
 elf-run demo
@@ -125,7 +128,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - Interfaz gráfica mínima con ratón PS/2, toolbar y minimizar/restaurar; sin navegador ni gestor completo de ventanas.
 - NotLang tiene intérprete 0.1 y compilador/VM ring3 0.2 con repeat y exec de archivos fuente; sin funciones ni acceso a archivos desde las aplicaciones.
 - Red con IP estática para QEMU, cliente kernel de una solicitud a la vez y ocho sockets TCP/IPv4 de usuario (ver SOCKETS.md), HTTP y HTTPS/TLS1.2/1.3 con validación X509. Configuración estática /24 y retransmisión con backoff; sin DHCP, IPv6 ni reensamblado de fragmentos IP. TLS requiere semilla fresca por firmware y RTC UTC válidos. El cliente muestra el estado HTTP y la cantidad de bytes, no renderiza páginas web.
-- Picolibc es un port parcial: stdio entero, heap y tiempo, con archivos tmpfs y stdin por proceso; con sockets TCP/IPv4 y DNS parciales; sin VFS POSIX completo, poll/select ni float/libm. No equivale a curl disponible.
+- Picolibc es un port parcial: stdio entero, heap y tiempo, con archivos tmpfs y stdin por proceso; con sockets TCP/IPv4 y DNS parciales; con poll básico; sin VFS POSIX completo, select ni float/libm. No equivale a curl disponible.
 - Pensado para pruebas de laboratorio; no usar para información sensible ni redes hostiles.
 
 ## Documentación
@@ -138,6 +141,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - [Libc de usuario](docs/LIBC.md)
 - [FDs, VFS y entrada](docs/VFS.md)
 - [Sockets TCP y DNS](docs/SOCKETS.md)
+- [poll y espera múltiple](docs/POLL.md)
 - [Memoria](docs/MEMORY.md)
 - [Almacenamiento](docs/STORAGE.md)
 - [Ratón y controles gráficos](docs/UI.md)

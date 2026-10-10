@@ -1,5 +1,6 @@
 /* Persistent process slots are owned by the event loop, never by an IRQ. */
 #include "process.h"
+#include "poll_wait.h"
 #include "socket_stack.h"
 #include "task.h"
 #include "scheduler.h"
@@ -66,6 +67,8 @@ void process_poll(void) {
             if (wait_due(task->wait_started,task->wait_duration,now)) {
                 task->wait_duration=0;task->state=TASK_READY;
             }
+        } else if (task->wait_kind==TASK_WAIT_POLL) {
+            poll_wait_resume(task,now);
         } else if (task->wait_kind!=TASK_WAIT_INPUT) {
             int handle=fd_socket_handle(&task->files,task->pending_fd),result;
             int expired=task->wait_duration && wait_due(task->wait_started,task->wait_duration,now);
@@ -117,6 +120,7 @@ void process_command(const char *command, const char *argument) {
             if (slots[i].task.state==TASK_BLOCKED) {
                 console_puts("PROCESS WAIT: pid=");console_uint(slots[i].task.id);
                 if (slots[i].task.wait_kind==TASK_WAIT_INPUT) console_puts(" stdin=1");
+                else if (slots[i].task.wait_kind==TASK_WAIT_POLL) console_puts(" poll=1");
                 else if (slots[i].task.wait_kind!=TASK_WAIT_TIMER) console_puts(" socket=1");
                 else {console_puts(" timeout_ms=");console_uint(slots[i].task.wait_duration);}console_putc('\n');
             }

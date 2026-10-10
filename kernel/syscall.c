@@ -1,4 +1,5 @@
 #include "syscall.h"
+#include "poll_wait.h"
 #include "socket_stack.h"
 #include "syscall_numbers.h"
 #include "task.h"
@@ -207,6 +208,7 @@ struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     }
     task->statistics.syscalls++;
     switch (frame->eax) {
+    case SYS_POLL:return poll_wait_start(task,frame);
     case SYS_EXIT:
         return task_finish(frame, frame->ebx, TASK_EXIT_NORMAL);
     case SYS_YIELD:

@@ -26,14 +26,18 @@ INT 0x80, EAX=9 / SYS_SLEEP, EBX=0..60000 ms. Cero equivale a yield; longitud in
 
 `ps` muestra PROCESS WAIT para estos estados. `kill` destruye también procesos bloqueados; reutilizar un slot empieza con timestamps limpios y no hereda un despertar antiguo. Los deadlines relativos usan resta unsigned, probada al envolver el reloj de 32 bits.
 
-**Alcance:** bloqueos por tiempo para procesos persistentes ejecutados mediante scheduler_pulse. Los lotes síncronos de diagnóstico no tienen event loop para despertar y devuelven -EOPNOTSUPP para esperas positivas; se prueba ese rechazo. Desde 0.16 hay espera de sockets (ver abajo); sigue sin poll/select de FDs ni señales/EINTR ni garantías de latencia mientras el kernel procesa un comando largo. No se declara completado el planificador POSIX de curl.
+**Alcance:** bloqueos por tiempo para procesos persistentes ejecutados mediante scheduler_pulse. Los lotes síncronos de diagnóstico no tienen event loop para despertar y devuelven -EOPNOTSUPP para esperas positivas; se prueba ese rechazo. Desde 0.16 hay espera de sockets (ver abajo); poll se añade en 0.17; sigue sin select ni señales/EINTR ni garantías de latencia mientras el kernel procesa un comando largo. No se declara completado el planificador POSIX de curl.
 
 Los retornos administrados aplican la misma sanitización de EFLAGS que los cambios de contexto de lotes (NT/IOPL/VM limpiados, IF activado). La demo de espera intenta conservar NT y comprueba su rechazo al reanudarse; las pruebas de registros/DF anteriores se conservan.
 
 ## Entrada de procesos en 0.15
 
-TASK_WAIT_INPUT conserva una syscall read hasta datos o EOF en la cola de esa tarea; no usa el deadline de SYS_SLEEP. `feed PID TEXT` y `feed-eof PID` enrutan explícitamente la entrada sin robar teclas a shell u otros procesos. Kill cierra los FDs, libera inodes huérfanos y reinicia cola/espera antes de reutilizar el slot. Ver VFS.md para límites y política NONBLOCK. No es poll/select ni job control.
+TASK_WAIT_INPUT conserva una syscall read hasta datos o EOF en la cola de esa tarea; no usa el deadline de SYS_SLEEP. `feed PID TEXT` y `feed-eof PID` enrutan explícitamente la entrada sin robar teclas a shell u otros procesos. Kill cierra los FDs, libera inodes huérfanos y reinicia cola/espera antes de reutilizar el slot. Ver VFS.md para límites y política NONBLOCK. poll se añade en 0.17; no es select ni job control.
 
 ## Esperas de socket en 0.16
 
-TASK_WAIT_CONNECT/RECEIVE/SEND guardan fd, buffer, longitud/flags y deadline. process_poll atiende backend y copia buffers mediante aliases del CR3 privado; EAGAIN/EINPROGRESS siguen bloqueados hasta evento o timeout. Kill/exit limpia endpoints/consultas mediante la tabla FD. No hay poll/select, señales ni threads; ver SOCKETS.md.
+TASK_WAIT_CONNECT/RECEIVE/SEND guardan fd, buffer, longitud/flags y deadline. process_poll atiende backend y copia buffers mediante aliases del CR3 privado; EAGAIN/EINPROGRESS siguen bloqueados hasta evento o timeout. Kill/exit limpia endpoints/consultas mediante la tabla FD. poll se añade en 0.17; no hay select, señales ni threads; ver SOCKETS.md.
+
+## TASK_WAIT_POLL en 0.17
+
+poll_wait guarda un snapshot acotado de fd/events y deadline relativo o infinito. process_poll consulta readiness antes del round-robin; completa vector y EAX usando aliases del espacio privado. Ready tiene prioridad ante deadline simultáneo. Ninguna espera posee callbacks/recursos externos adicionales; destrucción del task cancela también el snapshot. ps muestra poll=1. Ver POLL.md para vectores negativos/duplicados, límites y eventos sin consumo.

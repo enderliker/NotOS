@@ -83,3 +83,7 @@ El backend tiene tests ASAN/UBSAN con un asignador de frames falso host-only; `t
 `socket_stack.*` encapsula lwIP raw NO_SYS; `lwip_port/` aporta configuración/límites, reloj y RNG. `net.*` comparte RTL8139/DMA y demultiplexa puertos con el transporte legacy. `fd.*` integra el endpoint en referencias OFD/dup; no decide bloqueo. `syscall.*` registra espera/punteros validados; `process_poll` copia desde/hacia el espacio bloqueado por aliases físicos y reanuda el frame.
 
 `user/include` define cabeceras propias y `user/libc/socket.c` traduce API/errno/native structs al wire estable `socket_abi.h`. `user/socket_demo.c` es diagnóstico ELF separado, no implementación de TCP. Fixtures de tests usan sockets del host solo como peers; no se incorporan al invitado. `tools/fetch_lwip.py` fija SHA/licencia y `build_lwip.py` cruza upstream sin headers/libc de host. Lifecycle raw, quotas y pendientes están documentados en SOCKETS.md.
+
+## poll en 0.17
+
+poll_abi.h fija vector/eventos; fd_poll y socket_events.h calculan readiness sin consumo ni política de espera. socket_ready solo adapta estado/capacidad de lwIP a esa política. poll_wait.* valida/copia snapshots y conserva/devolver el frame mediante scheduler_block. process_poll orquesta wakeup; ni IRQ ni FD backend planifican procesos. El adaptador user/libc/poll.c traduce structs/errno; poll_demo.c es un módulo de pruebas del ELF, no una implementación alternativa. Ver POLL.md.

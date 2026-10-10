@@ -27,9 +27,18 @@ void console_uint(u32 n) {(void)n;}
 static void empty(void) {struct vfs_counts c=vfs_counts();assert(!c.nodes&&!c.pages&&!c.files&&!c.references&&!fd_description_count());}
 int main(void) {
     struct fd_table a,b;assert(fd_table_init(&a)&&fd_table_init(&b));
+    struct notos_pollfd watched[]={{0,NOTOS_POLLIN,99},{1,NOTOS_POLLOUT,99},{-1,0xffff,99},{15,0,99},{1,NOTOS_POLLIN,99}};
+    assert(fd_poll(&a,watched,5)==2 && !watched[0].revents && watched[1].revents==NOTOS_POLLOUT
+        && !watched[2].revents && watched[3].revents==NOTOS_POLLNVAL && !watched[4].revents);
+    assert(fd_feed(&a,"x",1,0)==0 && fd_poll(&a,watched,1)==1 && watched[0].revents==NOTOS_POLLIN);
+    char queued;assert(fd_read(&a,0,&queued,1)==1 && queued=='x' && fd_poll(&a,watched,1)==0);
+    assert(fd_feed(&a,0,0,1)==0 && fd_poll(&a,watched,1)==1 && watched[0].revents==(NOTOS_POLLIN|NOTOS_POLLHUP));
+    fd_table_destroy(&a);assert(fd_table_init(&a));
     int f=fd_open(&a,"/tmp/test",NOTOS_O_CREAT|NOTOS_O_RDWR,0600);assert(f==3);
     assert(fd_open(&b,"/tmp/test",NOTOS_O_CREAT|NOTOS_O_EXCL|NOTOS_O_RDWR,0600)==-ERROR_EXISTS);
     assert(fd_write(&a,f,"abcdef",6)==6 && fd_seek(&a,f,0,NOTOS_SEEK_SET)==0);
+    struct notos_pollfd file_event={f,NOTOS_POLLIN|NOTOS_POLLOUT,0};
+    assert(fd_poll(&a,&file_event,1)==1 && file_event.revents==(NOTOS_POLLIN|NOTOS_POLLOUT));
     int d=fd_dup(&a,f,-1);char text[16]={0};assert(d==4);
     assert(fd_read(&a,d,text,2)==2&&!memcmp(text,"ab",2));assert(fd_read(&a,f,text,2)==2&&!memcmp(text,"cd",2));
     int separate=fd_open(&b,"/tmp/test",NOTOS_O_RDONLY,0);assert(separate==3);
@@ -94,3 +103,5 @@ void socket_release(int h) {(void)h;}
 int socket_read(int h,void *p,u32 n,u32 f) {(void)h;(void)p;(void)n;(void)f;return -ERROR_UNSUPPORTED;}
 int socket_write(int h,const void *p,u32 n) {(void)h;(void)p;(void)n;return -ERROR_UNSUPPORTED;}
 void socket_resolve_cancel(struct fd_table *t) {(void)t;}
+
+u16 socket_ready(int handle) {(void)handle;return NOTOS_POLLNVAL;}

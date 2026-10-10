@@ -339,3 +339,18 @@ Logs `build/vfs-16M.log`, `build/vfs-64M.log`, `build/vfs-notfs.log`, `build/vfs
 Logs: `build/sockets-16M.log`, `build/sockets-64M.log`, `build/sockets-dns.log`, `build/sockets-online.log`, además de regresiones existentes. Mapas/ELFs y las tres imágenes quedan en build. El primer fixture RST sin datos pendientes no era estable bajo slirp; se hizo determinista dejando datos pendientes antes del reset. También se corrigió la lectura de líneas parciales de logs y se usa Connection: close, no un half-close temprano, para el peer HTTP público. La reconstrucción limpia final pasó después de esos ajustes.
 
 Los recursos protocolarios estáticos TIME_WAIT/ARP/DNS son acotados, no se exige que desaparezcan instantáneamente con el FD. Sin CI remota/hardware físico comprobados. API cliente parcial: no poll/select, bind/listen/accept, UDP público, IPv6 ni curl upstream/TLS userspace; ver SOCKETS.md y CURL_PORT.md.
+
+## NotOS 0.17: poll y espera múltiple
+
+`make clean` + `make -j4 test` + `make test-online`: PASS en QEMU 9.2.4/TCG, libslirp 4.8.0. Kernel/adaptadores/demos propios con Wall/Wextra/Werror, ASAN/UBSAN en unidades nativas. Permanece el warning upstream de Picolibc _set_tls ya documentado; no se silenció ni se desactivó Werror del proyecto.
+
+- Orquestación real poll_wait bajo sanitizadores: vector/capacidad/rangos sin efectos, negativos/duplicados, consulta inmediata, timeout relativo y wrap, infinito/cancelación, copia fallida, snapshot no alterable por memoria user y readiness que gana al deadline.
+- Política de sockets pura y backend FD real: connect, capacidad TX, RX, EOF/half-close, shutdown, error/HUP y SO_ERROR consumido; stdin/EOF, stdout y archivos/null listos sin consumir datos/offset.
+- ELF ring3 en 16/64 MiB: hasta 64 entradas, buffers inválidos/readonly, wire desalineado, negativos/NVAL y duplicados; dos sockets no bloqueantes y eventos demorados de dos peers, PEEK sin consumo, FIN/RDHUP/HUP, refusal/RST y error no consumido por poll.
+- TX llega a EAGAIN y vuelve a POLLOUT; stdin despierta por feed/EOF. Timer/shell/INT3/worker durante espera; cuatro procesos bloqueados, solo el PID seleccionado despierta, kill/fault #UD/slot reutilizado sin heredar vector/deadline.
+- Restauración exacta de frames/heap/descripciones/archivos/endpoints/registros DNS. Los pools/cachés protocolarios siguen siendo acotados, no se confunden con recursos por proceso.
+- Todas las regresiones anteriores pasan. Internet real: DNS/HTTP200 kernel y userspace; HTTPS TLSv1.3/HTTP200/close_notify; DNS y HTTP200 del ELF no bloqueante usando poll. Peers controlados conservan cobertura TLS1.2/1.3 y pruebas negativas de certificados/AEAD.
+
+Logs `build/poll-16M.log`, `build/poll-64M.log`, `build/poll-online.log`, más logs de regresiones. El fixture RST ahora cierra directamente con SO_LINGER(0): el cierre automático de socketserver hacía shutdown(SHUT_WR) antes de close y podía introducir FIN. La suite limpia final pasó después de hacerlo determinista. Los nombres generados siguen el guard portable añadido para upload-artifact.
+
+No se comprobaron CI remota ni hardware físico. Alcance parcial: sin select/ppoll/pselect, señales/EINTR, threads/SMP, urgent TCP, ni curl upstream/TLS userspace. Ver POLL.md y CURL_PORT.md para límites y siguiente gate.

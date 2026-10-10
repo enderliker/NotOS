@@ -1,5 +1,6 @@
 /* Raw lwIP is entered only from the non-preemptive kernel, never an IRQ. */
 #include "socket_stack.h"
+#include "socket_events.h"
 #include "syscall_numbers.h"
 #include "net.h"
 #include "clock.h"
@@ -331,4 +332,13 @@ void socket_stack_drop(const char *kind) {
     u32 mask=equal(kind,"syn")?1u:equal(kind,"tx")?2u:equal(kind,"rx")?4u:0;
     if (!mask) {console_puts("SOCKET ERROR: choose syn/tx/rx\n");return;}
     drop_mask=mask;console_puts("SOCKET TEST: one-packet loss armed\n");
+}
+
+u16 socket_ready(int handle) {
+    struct endpoint *e=get(handle);if (!e) return NOTOS_POLLNVAL;
+    int writable=e->pcb && tcp_sndbuf(e->pcb) && tcp_sndqueuelen(e->pcb)<TCP_SND_QUEUELEN;
+    return socket_events((struct socket_readiness){
+        .pending=e->state==CONNECTION_PENDING,.connected=e->state==CONNECTION_READY,
+        .failed=e->state==CONNECTION_FAILED,.error=e->last_error!=0,.readable=e->count!=0,
+        .eof=e->eof,.read_closed=e->read_closed,.write_closed=e->write_closed,.writable=writable});
 }

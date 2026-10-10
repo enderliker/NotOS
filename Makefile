@@ -81,7 +81,8 @@ build/utc-unit: tests/utc_unit.c kernel/utc.c kernel/platform_tls.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/utc_unit.c kernel/utc.c -o $@
 build/certificate-unit: tests/certificate_unit.c kernel/certificate_policy.c kernel/certificate_policy.h build/tls-fixtures.ready | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/certificate_unit.c kernel/certificate_policy.c -o $@
-test: build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+test: build/poll-unit build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+	./build/poll-unit
 	python3 tests/lognames_unit.py
 	./build/vfs-unit
 	./build/wait-unit
@@ -105,6 +106,7 @@ test: build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-u
 	python3 tests/physical.py
 	python3 tests/paging.py
 	python3 tests/heap.py
+	python3 tests/poll.py
 	python3 tests/sockets.py
 	python3 tests/vfs.py
 	python3 tests/libc.py
@@ -123,6 +125,7 @@ test-online: all
 	python3 tests/online.py
 	python3 tests/https_online.py
 	python3 tests/sockets_online.py
+	python3 tests/poll_online.py
 clean:
 	rm -rf build
 
@@ -203,7 +206,7 @@ build/libc-socket.o: user/libc/socket.c user/libc/os.h kernel/file_abi.h kernel/
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
 build/socket-demo.o: user/socket_demo.c user/libc/os.h kernel/file_abi.h kernel/platform_abi.h kernel/syscall_numbers.h $(wildcard user/include/*/*.h) user/include/netdb.h build/picolibc-built.ready
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
-build/socket-demo.elf: build/socket-demo.o build/libc-socket.o build/libc-port.o build/libc-start.o build/libc-crt.o build/user-integer-runtime.o user/elf_link.ld
+build/socket-demo.elf: build/poll-demo.o build/libc-poll.o build/socket-demo.o build/libc-socket.o build/libc-port.o build/libc-start.o build/libc-crt.o build/user-integer-runtime.o user/elf_link.ld
 	$(LD) -m elf_i386 --gc-sections -z noexecstack -z max-page-size=16 -T user/elf_link.ld --Map=build/socket-demo.map $(filter %.o,$^) build/sysroot/lib/notos/libc.a -o $@
 build/socket-demo-blob.o: build/socket-demo.elf
 	objcopy --strip-all $< build/socket-app.elf
@@ -217,3 +220,13 @@ build/kernel-socket-test.bin: build/kernel-socket-test.elf
 	objcopy -O binary $< $@
 build/notos-socket-test.img: build/boot.bin build/kernel-socket-test.bin tools/image.py
 	python3 tools/image.py build/kernel-socket-test.bin $@
+
+build/libc-poll.o: user/libc/poll.c user/libc/os.h user/include/poll.h kernel/poll_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
+	$(CC) $(LIBC_FLAGS) -c $< -o $@
+build/poll-unit: tests/poll_unit.c kernel/poll_wait.c $(wildcard kernel/*.h) | build
+	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -no-pie tests/poll_unit.c kernel/poll_wait.c -o $@
+build/socket-demo.o: user/include/poll.h kernel/poll_abi.h
+
+build/poll-demo.o: user/poll_demo.c user/poll_demo.h user/libc/os.h user/include/poll.h kernel/poll_abi.h kernel/syscall_numbers.h $(wildcard user/include/*/*.h) build/picolibc-built.ready
+	$(CC) $(LIBC_FLAGS) -c $< -o $@
+build/socket-demo.o: user/poll_demo.h
