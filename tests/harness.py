@@ -19,6 +19,8 @@ class Machine:
                 '-drive', 'format=raw,file=build/notos.img', '-display', 'none',
                 '-qmp', f'unix:{monitor},server=on,wait=off',
                 '-serial', 'stdio', '-no-reboot']
+        if os.environ.get('QEMU_TRACE'):
+            args += ['-d', 'int,cpu_reset', '-D', 'build/qemu-trace.log']
         if network:
             args += ['-netdev', 'user,id=net0', '-device', 'rtl8139,netdev=net0']
         else:

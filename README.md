@@ -10,7 +10,9 @@ Sistema operativo educativo escrito desde cero para x86 de 32 bits. No usa Linux
 - Entrada por teclado PS/2 y consola serie COM1; comandos `help`, `about`, `clear` y `echo`.
 - `F1` muestra ayuda y `F2` limpia la terminal.
 
-Todavía no hay red ni lenguaje. Se implementarán por hitos separados, con pruebas antes de cada commit. La interfaz inicial se controla por teclado: no tiene ratón ni aplicaciones de escritorio. No es un sistema listo para uso diario.
+- NotLang: lenguaje propio con `let`, `print`, expresiones enteras y variables. Ver [referencia](docs/NOTLANG.md).
+
+Todavía no hay red. Se implementarán por hitos separados, con pruebas antes de cada commit. La interfaz inicial se controla por teclado: no tiene ratón ni aplicaciones de escritorio. No es un sistema listo para uso diario.
 
 ## Construir y probar
 
