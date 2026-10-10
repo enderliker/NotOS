@@ -69,12 +69,10 @@ unsigned interrupts_spurious_count(unsigned irq) {return irq==7?spurious7:irq==1
 unsigned interrupts_stray_count(void) {return stray;}
 struct interrupt_frame *interrupt_dispatch(struct interrupt_frame *frame) {
     if (frame->vector < 32 && (frame->cs & 3) == 3) {
-        struct interrupt_frame *next = task_handle_fault(frame);
-        if (next != frame || (task_current() && task_current()->state != TASK_RUNNING)) {
-            return next;
+        if (!task_current() || frame->vector == 2 || frame->vector == 8 || frame->vector == 18) {
+            panic(frame);
         }
-        /* Only system-fatal exceptions return without terminating a user task. */
-        panic(frame);
+        return task_handle_fault(frame);
     }
     if (frame->vector == 128) {
         return syscall_dispatch(frame);

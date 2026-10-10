@@ -41,6 +41,6 @@ La salida incluye la IPv4 resuelta, estado HTTP y cantidad de bytes recibidos. `
 
 ## Límites
 
-Una solicitud simultánea, red estática de QEMU y tiempo límite por solicitud. No hay reintentos/retransmisión propios, ventanas TCP dinámicas, reensamblado de datos fuera de orden, fragmentación IP, DHCP, IPv6, DNS por TCP o TLS. HTTP no expone el cuerpo a aplicaciones ni dibuja páginas. Desde NotOS 0.5, los timeouts usan el reloj actualizado por IRQ0, no el antiguo contador PIT sondeado. El reloj avanza durante comandos bloqueantes, pero las solicitudes y paquetes de red solo se procesan al volver al bucle principal; aún no hay planificador. Mantener IRQ desactivadas demasiado tiempo puede perder ticks.
+Una solicitud simultánea, red estática de QEMU y tiempo límite por solicitud. No hay reintentos/retransmisión propios, ventanas TCP dinámicas, reensamblado de datos fuera de orden, fragmentación IP, DHCP, IPv6, DNS por TCP o TLS. HTTP no expone el cuerpo a aplicaciones ni dibuja páginas. Desde NotOS 0.5, los timeouts usan el reloj actualizado por IRQ0, no el antiguo contador PIT sondeado. El reloj avanza durante comandos bloqueantes, pero las solicitudes y paquetes de red solo se procesan al volver al bucle principal; el planificador de tareas user no ejecuta el sondeo de red en segundo plano. Mantener IRQ desactivadas demasiado tiempo puede perder ticks.
 
 Esto demuestra conectividad real del prototipo, no una pila de red completa o segura para producción.

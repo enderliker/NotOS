@@ -4,6 +4,7 @@
 #include "space.h"
 #include "scheduler_policy.h"
 
+/* Count IRQ0 samples delivered at CPL3, not exact CPU or wall time. */
 #define TASK_EXECUTION_BUDGET 250u
 #define TASK_KERNEL_STACK_BYTES 16384u
 #define TASK_STACK_CANARY 0x5354414bu
@@ -46,7 +47,9 @@ struct task {
     struct interrupt_frame *context;
 };
 
+/* Creation requires a zero-initialized/UNUSED object; failure rolls back resources. */
 int task_create(struct task *task, u32 id, const u8 *image, u32 bytes);
+/* Reject active tasks. Safe for zero-initialized and partially-created objects. */
 int task_destroy(struct task *task);
 int task_run_single(struct task *task);
 struct task *task_current(void);

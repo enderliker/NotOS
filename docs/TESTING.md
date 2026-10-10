@@ -167,3 +167,21 @@ El comportamiento previo sigue intacto: roots privados, fallos recuperables, pre
 `make test` — PASS. Política pura: rotación de cuatro slots, fairness, wrap, exclusión de terminadas y entradas inválidas. Imagen real: tres lotes de dos workers sin SYS_YIELD, cambios IRQ0 en ambos sentidos, CR3/pilas distintos, registros/DF/canarios privados y salida 42 de ambos. Frames y heap se restauran exactamente; INT3, espera por IRQ y heap funcionan después. Todas las regresiones previas, incluyendo HTTP local, pasan.
 
 Log `build/multitask.log`. La ejecución sigue siendo un lote síncrono, no un gestor de procesos en segundo plano.
+
+## Fase 5, validación final de NotOS 0.8
+
+`make clean test` y `make test-online` — PASS en QEMU 9.2.4. Compilación con `-Wall -Wextra -Werror`.
+
+- Workers sin yield: dos y cuatro tareas cambian por IRQ0, con roots/pilas distintos, registros/DF/canarios conservados y salida 42.
+- SYS_YIELD real: cambios voluntarios en ambos sentidos y retorno 0 en el programa user.
+- #PF de una tarea: vector 14/error 5/CR2 0x10000; las otras dos terminan normalmente. Una tarea terminada no vuelve a seleccionarse.
+- Bucle infinito concurrente: el worker normal termina, el bucle se detiene exactamente al llegar a 250 muestras IRQ0 user, con estado 124.
+- x87 no soportado: FLDZ causa #NM/vector 7; esa tarea sale con 135 y otro worker sale con 42. No se comparte estado FPU inadvertidamente.
+- Rechazo de lotes vacíos/sobredimensionados, punteros o IDs duplicados y tareas no READY antes de ejecutar.
+- RAM 16/32/64 MiB: todos los escenarios, repetición adicional en 32 MiB, frames y heap exactamente restaurados. Heap insuficiente para ninguna pila y para un lote parcial: rollback sin pérdidas y siguiente lote de cuatro tareas válido.
+- INT3, timer/HLT y heap siguen funcionando después de los lotes. Todas las regresiones previas de arranque, gráficos, NotLang, excepciones, memoria e aislamiento pasan.
+- Tres respuestas HTTP locales en la misma VM, incluyendo después de un #PF concurrente y de agotar presupuesto. DNS/HTTP externos después de cuatro workers y una tarea x87 rechazada: HTTP 200 OK, 891 bytes.
+
+Logs `build/multitask-16M.log`, `build/multitask-32M.log`, `build/multitask-64M.log`, `build/network.log`, `build/online.log`. Payload observado hasta 0x19006, antes de firma 0x1fffc; BSS hasta 0x4f1f0, antes del guard 0x80000. El linker comprueba los límites; estos tamaños pueden variar por compilador.
+
+No se han comprobado CI remota ni hardware real. Los budgets son muestras CPL3, no una garantía estricta de consumo CPU/tiempo de pared; no hay preemption del kernel. Shell/red esperan el fin del lote y FPU/SIMD no están soportados. Ver [contratos y límites](TASKS.md).

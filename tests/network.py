@@ -29,10 +29,13 @@ with socketserver.TCPServer(('127.0.0.1',0),Handler) as server:
         with Machine(network=True,logname="network") as m:
             assert b'NET: RTL8139 ready; IPv4 10.0.2.15\n' in m.output
             m.command('ring3-test','USER: private-CR3/TSS/syscall/cleanup PASS\nnotos> ')
+            m.command('multitask-run fault','SCHED: preemptive multitask/contexts/cleanup PASS\nnotos> ')
             port=server.server_address[1]
             for iteration in range(3):
                 m.command(f'http 10.0.2.2:{port}', f'HTTP: received {len(RESPONSE)} bytes\n',timeout=20)
                 assert b'HTTP: HTTP/1.0 200 OK\n' in m.output
+                if iteration==1:
+                    m.command('multitask-run budget','SCHED: preemptive multitask/contexts/cleanup PASS\nnotos> ')
                 if iteration==0:
                     m.command('user-run io','USER: private-CR3/TSS/syscall/cleanup PASS\nnotos> ')
             assert len(requests)==3, requests

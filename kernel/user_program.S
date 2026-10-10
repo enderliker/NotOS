@@ -1,4 +1,5 @@
 #include "syscall_numbers.h"
+#include "user_test_abi.h"
 .section .rodata.user,"a"
 .code32
 .global user_blob_start,user_blob_end
@@ -15,7 +16,11 @@ user_blob_start:
     test $0x400, %edx
     jz user_fail
     cld
-    cmpl $10, 0x08001000
+    cmpl $TEST_MODE_FPU, 0x08001000
+    je unsupported_fpu
+    cmpl $TEST_MODE_YIELD, 0x08001000
+    je worker_begin
+    cmpl $TEST_MODE_WORKER, 0x08001000
     je worker_begin
     mov $SYS_TICKS, %eax
     int $0x80
@@ -112,7 +117,10 @@ user_exit:
     mov $SYS_EXIT, %eax
     int $0x80
     ud2
-/* Register/DF canaries remain live across timer preemptions. No SYS_YIELD. */
+unsupported_fpu:
+    fldz /* CR0.TS must raise #NM; floating-point state is deliberately unsupported. */
+    jmp user_fail
+/* Canary registers and DF survive timer and voluntary context switches. */
 worker_begin:
     mov 0x0800100c, %ebx
     mov $0x33445566, %edx
@@ -139,6 +147,13 @@ worker_loop:
     test $0x400, %ecx
     jz user_fail
     incl 0x08001018
+    cmpl $TEST_MODE_YIELD, 0x08001000
+    jne worker_clock
+    mov $SYS_YIELD, %eax
+    int $0x80
+    test %eax, %eax
+    jne user_fail
+worker_clock:
     mov $SYS_TICKS, %eax
     int $0x80
     sub 0x08001010, %eax

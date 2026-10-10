@@ -1,6 +1,7 @@
 #include "syscall.h"
 #include "syscall_numbers.h"
 #include "task.h"
+#include "scheduler.h"
 #include "arch.h"
 #include "clock.h"
 #include "paging.h"
@@ -51,6 +52,9 @@ struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     switch (frame->eax) {
     case SYS_EXIT:
         return task_finish(frame, frame->ebx, TASK_EXIT_NORMAL);
+    case SYS_YIELD:
+        frame->eax = 0;
+        return scheduler_yield(frame);
     case SYS_TICKS:
         frame->eax = clock_ms();
         break;

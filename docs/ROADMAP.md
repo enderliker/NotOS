@@ -35,11 +35,13 @@ Se subió en tres avances comprobados: `feat(memoria)`, `feat(paginacion)` y `fe
 
 Se subió en dos avances comprobados: `feat(ring3)` y `feat(aislamiento)`. Las demos son síncronas, no un sistema de procesos completo. Ver [alcance y límites](USERSPACE.md).
 
-## Fase 5: multitarea básica (en curso)
+## Fase 5: multitarea básica — completada en QEMU
 
 - **Completado:** modelo de tareas y separación entre runtime, syscalls y diagnóstico, conservando las regresiones.
 - **Completado:** round-robin, contextos/pilas propios y cambios por IRQ0 comprobados con workers sin yield.
-- **Pendiente:** cesión explícita, lotes mixtos y pruebas de recuperación concurrente.
+- **Completado:** SYS_YIELD, lotes de cuatro tareas, fallos concurrentes, presupuesto individual, FPU rechazada por #NM y rollback de creación ante OOM.
+
+Se subió en tres avances comprobados: `feat(tareas)`, `feat(planificador)` y `feat(multitarea)`. Ver [contratos, pruebas y límites](TASKS.md).
 
 ## Próximos hitos, aún no implementados
 

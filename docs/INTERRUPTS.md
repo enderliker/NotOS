@@ -41,7 +41,7 @@ irq-test
 - `irqs`: contadores de timer, teclado, IRQ inesperadas, scancodes descartados y IRQ espurias.
 - `irq-test`: simula entradas a los vectores IRQ7/15 sin bits ISR activos para comprobar las rutas espurias. No es una prueba de que el hardware haya generado una IRQ espuria real.
 
-`busy` y `sleep` aceptan 0..5000 ms. Mientras ejecutan la espera no se procesan comandos ni se sondea la red; todavía no hay planificador. Los handlers no dibujan la UI ni ejecutan NotLang. Solo actualizan el reloj, encolan datos, contabilizan IRQ y envían EOI.
+`busy` y `sleep` aceptan 0..5000 ms. Mientras ejecutan la espera no se procesan comandos ni se sondea la red; no hay preemption del kernel. Los handlers no dibujan la UI ni ejecutan NotLang. Actualizan el reloj, encolan datos, contabilizan IRQ y envían EOI; desde NotOS 0.8, IRQ0 también selecciona el siguiente frame user, sin asignar memoria ni imprimir trazas en el handler.
 
 El reloj usa los IRQ recibidos, no lecturas del contador PIT desde el bucle principal. La aritmética de fracciones corrige el redondeo del divisor 1193 respecto de la frecuencia nominal 1193182 Hz. Los contadores de 32 bits y las diferencias sin signo toleran rollover; esto se prueba nativamente usando la misma función que llama el handler.
 

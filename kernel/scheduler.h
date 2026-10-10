@@ -18,8 +18,10 @@ struct scheduler_statistics {
     u32 yields;
 };
 
+/* Synchronous batch. Reject invalid input before changing any task state. */
 int scheduler_run(struct task *const tasks[], unsigned count);
 struct task *scheduler_current(void);
+/* IRQ/syscall paths return the frame assembly must restore; may leave this stack. */
 struct interrupt_frame *scheduler_tick(struct interrupt_frame *frame);
 struct interrupt_frame *scheduler_finish(struct interrupt_frame *frame, enum schedule_cause cause);
 struct interrupt_frame *scheduler_yield(struct interrupt_frame *frame);

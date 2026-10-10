@@ -14,7 +14,7 @@ build/entry.o: kernel/entry.S | build
 KERNEL_OBJS := build/entry.o build/isr.o build/user_entry.o build/user_program.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
 build/user_entry.o: kernel/user_entry.S | build
 	$(CC) -m32 -c $< -o $@
-build/user_program.o: kernel/user_program.S kernel/syscall_numbers.h | build
+build/user_program.o: kernel/user_program.S kernel/syscall_numbers.h kernel/user_test_abi.h | build
 	$(CC) -m32 -c $< -o $@
 build/isr.o: kernel/isr.S | build
 	$(CC) -m32 -c $< -o $@

@@ -16,6 +16,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Paginación | CR0.PG/WP, código de solo lectura y ventana virtual | Aliases, TLB y fallos #PF reales con CR2 |
 | Heap | kmalloc/kcalloc/kfree, split/coalesce y alineación de 16 bytes | 20000 operaciones nativas y asignaciones reales en el kernel |
 | Aislamiento básico | GDT/TSS, CR3 privados, INT 0x80 y buffers validados | CPL3 real, datos separados, fallos user y timeout recuperables |
+| Multitarea básica | Round-robin por IRQ0, cuatro slots, pilas privadas y SYS_YIELD | Contextos/registros, lotes mixtos, presupuesto, FPU rechazada y rollback OOM |
 
 Cada avance se sube en un commit `feat(alcance) mensaje` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
 
@@ -64,6 +65,11 @@ free 0
 heap-test
 ring3-test
 multitask-test
+multitask-run four
+multitask-run yield
+multitask-run fault
+multitask-run budget
+multitask-run fpu
 user-run write
 user-run bad-buffer
 user-run kernel-read
@@ -91,6 +97,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 
 - [Arquitectura y convenciones](docs/ARCHITECTURE.md)
 - [Ejecución de usuario](docs/USERSPACE.md)
+- [Multitarea y planificador](docs/TASKS.md)
 - [Memoria](docs/MEMORY.md)
 - [NotLang](docs/NOTLANG.md)
 - [Red](docs/NETWORK.md)

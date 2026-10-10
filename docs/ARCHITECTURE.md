@@ -15,7 +15,7 @@ NotOS es un kernel educativo freestanding. Las capas de ejecución se mantienen 
 
 Cada tarea tiene un CR3 propio y una pila kernel de 16 KiB con canario. IRQ0 entrega EOI antes de elegir el siguiente contexto; el dispatcher devuelve el frame a restaurar por assembly. Al cambiar se actualizan CR3 y ESP0 de la TSS. El kernel conserva su frame de entrada y recupera su CR3 al terminar el lote.
 
-El quantum es de 5 ticks del PIT; el presupuesto máximo es de 250 ticks de CPU por tarea, no de tiempo de pared. Hasta cuatro tareas por lote; no hay SMP ni preemption del kernel. CR0.TS bloquea FPU/MMX/SSE: no se declara preservación de ese estado. Shell y red no se procesan mientras el lote ocupa la llamada síncrona.
+El quantum es de 5 ticks del PIT; el presupuesto máximo es de 250 ticks entregados a CPL3 por tarea, no de tiempo de pared ni tiempo de CPU exacto. Hasta cuatro tareas por lote; no hay SMP ni preemption del kernel. CR0.TS bloquea FPU/MMX/SSE: no se declara preservación de ese estado. Shell y red no se procesan mientras el lote ocupa la llamada síncrona.
 
 ## Reglas
 
