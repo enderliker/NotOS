@@ -1,4 +1,4 @@
-/* NotOS BIOS loader: load 64 KiB, then enter 32-bit protected mode. */
+/* NotOS BIOS loader: load 192 KiB, then enter 32-bit protected mode. */
 .section .text
 .code16
 .global _start
@@ -53,19 +53,22 @@ e820_done:
     jne disk_error
     test $1, %cx
     jz disk_error
-    mov $packet, %si
-    mov drive, %dl
-    mov $0x42, %ah
-    int $0x13
-    jc disk_error
+    movw $6, remaining
+load_chunk:
     movw $64, packet+2
-    movw $0x1800, packet+6
-    movl $65, packet+8
     mov $packet, %si
     mov drive, %dl
     mov $0x42, %ah
+    push %ds
+    push %es
     int $0x13
+    pop %es
+    pop %ds
     jc disk_error
+    addw $0x800, packet+6
+    addl $64, packet+8
+    decw remaining
+    jnz load_chunk
     mov $0x0013, %ax
     int $0x10
     cli
@@ -101,6 +104,7 @@ packet:
     .word 64
     .word 0, 0x1000
     .quad 1
+remaining: .word 0
 drive: .byte 0
 error: .asciz "NotOS: disk error"
 mem_error: .asciz "NotOS: E820 error"

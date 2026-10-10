@@ -93,7 +93,7 @@ user-run kernel-read
 
 ## Diseño
 
-BIOS carga nuestro sector de 512 bytes. El cargador lee dos bloques de 64 sectores en `0x10000` y `0x18000`, activa A20, configura una GDT, selecciona VGA modo 13h y entra a modo protegido. La entrada del kernel configura una pila en `0x90000` y limpia BSS antes de llamar a C. El payload no puede superar 64 KiB; linker y generador verifican el límite. Una firma al final verifica la segunda lectura. El kernel detecta RAM mediante BIOS E820 y reserva el primer MiB; el gestor de frames tiene un límite físico de 64 MiB.
+BIOS carga nuestro sector de 512 bytes. El cargador lee seis bloques de 64 sectores consecutivos desde `0x10000`, activa A20, configura una GDT, selecciona VGA modo 13h y entra a modo protegido. La entrada del kernel configura una pila en `0x90000` y limpia BSS antes de llamar a C. El payload no puede superar 192 KiB; linker y generador verifican el límite. Una firma en 0x3fffc verifica la última lectura. El kernel detecta RAM mediante BIOS E820 y reserva el primer MiB; el gestor de frames tiene un límite físico de 64 MiB.
 
 El kernel funciona en ring 0 con paginación supervisor, frames físicos y un heap virtual de 1 MiB. El código/rodata están protegidos contra escritura y la página nula no está mapeada. El PIC está remapeado, el PIT actualiza el reloj por IRQ0 y el teclado encola scancodes por IRQ1; la shell los procesa fuera del handler. La consola serie y la red siguen sondeadas. La red tiene buffers DMA estáticos y usa la tarjeta RTL8139 emulada y la NAT de QEMU para salir del equipo. El invitado genera y procesa sus propios paquetes; no llama a sockets de un sistema operativo base.
 

@@ -215,3 +215,7 @@ Tests `process.py` y `multitask.py` — PASS: cuatro slots ocupados a la vez, PI
 - Imagen kernel rellenada a 65536 bytes; payload observado hasta 0x1c020 y BSS hasta 0x58414, debajo de sus límites comprobados por el linker. Tamaños pueden variar con el compilador.
 
 Logs `build/network.log`, `build/online.log`, `build/process.log`, `build/storage-*.log`, `build/mouse.log`, `build/notlang*.log` y las suites anteriores. No se han verificado CI remota ni hardware real. Los módulos nuevos son propios; no se añadió kernel/runtime Linux ni proxy host para aparentar capacidades del invitado.
+
+## Preparación TLS: cargador de 192 KiB
+
+`make clean test` — PASS en QEMU 9.2.4. Cargador BIOS ampliado a seis lecturas de 32 KiB, sin cruzar límites de 64 KiB por transferencia; firma en 0x3fffc. BSS permanece debajo del guard 0x80000, comprobado por linker. Todas las suites, incluidas persistencia y siete respuestas HTTP con pérdidas, pasan. Este avance aún no habilita TLS.

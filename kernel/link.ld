@@ -9,8 +9,8 @@ SECTIONS {
     __readonly_end = .;
     .data : { *(.data*) } :data
     __kernel_payload_end = .;
-    ASSERT(__kernel_payload_end <= 0x1fffc, "Kernel exceeds 64 KiB loader capacity")
-    .loader_check 0x1fffc : { LONG(0x4e4f544f) } :data
+    ASSERT(__kernel_payload_end <= 0x3fffc, "Kernel exceeds 192 KiB loader capacity")
+    .loader_check 0x3fffc : { LONG(0x4e4f544f) } :data
     __bss_start = .;
     .bss (NOLOAD) : { *(.bss*) *(COMMON) } :data
     __bss_end = .;
