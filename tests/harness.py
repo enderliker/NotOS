@@ -16,7 +16,7 @@ class Machine:
         self.sel = selectors.DefaultSelector()
         self.sock = None
         monitor = self.tmp.name + '/monitor'
-        args = [os.environ.get('QEMU', 'qemu-system-i386'), '-machine', 'pc', '-m', memory,
+        args = [os.environ.get('QEMU', 'qemu-system-i386'), '-machine', 'pc', '-cpu', 'max', '-m', memory,
                 '-drive', f'format=raw,file={image}', '-display', 'none',
                 '-qmp', f'unix:{monitor},server=on,wait=off',
                 '-serial', 'stdio', '-no-reboot']

@@ -6,6 +6,9 @@ with Machine(logname='paging') as m:
     assert b'VM: paging=1 wp=1 page_bytes=4096\n' in m.output
     registers=m.monitor('info registers')
     assert re.search(rb'CR0=800100[0-9a-f]{2}',registers),registers
+    assert int(re.search(rb'CR4=([0-9a-f]+)',registers)[1],16)&32,registers
+    assert int(re.search(rb'EFER=([0-9a-f]+)',registers)[1],16)&0x800,registers
+    assert b'VM: PAE=1 NX=1 kernel W^X' in m.output
     for _ in range(3):
         m.command('vm-test','VM: map/alias/remap/unmap selftest PASS\nnotos> ')
     m.command('sleep 20','\nnotos> ')

@@ -26,6 +26,16 @@ int frame_pool_init(struct frame_pool *p,const struct e820_entry *entries,unsign
     p->available=p->total;
     return p->total!=0;
 }
+int frame_reserve(struct frame_pool *p,u32 base,u32 bytes) {
+    if (!p || !bytes || base>=PHYSICAL_LIMIT || bytes>PHYSICAL_LIMIT-base) return 0;
+    unsigned first=base/PAGE_SIZE,last=(base+bytes+PAGE_SIZE-1)/PAGE_SIZE;
+    for (unsigned n=first;n<last;n++) if (bit(p->usable,n) && !bit(p->free,n)) return 0;
+    for (unsigned n=first;n<last;n++) if (bit(p->usable,n)) {
+        set(p->usable,n,0);set(p->free,n,0);p->total--;p->available--;
+    }
+    return 1;
+}
+
 u32 frame_take(struct frame_pool *p) {
     if(!p->available) return 0;
     for(unsigned word=0;word<FRAME_COUNT/32;word++) if(p->free[word]) {

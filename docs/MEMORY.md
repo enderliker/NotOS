@@ -69,3 +69,14 @@ Los comandos `alloc`/`free` ofrecen ocho slots de diagnóstico. `alloc` usa kcal
 Pruebas: 20000 operaciones de asignación/liberación con patrones en una arena nativa, más tres autopruebas en el invitado y ocho asignaciones simultáneas liberadas fuera de orden. Se verifica restauración de espacio/contadores y funcionamiento tras agotar frames libres. La validación de metadata corrupta se prueba nativamente; no se afirma recuperación segura de cualquier corrupción.
 
 Los guards protegen los bordes de la región virtual, no cada bloque individual. No hay detección completa de use-after-free, redzones, NX, aislamiento de aplicaciones ni crecimiento automático del heap. Los componentes del kernel comparten el espacio supervisor; las demos en ring 3 utilizan sus propios directorios CR3 y no un heap de aplicación.
+
+## PAE y NX
+
+Se exige CPUID.PAE y CPUID.NX: EFER.NXE, CR4.PAE y CR0.PG/WP.
+PDPT de cuatro entradas, directorios/tablas de 512 entradas de 64 bits; cada frame sigue siendo de 4 KiB.
+Text RX; rodata R/NX; datos, heap y pilas RW/NX. El descriptor se publica después de escribir su mitad alta.
+Cada tarea tiene PDPT y directorio privado, compartiendo exclusivamente los mapeos supervisor.
+Las pruebas ejecutan saltos desde ring3 al dato/pila: #PF con error 21, sin terminar el kernel.
+
+El cargador lee 384 KiB y valida el sello final. BSS reside a partir de 1 MiB, se borra en entry y se reserva en el asignador E820 antes de tomar frames.
+Esto no es todavía mmap por proceso ni un cargador ELF general.

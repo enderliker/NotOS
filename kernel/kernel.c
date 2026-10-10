@@ -181,7 +181,7 @@ void kernel_main(void) {
     gui_init();
     interrupts_init();
     arch_init();
-    if(*(volatile u32 *)0x3fffc!=0x4e4f544f) {
+    if(*(volatile u32 *)0x6fffc!=0x4e4f544f) {
         console_puts("BOOT ERROR: final kernel chunk missing\n");
         for(;;) __asm__ volatile("cli; hlt");
     }
@@ -190,7 +190,7 @@ void kernel_main(void) {
         for(;;) __asm__ volatile("cli; hlt");
     }
     if(!paging_init()) {
-        console_puts("VM ERROR: failed to enable paging\n");
+        console_puts("VM ERROR: PAE/NX CPU required or paging setup failed\n");
         for(;;) __asm__ volatile("cli; hlt");
     }
     if(!heap_init()) {
@@ -210,7 +210,7 @@ void kernel_main(void) {
     console_puts("IRQ: PIC remapped; PIT ~1000 Hz\n");
     console_puts(keyboard_ready?"KEYBOARD: IRQ1 ready\n":"KEYBOARD: unavailable; use serial\n");
     console_puts(mouse_ready?"MOUSE: IRQ12 ready\n":"MOUSE: unavailable\n");
-    console_puts("BOOT: 192 KiB loader verified\n");
+    console_puts("BOOT: 384 KiB loader verified\n");
     physical_status();
     paging_status();
     heap_status();

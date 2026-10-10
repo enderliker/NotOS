@@ -1,4 +1,4 @@
-/* NotOS BIOS loader: load 192 KiB, then enter 32-bit protected mode. */
+/* NotOS BIOS loader: load 384 KiB, then enter 32-bit protected mode. */
 .section .text
 .code16
 .global _start
@@ -53,7 +53,7 @@ e820_done:
     jne disk_error
     test $1, %cx
     jz disk_error
-    movw $6, remaining
+    movw $12, remaining
 load_chunk:
     movw $64, packet+2
     mov $packet, %si

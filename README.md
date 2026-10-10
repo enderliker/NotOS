@@ -13,7 +13,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Excepciones | IDT propia de 256 entradas, frame x86 y pantalla de panic | INT3 recuperable y fallos reales #DE, #UD y #GP |
 | Interrupciones | PIC 8259, PIT por IRQ0 y teclado por IRQ1 | HLT, reloj durante trabajo en primer plano y cola PS/2 |
 | Memoria física | Mapa BIOS E820 y frames de 4 KiB con bitmap | Agotamiento/liberación en QEMU con 16/32/64/128 MiB |
-| Paginación | CR0.PG/WP, código de solo lectura y ventana virtual | Aliases, TLB y fallos #PF reales con CR2 |
+| Paginación | PAE, CR0.PG/WP, NX y código W^X | Aliases, TLB y fallos #PF reales con CR2 |
 | Heap | kmalloc/kcalloc/kfree, split/coalesce y alineación de 16 bytes | 20000 operaciones nativas y asignaciones reales en el kernel |
 | Aislamiento básico | GDT/TSS, CR3 privados, INT 0x80 y buffers validados | CPL3 real, datos separados, fallos user y timeout recuperables |
 | Archivos | ATA PIO y NotFS propio en disco de datos separado | Reinicios, CRC, rollback y CRUD persistente |
@@ -23,7 +23,7 @@ Cada avance se sube en un commit `feat(alcance) mensaje` después de sus pruebas
 
 ## Construir, probar y arrancar
 
-Objetivo de CPU: x86 de 32 bits con WP/INVLPG (486 o posterior), probado solo en QEMU.
+Objetivo de CPU: x86 de 32 bits con PAE, MSR y NX (QEMU `-cpu max`), probado solo en QEMU. El kernel comprueba las capacidades antes de activar PAE/NXE. El código se genera sin SSE/FPU.
 
 Requisitos del host: GNU Make, GCC capaz de generar código `-m32` (el kernel no necesita libc de 32 bits), GNU binutils, Python 3.12+ (para extracción segura de la dependencia), OpenSSL para fixtures y `qemu-system-i386`. En Ubuntu/Debian:
 

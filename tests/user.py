@@ -14,6 +14,7 @@ with Machine(logname='user-isolation') as m:
         assert len(re.findall(rb'USER: ring=3 ss=35 syscalls=\d+ exit=42 irq_delta=\d+\n',reply))==2,reply
         assert re.search(rb'free_frames=(\d+)',m.command('mem','\nnotos> ')).group(1)==memory
     for name,vector,error,cr2 in [
+        ('nx-data',14,21,0x08001000),('nx-stack',14,21,0x08003000),
         ('kernel-read',14,5,65536),('code-write',14,7,0x08000000),
         ('io',13,0,0),('guard',14,6,0x08002000),('gate',13,258,0),('foreign-read',14,5,None),
     ]:

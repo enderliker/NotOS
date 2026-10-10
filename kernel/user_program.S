@@ -60,6 +60,10 @@ user_wait:
     je spin_forever
     cmp $9, %eax
     je valid_write
+    cmp $13, %eax
+    je nx_data
+    cmp $14, %eax
+    je nx_stack
 user_success:
     mov $42, %ebx
     jmp user_exit
@@ -110,6 +114,12 @@ valid_write:
     cmp $(user_text_end-user_text), %eax
     jne user_fail
     jmp user_success
+nx_data:
+    mov $0x08001000, %eax
+    jmp *%eax
+nx_stack:
+    mov $0x08003000, %eax
+    jmp *%eax
 user_fail:
     cld
     mov $93, %ebx

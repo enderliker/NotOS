@@ -19,6 +19,15 @@ int main(void) {
     assert(!frame_release(&pool,a+1));assert(!frame_release(&pool,0));
     assert(frame_release(&pool,a));assert(!frame_release(&pool,a));
     assert(frame_take(&pool)==a);assert(frame_release(&pool,a));
+    assert(!frame_reserve(&pool,0x100000,0));
+    assert(!frame_reserve(&pool,0xfffff000,8192));
+    a=frame_take(&pool);unsigned old=pool.available;
+    assert(!frame_reserve(&pool,a+1,4096));assert(pool.available==old);
+    assert(frame_release(&pool,a));
+    assert(frame_reserve(&pool,0x100001,8190));expected-=2;
+    assert(!frame_usable(&pool,0x100000) && !frame_usable(&pool,0x101000));
+    assert(pool.available==expected && pool.total==expected);
+    assert(frame_reserve(&pool,0x100000,8192));assert(pool.total==expected);
     unsigned taken=0;u32 last=0;
     while((a=frame_take(&pool))) {assert(a>last && !(a&4095));last=a;taken++;}
     assert(taken==expected && !pool.available && !frame_take(&pool));

@@ -6,7 +6,8 @@
 extern const u8 user_blob_start[], user_blob_end[];
 static const char *const scenarios[] = {
     "demo", "kernel-read", "code-write", "io", "guard",
-    "gate", "bad-buffer", "foreign-read", "spin", "write"
+    "gate", "bad-buffer", "foreign-read", "spin", "write",
+    "worker", "yield", "fpu", "nx-data", "nx-stack"
 };
 
 static void report(const struct task *task, u32 kernel_root) {
@@ -43,6 +44,10 @@ static int expected_result(const struct task *task, unsigned mode, u32 root) {
     if (mode == 8) {
         return result->reason == TASK_EXIT_BUDGET && result->status == 124
             && statistics->elapsed_ticks >= TASK_EXECUTION_BUDGET - 2;
+    }
+    if (mode == 13 || mode == 14) {
+        return result->reason == TASK_EXIT_FAULT && result->fault_vector == 14
+            && result->fault_error == 21 && result->fault_address == USER_BASE + (mode == 13 ? 4096u : 12288u);
     }
     if (mode == 1 || mode == 2 || mode == 4 || mode == 7) {
         u32 error = mode == 2 ? 7 : mode == 4 ? 6 : 5;
