@@ -1,6 +1,7 @@
 /* HTTPS state machine, isolated from Ethernet/TCP and from platform services. */
 #include "tls.h"
 #include "tls_profile.h"
+#include "x509_policy.h"
 #include "platform_tls.h"
 #include "heap.h"
 #include <string.h>
@@ -9,9 +10,11 @@
 #endif
 #include NOTOS_TRUST_HEADER
 #define INPUT_QUEUE 32768u
+#define RESPONSE_LIMIT (16u*1024u*1024u)
 struct tls_connection {
     br_ssl_client_context client;
     br_x509_minimal_context validator;
+    struct x509_policy policy;
     u8 buffers[BR_SSL_BUFSIZE_BIDI];
     u8 input[INPUT_QUEUE];
     unsigned head,tail,used;
@@ -38,6 +41,8 @@ int tls_start(const char *host) {
     memcpy(connection->host,host,length(host)+1);
     tls_profile(&connection->client,&connection->validator,trust_anchors,
         sizeof(trust_anchors)/sizeof(trust_anchors[0]));
+    x509_policy_init(&connection->policy,&connection->validator);
+    br_ssl_engine_set_x509(&connection->client.eng,&connection->policy.vtable);
     br_x509_minimal_set_time(&connection->validator,utc.days,utc.seconds);
     br_ssl_engine_set_buffer(&connection->client.eng,connection->buffers,sizeof(connection->buffers),1);
     br_ssl_engine_inject_entropy(&connection->client.eng,seed,sizeof(seed));
@@ -65,6 +70,7 @@ void tls_output_ack(unsigned size) {
 }
 void tls_eof(void) {if (connection) connection->eof=1;}
 static void application(const u8 *data,size_t bytes) {
+    if (bytes>RESPONSE_LIMIT-connection->plaintext_bytes) {failed("response exceeds 16 MiB limit");return;}
     connection->plaintext_bytes+=(unsigned)bytes;
     for (size_t i=0;i<bytes && !connection->status_printed;i++) {
         char ch=(char)data[i];
@@ -83,6 +89,7 @@ void tls_poll(void) {
     if (!connection || connection->result) return;
     br_ssl_engine_context *engine=&connection->client.eng;
     for (unsigned budget=0;budget<128;budget++) {
+        if (connection->policy.rejected) {failed("certificate DNS SAN/EKU/size policy rejected");return;}
         unsigned state=br_ssl_engine_current_state(engine);
         if (state&BR_SSL_CLOSED) {
             int error=br_ssl_engine_last_error(engine);
@@ -129,6 +136,7 @@ void tls_poll(void) {
     }
 }
 int tls_result(void) {return connection?connection->result:-1;}
+int tls_verified(void) {return connection && connection->request_sent;}
 void tls_status(void) {
     struct utc_time utc;
     console_puts("TLS: version=1.2 entropy=");console_uint((u32)entropy_ready());

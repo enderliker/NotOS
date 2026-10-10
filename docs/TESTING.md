@@ -223,3 +223,21 @@ Logs `build/network.log`, `build/online.log`, `build/process.log`, `build/storag
 ## Preparación TLS: criptografía y plataforma
 
 `make test` — PASS en QEMU 9.2.4. SHA256/abc known answer, perfil TLS12-only, UTC/Gregorian epoch y fechas inválidas, semilla fw_cfg presente/ausente, autoprueba después de ring3/CR0.TS y heap restaurado. Todas las regresiones previas pasan. BearSSL portable sin OS RNG/time ni SIMD; roots obtenidas del snapshot comprometido. Todavía no se afirma transporte HTTPS en este avance. Logs `build/tls-platform-*.log`.
+
+## HTTPS/TLS, validación final de NotOS 0.10
+
+`make clean test` y `make test-online` — PASS en QEMU 9.2.4, `-Wall -Wextra -Werror`, sin warnings observados.
+
+- Cliente TLS dentro del invitado con BearSSL portable; TLS1.2 ECDHE/RSA/ECDSA y AEAD. Public roots y X509 verificados, no proxy del host.
+- Peers controlados: AES128-GCM y ChaCha20-Poly1305, SNI, DNS SAN y wildcard de una etiqueta. Múltiples solicitudes y headers divididos/body mayor que un RX ring: cantidad exacta de bytes y close_notify autenticado.
+- Rechazados antes de enviar GET: identidad incorrecta, wildcard multietiqueta, raíz no confiable, CN-only/SAN incorrecto, EKU clientAuth de hoja o intermedio, RSA1024/RSA2047, fechas futuras/expiradas y peer TLS13-only.
+- Truncamiento sin close_notify y ciphertext alterado rechazados; corrupción AEAD no entrega status HTTP. Pérdida RX recuperada por TCP.
+- Semilla ausente y OOM fallan antes de conectar. Heap/frames restaurados exactamente después de intentos; batches/ring3/heap siguen operativos. PCAP sin GET/body en claro y random ClientHello distinto por intento.
+- Parser extra DER: ASAN/UBSAN, todos los prefijos truncados y 10000 mutaciones. SHA256 known answer, UTC epoch y perfil TLS12-only pasan; crypto funciona después de ring3/CR0.TS sin SIMD/FPU.
+- Imagen TLS de pruebas confía solo en una CA efímera generada bajo build. Imagen de producción rechaza esa CA. Sus keys no se comprometen y se excluyen de artifacts CI.
+- Internet real: DNS/HTTP y HTTPS example.com, TLS1.2/chain/DNS/time verificados, HTTP200, 891 bytes, cierre autenticado y heap limpio.
+- Todas las regresiones previas de loader, UI/teclado/ratón, IRQ/excepciones, RAM/memoria/heap, aislamiento, multitarea/procesos, persistencia y NotLang pasan.
+
+Logs `build/https-local.log`, `build/https-date-*.log`, `build/https-untrusted.log`, `build/https-no-entropy.log`, `build/https-online.log`; captura `build/https.pcap`. El kernel usa la imagen de 192 KiB/firma0x3fffc; los límites de payload/BSS/guard siguen comprobados por linker. Tamaños varían por toolchain.
+
+No se han comprobado CI remota ni hardware real. TLS requiere host/firmware/RTC confiables y semilla fresca; no TLS1.3, revocación ni auditoría PKI/producción completa. Ver [política, uso y límites](TLS.md).

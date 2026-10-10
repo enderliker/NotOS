@@ -5,6 +5,7 @@
 #include "base.h"
 #include "net.h"
 #include "tcp_retry.h"
+#include "tls.h"
 #define RX_RING 8192
 #define FRAME_MAX 1514
 static u16 local_tcp=49152;
@@ -29,11 +30,11 @@ static struct tcp_retry retry;
 static u8 retry_packet[FRAME_MAX];
 static unsigned retry_size,retransmissions,drop_mask;
 
-static unsigned now,deadline;
+static unsigned now,deadline,tls_started;
 static unsigned tcp_bytes,header_used;
 static char status_line[128];
-static int status_printed,want_http;
-enum {IDLE, WAIT_ARP, WAIT_DNS, WAIT_SYN, WAIT_HTTP};
+static int status_printed,want_http,want_tls;
+enum {IDLE, WAIT_ARP, WAIT_DNS, WAIT_SYN, WAIT_HTTP, WAIT_TLS};
 static unsigned state;
 static void copy(u8 *dst,const u8 *src,unsigned n) {while(n--) *dst++=*src++;}
 static int same(const u8 *a,const u8 *b,unsigned n) {while(n--) if(*a++!=*b++) return 0;return 1;}
@@ -59,7 +60,7 @@ static void ip_print(const u8 *ip) {
     for(unsigned i=0;i<4;i++) {if(i) console_putc('.');console_int(ip[i]);}
 }
 static void net_error(const char *message) {
-    console_puts("NET ERROR: ");console_puts(message);console_putc('\n');state=IDLE;retry.active=0;
+    console_puts("NET ERROR: ");console_puts(message);console_putc('\n');state=IDLE;retry.active=0;tls_stop();
 }
 static u32 pci_read(unsigned reg) {outl(0xcf8,pci_addr|(reg&0xfc));return inl(0xcfc);}
 static int transmit(unsigned size) {
@@ -202,7 +203,7 @@ static void http_request(void) {
     tcp_send(0x18,request,n);seq+=n;
 }
 static void tcp_receive(const u8 *ip,const u8 *p,unsigned n) {
-    if((state!=WAIT_SYN && state!=WAIT_HTTP)||n<20) return;
+    if((state!=WAIT_SYN && state!=WAIT_HTTP && state!=WAIT_TLS)||n<20) return;
     if(!same(ip+12,remote_ip,4)||get16(p)!=remote_port||get16(p+2)!=local_tcp) return;
     unsigned h=(p[12]>>4)*4;
     if(h<20||h>n||transport_checksum(ip+12,ip+16,6,p,n)) return;
@@ -214,7 +215,10 @@ static void tcp_receive(const u8 *ip,const u8 *p,unsigned n) {
         tcp_retry_ack(&retry,peer_ack,seq+1);
         seq++;send_floor=seq;ack=peer_seq+1;
         tcp_send(0x10,0,0);
-        if(state!=IDLE) http_request();
+        if(state!=IDLE) {
+            if(want_tls) {state=WAIT_TLS;deadline=now+30000;}
+            else http_request();
+        }
         return;
     }
     if(!(flags&0x10) || (int)(peer_ack-seq)>0 || (int)(peer_ack-send_floor)<0) return;
@@ -226,21 +230,30 @@ static void tcp_receive(const u8 *ip,const u8 *p,unsigned n) {
     if(skipped>size) {tcp_send(0x10,0,0);return;}
     h+=skipped;size-=skipped; /* Trim an already-ACKed prefix without delivering it twice. */
     if(size) {
-        tcp_bytes+=size;
-        for(unsigned i=0;i<size && !status_printed;i++) {
-            char c=(char)p[h+i];
-            if(c=='\n') {
-                status_line[header_used]=0;
-                console_puts("HTTP: ");console_puts(status_line);console_putc('\n');
-                status_printed=1;
-            } else if(c!='\r' && header_used<sizeof(status_line)-1) {
-                status_line[header_used++]=(c>=32&&c<=126)?c:'?';
+        if(want_tls) {
+            if((drop_mask&16u) && tls_verified()) {
+                drop_mask&=~16u;((u8 *)p)[h+size-1]^=1;
+                console_puts("NET TEST: corrupted TLS payload\n");
+            }
+            if(!tls_feed(p+h,size)) {tcp_send(0x10,0,0);return;}
+        } else {
+            tcp_bytes+=size;
+            for(unsigned i=0;i<size && !status_printed;i++) {
+                char c=(char)p[h+i];
+                if(c=='\n') {
+                    status_line[header_used]=0;
+                    console_puts("HTTP: ");console_puts(status_line);console_putc('\n');
+                    status_printed=1;
+                } else if(c!='\r' && header_used<sizeof(status_line)-1) {
+                    status_line[header_used++]=(c>=32&&c<=126)?c:'?';
+                }
             }
         }
-        ack+=size;deadline=now+10000;
+        ack+=size;deadline=now+(want_tls?30000u:10000u);
     }
     if(flags&1) {
         ack++;
+        if(want_tls) {tls_eof();tcp_send(0x10,0,0);return;}
         tcp_send(0x10,0,0);
         tcp_send(0x11,0,0);seq++;
         console_puts("HTTP: received ");console_int((int)tcp_bytes);console_puts(" bytes\n");
@@ -248,6 +261,27 @@ static void tcp_receive(const u8 *ip,const u8 *p,unsigned n) {
         state=IDLE;retry.active=0;
     } else if(size || skipped) tcp_send(0x10,0,0);
 }
+static void tls_transport(void) {
+    if(state!=WAIT_TLS) return;
+    tls_poll();
+    int result=tls_result();
+    if(result) {
+        if(result>0 && retry.active) return; /* Confirm last TLS record before TCP FIN. */
+        tcp_send(result>0?0x11:0x14,0,0);
+        if(result>0) seq++;
+        state=IDLE;retry.active=0;tls_stop();return;
+    }
+    if(!retry.active) {
+        unsigned bytes=0;const u8 *data=tls_output(&bytes);
+        if(bytes>1200) bytes=1200;
+        if(bytes) {
+            tcp_send(0x18,(const char *)data,bytes);
+            if(state==IDLE) return;
+            seq+=bytes;tls_output_ack(bytes);
+        }
+    }
+}
+
 static void receive(const u8 *p,unsigned n) {
     if(n<14) return;
     u16 type=get16(p+12);
@@ -325,14 +359,16 @@ void net_poll(unsigned now_ms) {
         receive(packet,size-4);
     }
     outw(io+0x3e,0xffff);
-    if(state!=IDLE && (int)(now-deadline)>=0) net_error("request timeout");
-    else if((state==WAIT_SYN || state==WAIT_HTTP) && tcp_retry_due(&retry,now)) {
+    if(want_tls && state!=IDLE && (unsigned)(now-tls_started)>=60000u) net_error("TLS total timeout");
+    else if(state!=IDLE && (int)(now-deadline)>=0) net_error("request timeout");
+    else if((state==WAIT_SYN || state==WAIT_HTTP || state==WAIT_TLS) && tcp_retry_due(&retry,now)) {
         if(!tcp_retry_advance(&retry,now)) {net_error("TCP retry budget exhausted");return;}
         copy(frame,retry_packet,retry_size);
         if(!transmit(retry_size)) {net_error("transmit busy during retry");return;}
         retransmissions++;
         console_puts("TCP: retransmission=");console_int((int)retransmissions);console_putc('\n');
     }
+    tls_transport();
 }
 void net_status(void) {
     if(!io) {console_puts("NET: unavailable (use QEMU RTL8139)\n");return;}
@@ -354,8 +390,9 @@ static int parse_ipv4(const char *s,u8 *dst) {
 void net_command(const char *kind,const char *host) {
     if(!io) {net_error("RTL8139 not available");return;}
     if(state!=IDLE) {console_puts("NET ERROR: request already pending\n");return;}
+    want_tls=equal(kind,"https");
     unsigned n=0,label=0;
-    while(*host && *host!=':') {
+    while(*host && *host!=':' && *host!=' ') {
         char c=*host++;
         if(n>=sizeof(hostname)-1) {net_error("hostname too long");return;}
         if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='.')) {
@@ -367,23 +404,29 @@ void net_command(const char *kind,const char *host) {
     }
     hostname[n]=0;
     if(!n||!label) {net_error("invalid hostname");return;}
-    remote_port=80;
+    remote_port=want_tls?443:80;
     if(*host==':') {
         host++;unsigned port=0,digits=0;
         while(*host>='0'&&*host<='9') {
             if(++digits>5) {net_error("invalid port");return;}
             port=port*10+(unsigned)(*host++-'0');
         }
-        if(!digits||!port||port>65535||*host) {net_error("invalid port");return;}
+        if(!digits||!port||port>65535||(*host && *host!=' ')) {net_error("invalid port");return;}
         remote_port=(u16)port;
     }
-    want_http=equal(kind,"http");
+    want_http=equal(kind,"http") || want_tls;
     for(unsigned i=0;i<4;i++) remote_ip[i]=0;
     int literal=parse_ipv4(hostname,remote_ip);
+    if(want_tls && literal) {net_error("TLS requires a DNS identity, optionally followed by a connection IP");return;}
     if(!want_http && literal) {
         console_puts("DNS: literal ");ip_print(remote_ip);console_putc('\n');return;
     }
     if(!literal) for(unsigned i=0;i<4;i++) remote_ip[i]=0;
+    if(*host) {
+        if(!want_tls || *host!=' ' || !parse_ipv4(host+1,remote_ip)) {net_error("invalid connection IP override");return;}
+    }
+    if(want_tls && !tls_start(hostname)) {state=IDLE;return;}
+    tls_started=now;
     dns_id++;deadline=now+5000;
     if(gateway_known) begin_request();else {state=WAIT_ARP;arp_request();}
 }
@@ -411,7 +454,7 @@ void net_configure(const char *argument) {
 void net_drop_once(const char *kind) {
     if(state!=IDLE) {console_puts("NET ERROR: loss injection requires idle state\n");return;}
     unsigned mask=equal(kind,"syn")?1u:equal(kind,"request")?2u:
-        equal(kind,"synack")?4u:equal(kind,"response")?8u:0u;
-    if(!mask) {console_puts("NET ERROR: choose syn/request/synack/response\n");return;}
+        equal(kind,"synack")?4u:equal(kind,"response")?8u:equal(kind,"tamper")?16u:0u;
+    if(!mask) {console_puts("NET ERROR: choose syn/request/synack/response/tamper\n");return;}
     drop_mask=mask;console_puts("NET TEST: one-packet loss armed\n");
 }

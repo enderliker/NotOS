@@ -11,6 +11,7 @@ void tls_eof(void);
 void tls_poll(void);
 /* 0 in progress, 1 authenticated clean closure, -1 failure. */
 int tls_result(void);
+int tls_verified(void);
 void tls_status(void);
 int tls_selftest(void);
 #endif

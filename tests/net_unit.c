@@ -5,6 +5,15 @@
 void console_putc(char c) {(void)c;}
 void console_puts(const char *s) {(void)s;}
 void console_int(int v) {(void)v;}
+int tls_start(const char *host) {(void)host;return 0;}
+void tls_stop(void) {}
+void tls_poll(void) {}
+int tls_result(void) {return -1;}
+int tls_verified(void) {return 0;}
+int tls_feed(const u8 *data,unsigned bytes) {(void)data;(void)bytes;return 0;}
+const u8 *tls_output(unsigned *bytes) {*bytes=0;return 0;}
+void tls_output_ack(unsigned bytes) {(void)bytes;}
+void tls_eof(void) {}
 int main(void) {
     u8 bytes[]={0x00,0x01,0xf2,0x03,0xf4,0xf5,0xf6,0xf7};
     assert(checksum(bytes,sizeof(bytes))==0x220d);

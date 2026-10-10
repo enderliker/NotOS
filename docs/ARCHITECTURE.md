@@ -25,6 +25,10 @@ El quantum es de 5 ticks del PIT; el presupuesto máximo es de 250 ticks entrega
 - `notlang_compile.*` / `notlang_command.*` / `user/notlang_vm.c`: compilación acotada, carga y VM ejecutada en un espacio ring3; protocolo compartido `notlang_bytecode.h`.
 - `tcp_retry.*`: política pura de ACK/backoff separada del driver/protocolo; la pila sigue teniendo una solicitud activa y una transmisión pendiente a la vez.
 
+## TLS en 0.10
+
+`tls.*` maneja engine/application y limpieza; `tls_profile.*` define crypto/versiones; `x509_policy.*` delega validación y añade límites/SAN/EKU; `certificate_policy.*` es el parser puro probado con sanitizadores. `entropy.*`, `rtc.*`, `utc.*` encapsulan plataforma. `net.*` solo mueve bytes/registros por TCP. No se emiten datos de aplicación antes de validar el handshake ni se degrada a plaintext.
+
 ## Reglas
 
 - Headers con guards y APIs explícitas; datos internos `static` cuando corresponda.

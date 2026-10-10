@@ -1,15 +1,52 @@
-# TLS integration
+# HTTPS/TLS — NotOS 0.10
 
-## Platform and policy
+## Uso
 
-BearSSL 0.6 (MIT) supplies cryptography/X.509; NotOS retains its own kernel, Ethernet, IP and TCP. No host proxy or host TLS client is used by the guest. The build fetches an archive pinned by SHA256; see third_party/README.md and the offline archive option.
+```text
+https example.com
+https example.com:443
+https localhost:8443 10.0.2.2
+net
+tls
+tls-selftest
+```
 
-TLS policy: 1.2 only, ECDHE_RSA/ECDHE_ECDSA, ChaCha20-Poly1305 or AES-128-GCM, RSA minimum 2048 bits and SHA256/384/512 certificate signatures. No TLS1.0/1.1, CBC, static RSA key exchange, SHA1/MD5 chains or verification bypass. No TLS1.3, RSA-PSS, client certificates, revocation/OCSP/CT or session resumption.
+`https HOST[:PORT] [IP]` usa 443 por defecto. El hostname DNS se usa para **SNI y verificación del certificado**. La IP opcional solo cambia dónde conectar, no la identidad a verificar; es equivalente a una resolución explícita y permite tests locales. Identidades IP literales/iPAddress SAN no se soportan: usar un nombre DNS y, si hace falta, la IP de conexión. No hay `--insecure` ni fallback a HTTP.
 
-Committed Mozilla/curl roots are converted reproducibly from PEM. X.509 verifies the DNS identity supplied to the handshake and the chain against these roots. Time is read from coherent CMOS snapshots in UTC, supporting 2000..2099; invalid/missing clock fails closed. Host firmware/RTC are part of the trust boundary, not authenticated time.
+El cliente hace GET `/` con HTTP/1.0 dentro del canal cifrado, muestra estado y bytes de plaintext autenticado, y requiere `close_notify` autenticado para declarar terminación correcta. No renderiza el cuerpo ni implementa un navegador. Una línea de estado puede mostrarse durante streaming antes de detectar un truncamiento posterior; eso no equivale a una respuesta completada.
 
-`make run` generates 64 fresh bytes from the host CSPRNG and supplies `opt/notos/entropy` through QEMU fw_cfg. The guest seeds HMAC-DRBG/SHA256, wipes seed temporaries and derives separate handshake entropy for each attempt. No PIT jitter, fixed seed, Linux RNG call or implicit CPU RNG fallback. Without a seed TLS is unavailable, but plain HTTP remains available. Seeds must not be reused; restoring/cloning VM snapshots can repeat DRBG state and is not supported as a secure workflow. There is no entropy implementation yet for physical machines.
+Ejecutar `make run`: genera una semilla fresca para el invitado. Para añadir disco persistente, usar `python3 tools/run.py -drive if=ide,index=1,format=raw,file=build/data.img`. Reutilizar data.img no requiere reutilizar la semilla.
 
-TLS state/record buffers are allocated per request from the kernel heap and wiped/freed on completion/error. Memory primitives are freestanding. The binary loader now reads 192 KiB; BSS and readonly/payload limits remain linker checked.
+## Arquitectura y política
 
-`tls` reports entropy/clock/root availability; `tls-selftest` verifies SHA256 known answer, TLS12-only profile, clock and heap cleanup. Current platform preparation is tested, but HTTPS command/transport integration is a subsequent advance.
+BearSSL 0.6 (MIT) suministra criptografía/X.509; NotOS mantiene kernel, Ethernet, IPv4, TCP, retransmisión y event loop propios. **No hay proxy ni TLS del host en el camino del cliente**. El build obtiene fuentes sin modificar, con SHA256 fijado antes de extraer/compilar; no usa libc ni runtime Linux en el invitado. Ver third_party/README.md y su opción offline.
+
+- TLS **1.2 solamente**, ECDHE_RSA/ECDHE_ECDSA, ChaCha20-Poly1305 o AES-128-GCM.
+- RSA >=2048 bits exactos (también se rechaza 2047), certificados EC P256/P384/P521; firmas de certificados SHA256/384/512. No MD5/SHA1 chains, CBC ni intercambio RSA estático.
+- Cadena contra un snapshot Mozilla/curl comprometido; no actualizaciones silenciosas de raíces.
+- Identidad DNS verificada, incluyendo wildcard de una sola etiqueta. SAN DNS requerido: no se acepta fallback CN-only.
+- EKU, cuando está presente en hoja o intermedios enviados, debe autorizar serverAuth o anyExtendedKeyUsage. BearSSL verifica firmas, CA/basic constraints, keyUsage y fechas; el wrapper añade SAN/EKU/límites.
+- Hasta ocho certificados de 16 KiB cada uno. DER adicional usa slices limitados; el validador original sigue verificando la estructura/cadena.
+- Registros TLS sobre TCP con una transmisión pendiente; reenvío conserva ciphertext/sequence originales. Input FIFO de 32 KiB y buffers BearSSL completos para records de 16 KiB.
+- Estado/buffers por conexión en heap, borrados de forma explícita antes de liberar. Sin buffers secretos compartidos con user space.
+- Límite de respuesta de 16 MiB, inactividad TLS de 30 s y total de 60 s; timeouts y errores limpian el contexto.
+
+## Entropía y tiempo
+
+`make run` genera 64 bytes nuevos con el CSPRNG del host y los entrega como `opt/notos/entropy` por QEMU fw_cfg. El invitado siembra HMAC-DRBG/SHA256, borra temporales y deriva entropía distinta por intento. No usa PIT jitter, semilla fija, OS RNG implícito ni extensiones CPU. Sin semilla, TLS falla **antes de conectar**; HTTP sigue disponible. La seguridad exige un host confiable y semillas impredecibles/no reutilizadas. Restaurar/clonar snapshots puede repetir DRBG state y no se soporta como flujo seguro. Todavía no hay fuente de entropía para equipos físicos.
+
+CMOS se lee con snapshots coherentes; formatos BCD/binario y 12/24 h, UTC 2000..2099. Clock ausente/inválido falla cerrado. Host/firmware/RTC pertenecen al límite de confianza; no hay tiempo autenticado ni protección contra rollback del host. El snapshot de raíces también requiere mantenimiento explícito.
+
+El cargador lee 192 KiB en seis transferencias; firma final 0x3fffc. Límites de payload, readonly/BSS y guard de stack siguen comprobados por linker. CSPRNG y TLS son kernel no preemptivo; procesamiento criptográfico puede demorar el loop.
+
+## Pruebas y límites
+
+`make clean test` genera CA/keys **efímeros en build** y otra imagen (`notos-tls-test.img`) que confía solo en esa CA. **La imagen de producción no confía en ella**; se prueba su rechazo. Keys no se comprometen en git y se excluyen de artifacts de CI. El servidor Python/OpenSSL solo es un peer de test: la negociación cliente/cifrado/verificación ocurren dentro del invitado.
+
+Casos positivos: TLS12 AES-GCM/ChaCha20, SNI, SAN/wildcard, múltiples solicitudes, headers divididos, body mayor que un RX ring, cierre autenticado y recuperación de pérdida RX.
+
+Casos negativos: identidad incorrecta/wildcard multietiqueta, raíz no confiable, falta de SAN, EKU incorrecto de hoja/intermedio, RSA débil, certificado futuro/expirado, peer solo TLS13, truncamiento sin close_notify y ciphertext AEAD alterado. Sin entropía y OOM no se conecta. Frames/heap se restauran exactamente tras intentos; ring3/batches/heap siguen operativos. PCAP verifica ausencia de GET/body en claro y ClientHello random distinto por intento. Parser de política DER probado con ASAN/UBSAN, todos los prefijos truncados y 10000 mutaciones.
+
+`make test-online` prueba DNS/HTTP y HTTPS público con roots de producción: example.com, TLS1.2, HTTP200, 891 bytes y close_notify. TLS13-only falla cerrado, no degrada.
+
+No TLS1.3/RSA-PSS, revocación OCSP/CRL/CT, client certificates, session resumption, HTTP2, browser, general TCP stack, hardware real ni auditoría de producción. La validación minimal no implementa todo el ecosistema de políticas PKI. Es un hito comprobado en QEMU, no un sistema para manejar credenciales/información sensible ni una garantía contra todos los ataques.

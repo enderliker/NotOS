@@ -1,4 +1,4 @@
-# Red de NotOS 0.9 (HTTP; no TLS)
+# Red de NotOS 0.10 (HTTP y HTTPS/TLS1.2)
 
 ## Entorno soportado
 
@@ -35,13 +35,13 @@ La salida incluye la IPv4 resuelta, estado HTTP y cantidad de bytes recibidos. `
 
 `make test` inicia un servidor controlado en el host y arranca la imagen real en QEMU. Verifica siete peticiones HTTP (tres normales y cuatro con pérdidas inyectadas), una línea de estado enviada en dos partes, una respuesta mayor que el anillo RX, cierre de conexión y rechazo de hostname/puerto inválidos. No necesita internet público.
 
-`make test-online` verifica resolución de `example.com` y una respuesta HTTP pública. Requiere conectividad saliente del host; no equivale a una prueba de HTTPS.
+`make test-online` verifica resolución de `example.com` y respuestas HTTP y HTTPS públicas. Requiere conectividad saliente del host; incluye la prueba HTTPS de TLS.md.
 
 `QEMU_PCAP=1 make test` guarda los paquetes de la integración en `build/network.pcap`. Los logs son `build/network.log` y `build/online.log`.
 
 ## Límites
 
-Una solicitud simultánea, red estática de QEMU y tiempo límite por solicitud. Hay retransmisión acotada de SYN y GET. No hay retransmisión de FIN propia, ventanas TCP dinámicas, reensamblado de datos fuera de orden, fragmentación IP, DHCP, IPv6, DNS por TCP o TLS. HTTP no expone el cuerpo a aplicaciones ni dibuja páginas. Desde NotOS 0.5, los timeouts usan el reloj actualizado por IRQ0, no el antiguo contador PIT sondeado. El reloj avanza durante comandos bloqueantes, pero las solicitudes y paquetes de red solo se procesan al volver al bucle principal; el event loop sondea entre pulsos background, aunque espera mientras se ejecuta un batch o comando kernel bloqueante. Mantener IRQ desactivadas demasiado tiempo puede perder ticks.
+Una solicitud simultánea, red estática de QEMU y tiempo límite por solicitud. Hay retransmisión acotada de SYN y GET. No hay retransmisión de FIN propia, ventanas TCP dinámicas, reensamblado de datos fuera de orden, fragmentación IP, DHCP, IPv6, DNS por TCP ni TLS1.3. HTTPS/TLS1.2 se documenta en TLS.md. HTTP no expone el cuerpo a aplicaciones ni dibuja páginas. Desde NotOS 0.5, los timeouts usan el reloj actualizado por IRQ0, no el antiguo contador PIT sondeado. El reloj avanza durante comandos bloqueantes, pero las solicitudes y paquetes de red solo se procesan al volver al bucle principal; el event loop sondea entre pulsos background, aunque espera mientras se ejecuta un batch o comando kernel bloqueante. Mantener IRQ desactivadas demasiado tiempo puede perder ticks.
 
 Esto demuestra conectividad real del prototipo, no una pila de red completa o segura para producción.
 
@@ -66,4 +66,4 @@ net-drop response
 
 La siguiente solicitud correspondiente pierde ese paquete. El test real por NAT exige HTTP 200 y cantidad exacta de bytes después de cada pérdida, con IP alternativa 10.0.2.16; demuestra retries propios de SYN/GET y recuperación de retransmisiones del peer para RX. No sustituye tests exhaustivos de redes hostiles.
 
-**HTTPS no está implementado.** No hay TLS, validación de certificados ni cifrado; usar el puerto 443 con este cliente no cambia eso. No hay proxy host disfrazado de TLS del invitado.
+**HTTPS implementado en 0.10:** registros TLS1.2 verificados, X509 y cierre autenticado sobre TCP del invitado. Ver [TLS.md](TLS.md). No hay proxy host ni fallback a plaintext. `net-drop tamper` altera un payload después de verificación TLS para comprobar que AEAD lo rechaza.

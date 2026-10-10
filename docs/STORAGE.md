@@ -6,9 +6,7 @@ Para arrancar con persistencia:
 
 ```sh
 truncate -s 128K build/data.img
-qemu-system-i386 -drive format=raw,file=build/notos.img,index=0 \
-  -drive format=raw,file=build/data.img,index=1 -serial stdio \
-  -netdev user,id=net0 -device rtl8139,netdev=net0
+python3 tools/run.py -drive if=ide,format=raw,file=build/data.img,index=1
 ```
 
 Ejecutar `mkfs` **borra el disco de datos**. No volver a crear/truncar data.img al reiniciar si se quieren conservar archivos.

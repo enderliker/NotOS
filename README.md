@@ -1,6 +1,6 @@
 # NotOS
 
-Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits. Tiene cargador y kernel propios: no usa Linux, otro kernel ni una distribución como base. GCC, Python y QEMU son herramientas del equipo de desarrollo, no componentes del sistema invitado.
+Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits. Tiene cargador y kernel propios: no usa Linux, otro kernel ni una distribución como base. TLS utiliza BearSSL portable (MIT); no se afirma que esa biblioteca criptográfica sea original. GCC, Python y QEMU son herramientas del equipo de desarrollo, no componentes del sistema invitado.
 
 ## Implementado y probado
 
@@ -9,7 +9,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Arranque | Cargador BIOS propio, imagen cruda, A20, GDT y modo protegido | Ejecución real del kernel C en QEMU |
 | Interfaz gráfica | VGA 320×200, PS/2 mouse, cursor, toolbar y minimizar/restaurar | Framebuffer, movimiento/clicks QMP y teclado PS/2 |
 | Lenguaje | NotLang 0.1 kernel y 0.2 compilador/VM ring3, repeat y exec de archivos | Aritmética, loops, errores, aislamiento y ejecución tras reinicio |
-| Red | Driver RTL8139, ARP, IPv4, UDP/DNS, TCP/HTTP, retry y config estática | NAT, pérdidas SYN/GET/SYN-ACK/respuesta y DNS/HTTP público; sin HTTPS |
+| Red | Driver RTL8139, ARP, IPv4, UDP/DNS, TCP/HTTP/HTTPS, retry y config estática | NAT, pérdidas SYN/GET/SYN-ACK/respuesta y DNS/HTTP/HTTPS público, X509, AEAD, pérdidas y certificados inválidos |
 | Excepciones | IDT propia de 256 entradas, frame x86 y pantalla de panic | INT3 recuperable y fallos reales #DE, #UD y #GP |
 | Interrupciones | PIC 8259, PIT por IRQ0 y teclado por IRQ1 | HLT, reloj durante trabajo en primer plano y cola PS/2 |
 | Memoria física | Mapa BIOS E820 y frames de 4 KiB con bitmap | Agotamiento/liberación en QEMU con 16/32/64/128 MiB |
@@ -25,17 +25,19 @@ Cada avance se sube en un commit `feat(alcance) mensaje` después de sus pruebas
 
 Objetivo de CPU: x86 de 32 bits con WP/INVLPG (486 o posterior), probado solo en QEMU.
 
-Requisitos del host: GNU Make, GCC capaz de generar código `-m32` (el kernel no necesita libc de 32 bits), GNU binutils, Python 3 y `qemu-system-i386`. En Ubuntu/Debian:
+Requisitos del host: GNU Make, GCC capaz de generar código `-m32` (el kernel no necesita libc de 32 bits), GNU binutils, Python 3.12+ (para extracción segura de la dependencia), OpenSSL para fixtures y `qemu-system-i386`. En Ubuntu/Debian:
 
 ```sh
-sudo apt-get install gcc binutils make python3 qemu-system-x86
+sudo apt-get install gcc binutils make python3 openssl qemu-system-x86
 make
 make test
-make test-online  # opcional: requiere DNS y HTTP salientes
+make test-online  # opcional: requiere DNS, HTTP y HTTPS salientes
 make run
 ```
 
 `make run` abre QEMU con gráfica y salida serie en la terminal. La imagen arrancable es `build/notos.img`. Las pruebas usan emulación TCG, sin necesitar KVM. Se puede seleccionar otro ejecutable con la variable de entorno `QEMU` para las pruebas.
+
+La primera compilación descarga BearSSL con SHA256 fijado; se conserva en `.cache/`. Para compilar offline, usa `BEARSSL_ARCHIVE=/ruta/bearssl-0.6.tar.gz` (mismo hash verificado).
 
 El workflow de GitHub ejecuta `make clean test` y conserva los artefactos. Su ejecución remota no fue comprobada desde este entorno.
 
@@ -55,6 +57,9 @@ lang-reset
 net
 dns example.com
 http example.com
+https example.com
+tls
+tls-selftest
 http 10.0.2.2:8080
 net-config 10.0.2.15 10.0.2.2 10.0.2.3
 uptime
@@ -104,7 +109,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - Los fallos comprobados de las demos user terminan la ejecución y regresan a la shell; los fallos del kernel siguen siendo fatales. No hay pila independiente para double fault. Las IRQ de timer y teclado están activas, pero no hay APIC, SMP ni preemption del kernel. FPU/MMX/SSE no están soportados en tareas.
 - Interfaz gráfica mínima con ratón PS/2, toolbar y minimizar/restaurar; sin navegador ni gestor completo de ventanas.
 - NotLang tiene intérprete 0.1 y compilador/VM ring3 0.2 con repeat y exec de archivos fuente; sin funciones ni acceso a archivos desde las aplicaciones.
-- Red con IP estática para QEMU, una solicitud a la vez, IPv4 y HTTP sin cifrar. Configuración estática /24 y retransmisión SYN/GET con backoff; sin DHCP, IPv6, TLS/HTTPS ni reensamblado de fragmentos IP. El cliente muestra el estado HTTP y la cantidad de bytes, no renderiza páginas web.
+- Red con IP estática para QEMU, una solicitud a la vez, IPv4, HTTP y HTTPS/TLS1.2 con validación X509. Configuración estática /24 y retransmisión con backoff; sin DHCP, IPv6, TLS1.3 ni reensamblado de fragmentos IP. TLS requiere semilla fresca por firmware y RTC UTC válidos. El cliente muestra el estado HTTP y la cantidad de bytes, no renderiza páginas web.
 - Pensado para pruebas de laboratorio; no usar para información sensible ni redes hostiles.
 
 ## Documentación
@@ -119,6 +124,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - [NotLang](docs/NOTLANG.md)
 - [NotLang ring3 y programas](docs/NOTLANG_USER.md)
 - [Red](docs/NETWORK.md)
+- [HTTPS/TLS y sus límites](docs/TLS.md)
 - [Interrupciones y excepciones](docs/INTERRUPTS.md)
 - [Pruebas y resultados](docs/TESTING.md)
 - [Hitos y próximos pasos](docs/ROADMAP.md)
