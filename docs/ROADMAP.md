@@ -43,7 +43,7 @@ Se subió en dos avances comprobados: `feat(ring3)` y `feat(aislamiento)`. Las d
 
 Se subió en tres avances comprobados: `feat(tareas)`, `feat(planificador)` y `feat(multitarea)`. Ver [contratos, pruebas y límites](TASKS.md).
 
-## Hitos posteriores — estado en NotOS 0.11
+## Hitos posteriores — estado en NotOS 0.12
 
 - **Completado en QEMU:** gestor con cuatro slots, PID, spawn/ps/kill, ejecución en segundo plano y recolección automática. Integrado: exec de programas fuente NotLang; no cargador ELF.
 - **Completado básico en QEMU:** ratón PS/2 IRQ12, cursor, toolbar clickable y minimizar/restaurar ventana. No es un escritorio completo.
@@ -63,3 +63,11 @@ Los límites de cada módulo (ELF, funciones de lenguaje, USB, kernel preemptivo
 
 PAE/NX y backend TLS1.2/1.3 son prerrequisitos comprobados; no completan un port de curl.
 Ver [CURL_PORT](CURL_PORT.md) para los gates de ELF, memoria user, libc, sockets, bloqueo y ejecución del binario upstream.
+
+## ELF32 y memoria de aplicaciones
+
+- Cargador static ET_EXEC/i386, entry validado, PT_LOAD separados W^X, BSS y pila privada de 64 KiB.
+- Heap por proceso, brk y mmap anónimo bajo demanda, munmap/TLB y rollback OOM.
+- Ejecución y fallos recuperables en ring3, coexistencia con NotLang y cuatro procesos.
+
+Ver ELF.md. No es todavía startup/libc POSIX, sockets BSD ni curl upstream.

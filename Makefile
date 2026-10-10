@@ -12,7 +12,9 @@ build/boot.bin: build/boot.o boot/link.ld
 	$(LD) -m elf_i386 -T boot/link.ld --oformat binary $< -o $@
 build/entry.o: kernel/entry.S | build
 	$(CC) -m32 -c $< -o $@
-KERNEL_OBJS := build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
+ELF_DEMOS := demo nx-heap nx-stack stack-guard readonly
+ELF_DEMO_OBJS := $(addprefix build/elf-,$(addsuffix -blob.o,$(ELF_DEMOS)))
+KERNEL_OBJS := $(ELF_DEMO_OBJS) build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
 build/notlang_vm.o: user/notlang_vm.c kernel/notlang_bytecode.h kernel/syscall_numbers.h kernel/base.h | build
 	$(CC) $(CFLAGS) -ffunction-sections -c $< -o $@
 build/notlang_vm.elf: build/notlang_vm.o user/link.ld
@@ -79,7 +81,8 @@ build/utc-unit: tests/utc_unit.c kernel/utc.c kernel/platform_tls.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/utc_unit.c kernel/utc.c -o $@
 build/certificate-unit: tests/certificate_unit.c kernel/certificate_policy.c kernel/certificate_policy.h build/tls-fixtures.ready | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/certificate_unit.c kernel/certificate_policy.c -o $@
-test: all build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+test: all build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+	./build/elf-unit
 	./build/tls-port-unit
 	./build/integer-unit
 	./build/certificate-unit
@@ -99,6 +102,7 @@ test: all build/tls-port-unit build/integer-unit build/notos-tls-test.img build/
 	python3 tests/physical.py
 	python3 tests/paging.py
 	python3 tests/heap.py
+	python3 tests/elf.py
 	python3 tests/user.py
 	python3 tests/multitask.py
 	python3 tests/notlang.py
@@ -128,3 +132,23 @@ build/integer-unit: tests/integer_unit.c kernel/integer_runtime.c kernel/base.h 
 	gcc -std=c11 -Wall -Wextra -Werror tests/integer_unit.c kernel/integer_runtime.c -o $@
 build/tls-port-unit: tests/tls_port_unit.c kernel/tls_platform_port.c kernel/tls_platform_port.h build/mbedtls.ready | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined $(MBEDTLS_FLAGS) tests/tls_port_unit.c kernel/tls_platform_port.c -o $@
+
+# Compact file alignment does not change the 4KiB-separated virtual segments.
+build/elf-demo.o: user/elf_demo.c kernel/base.h kernel/syscall_numbers.h | build
+	$(CC) $(CFLAGS) -c $< -o $@
+build/elf-nx-heap.o: user/elf_demo.c kernel/base.h kernel/syscall_numbers.h | build
+	$(CC) $(CFLAGS) -DDEMO_FAULT=1 -c $< -o $@
+build/elf-nx-stack.o: user/elf_demo.c kernel/base.h kernel/syscall_numbers.h | build
+	$(CC) $(CFLAGS) -DDEMO_FAULT=2 -c $< -o $@
+build/elf-stack-guard.o: user/elf_demo.c kernel/base.h kernel/syscall_numbers.h | build
+	$(CC) $(CFLAGS) -DDEMO_FAULT=3 -c $< -o $@
+build/elf-readonly.o: user/elf_demo.c kernel/base.h kernel/syscall_numbers.h | build
+	$(CC) $(CFLAGS) -DDEMO_FAULT=4 -c $< -o $@
+build/elf-%.elf: build/elf-%.o user/elf_link.ld
+	$(LD) -m elf_i386 --gc-sections -z max-page-size=16 -T user/elf_link.ld $< -o $@
+build/elf-%.bin: build/elf-%.elf
+	cp $< $@
+build/elf-%-blob.o: build/elf-%.bin
+	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.elfimage,alloc,load,readonly,data,contents --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=noload,readonly $< $@
+build/elf-unit: tests/elf_unit.c kernel/elf.c kernel/elf.h build/elf-demo.bin | build
+	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/elf_unit.c kernel/elf.c -o $@

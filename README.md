@@ -15,6 +15,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Memoria física | Mapa BIOS E820 y frames de 4 KiB con bitmap | Agotamiento/liberación en QEMU con 16/32/64/128 MiB |
 | Paginación | PAE, CR0.PG/WP, NX y código W^X | Aliases, TLB y fallos #PF reales con CR2 |
 | Heap | kmalloc/kcalloc/kfree, split/coalesce y alineación de 16 bytes | 20000 operaciones nativas y asignaciones reales en el kernel |
+| ELF32 y VM user | Segmentos PT_LOAD W^X, BSS, pila 64 KiB, brk y mmap privado | Parser con sanitizadores, ring3, cruces PAE, NX, concurrencia y rollback OOM |
 | Aislamiento básico | GDT/TSS, CR3 privados, INT 0x80 y buffers validados | CPL3 real, datos separados, fallos user y timeout recuperables |
 | Archivos | ATA PIO y NotFS propio en disco de datos separado | Reinicios, CRC, rollback y CRUD persistente |
 | Multitarea básica | Round-robin por IRQ0, cuatro slots, pilas privadas y SYS_YIELD | Contextos/registros, lotes mixtos, presupuesto, FPU rechazada y rollback OOM |
@@ -132,5 +133,5 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 ## Port de curl — en desarrollo
 
 TLS 1.3 conserva TLS 1.2, con negociación/verificación dentro del invitado; ver [TLS](docs/TLS.md).
-PAE/NX ya protege datos y pilas. **curl upstream todavía no está portado ni disponible**: `https` es el cliente HTTP educativo, no curl.
+PAE/NX ya protege datos y pilas; ELF32, brk y mmap anónimo privados se describen en [ELF](docs/ELF.md). **curl upstream todavía no está portado ni disponible**: `https` es el cliente HTTP educativo, no curl.
 La hoja de ruta verificable de libc/ELF/memoria/sockets/VFS/poll está en [CURL_PORT](docs/CURL_PORT.md).

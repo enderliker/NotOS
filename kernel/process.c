@@ -23,11 +23,24 @@ u32 process_spawn_image(const char *name, const u8 *code, u32 bytes,
     for (unsigned i = 0; i < data_bytes; ++i) ((u8 *)slot->task.space.data)[i] = data[i];
     return next_pid++;
 }
+u32 process_spawn_elf(const char *name,const u8 *image,u32 bytes) {
+    if (!name || length(name)>=PROCESS_NAME_BYTES || !next_pid) return 0;
+    unsigned index=0;
+    while (index<SCHEDULER_CAPACITY && slots[index].task.state!=TASK_UNUSED) index++;
+    if (index==SCHEDULER_CAPACITY || !task_create_elf(&slots[index].task,next_pid,image,bytes)) return 0;
+    for (unsigned i=0;(slots[index].name[i]=name[i]);i++) {}
+    return next_pid++;
+}
 static void collect(struct process_slot *slot) {
     console_puts("PROCESS: pid="); console_uint(slot->task.id);
     console_puts(" exit="); console_uint(slot->task.result.status);
     console_puts(" ticks="); console_uint(slot->task.statistics.cpu_ticks);
     console_putc('\n');
+    if (slot->task.result.reason==TASK_EXIT_FAULT) {
+        console_puts("PROCESS FAULT: vector=");console_uint(slot->task.result.fault_vector);
+        console_puts(" error=");console_uint(slot->task.result.fault_error);
+        console_puts(" cr2=");console_uint(slot->task.result.fault_address);console_putc('\n');
+    }
     if (!task_destroy(&slot->task)) console_puts("PROCESS ERROR: resource cleanup failed\n");
     slot->name[0] = 0;
 }

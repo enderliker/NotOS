@@ -48,3 +48,10 @@ PAE y NX reemplazan tablas de 32 bits: PDPT privado y directorio por tarea; BSS 
 `tls_profile.*` ahora configura MbedTLS 1.2/1.3; `tls.*` proporciona BIO no bloqueante, verifica el handshake y libera contextos/slots PSA.
 `certificate_policy.*` sigue aplicando SAN/EKU/límites sin borrar errores de MbedTLS. `x509_policy.*` es legado BearSSL, no se enlaza en el cliente actual.
 `tls_platform_port.*` adapta heap/RTC/DRBG; no es una libc POSIX. `integer_runtime.*` aporta división u64 probada para i386.
+
+## ELF32 y VM de usuario
+
+`elf.*` valida sin asignar; `space.*` carga segmentos y administra frames/PTE privados, brk y anónimos.
+`task_create_elf` utiliza el entry/stack del espacio; `process_spawn_elf` reutiliza slots y recolección existentes.
+`elf_command.*` es integración/diagnóstico, no código del parser. Las demos C se compilan y enlazan separadas del kernel.
+La validación de buffers recorre PDEs de 2 MiB; la propiedad se recupera caminando tablas, no con un array grande por tarea.

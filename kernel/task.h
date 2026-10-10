@@ -48,6 +48,7 @@ struct task {
 };
 
 /* Creation requires a zero-initialized/UNUSED object; failure rolls back resources. */
+int task_create_elf(struct task *task,u32 id,const u8 *image,u32 bytes);
 int task_create(struct task *task, u32 id, const u8 *image, u32 bytes);
 /* Reject active tasks. Safe for zero-initialized and partially-created objects. */
 int task_destroy(struct task *task);

@@ -14,8 +14,8 @@ static void probe(struct task *task, struct interrupt_frame *frame) {
     statistics->observed_root = paging_current_root();
     statistics->stack_valid = (u32)frame >= arch_kernel_stack_low()
         && (u32)frame + sizeof(*frame) + sizeof(*tail) <= arch_kernel_stack_top()
-        && tail->esp >= USER_BASE + 12288
-        && tail->esp < USER_BASE + 16384;
+        && tail->esp >= task->space.stack_low
+        && tail->esp < task->space.stack_top;
     frame->eax = statistics->observed_cpl;
 }
 
@@ -57,6 +57,16 @@ struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
         return scheduler_yield(frame);
     case SYS_TICKS:
         frame->eax = clock_ms();
+        break;
+    case SYS_BRK:
+        frame->eax=space_brk(&task->space,frame->ebx);
+        break;
+    case SYS_MMAP:
+        frame->eax=space_mmap(&task->space,frame->ebx);
+        if (!frame->eax) frame->eax=(u32)-ERROR_MEMORY;
+        break;
+    case SYS_MUNMAP:
+        frame->eax=space_munmap(&task->space,frame->ebx,frame->ecx)?0:(u32)-ERROR_INVALID_ARGUMENT;
         break;
     case SYS_PROBE:
         probe(task, frame);

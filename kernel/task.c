@@ -15,13 +15,25 @@ static void initialize_context(struct task *task) {
     *context = (struct initial_context){0};
     context->registers.gs = context->registers.fs = 0x23;
     context->registers.es = context->registers.ds = 0x23;
-    context->registers.eip = USER_BASE;
+    context->registers.eip = task->space.entry;
     context->registers.cs = 0x1b;
     context->registers.eflags = 0x202;
-    context->user.esp = USER_BASE + 16384 - 16;
+    context->user.esp = task->space.stack_top - 16;
     context->user.ss = 0x23;
     task->context = &context->registers;
     *(u32 *)task->kernel_stack = TASK_STACK_CANARY;
+}
+
+static int finish_creation(struct task *task,u32 id) {
+    task->kernel_stack=kcalloc(1,TASK_KERNEL_STACK_BYTES);
+    if (!task->kernel_stack) {
+        space_destroy(&task->space);
+        return 0;
+    }
+    task->id=id;
+    task->state=TASK_READY;
+    initialize_context(task);
+    return 1;
 }
 
 int task_create(struct task *task, u32 id, const u8 *image, u32 bytes) {
@@ -32,15 +44,14 @@ int task_create(struct task *task, u32 id, const u8 *image, u32 bytes) {
     if (!space_create(&task->space, image, bytes)) {
         return 0;
     }
-    task->kernel_stack = kcalloc(1, TASK_KERNEL_STACK_BYTES);
-    if (!task->kernel_stack) {
-        space_destroy(&task->space);
-        return 0;
-    }
-    task->id = id;
-    task->state = TASK_READY;
-    initialize_context(task);
-    return 1;
+    return finish_creation(task,id);
+}
+
+int task_create_elf(struct task *task,u32 id,const u8 *image,u32 bytes) {
+    if (!task || !id || task->state!=TASK_UNUSED || task->space.root || task->kernel_stack) return 0;
+    *task=(struct task){0};
+    if (!space_create_elf(&task->space,image,bytes)) return 0;
+    return finish_creation(task,id);
 }
 
 int task_destroy(struct task *task) {

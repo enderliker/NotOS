@@ -258,3 +258,17 @@ No se han comprobado CI remota ni hardware real. TLS requiere host/firmware/RTC 
 - Regresiones de todos los módulos anteriores pasan; CI remota/hardware físico no comprobados.
 
 curl upstream sigue pendiente; no se presenta `https` como curl. Ver CURL_PORT.md.
+
+## NotOS 0.12: ELF32 y VM privada
+
+`make clean test` y `make test-online` PASS en QEMU 9.2.4, compilación sin warnings con `-Wall -Wextra -Werror`.
+
+- ELF32 ET_EXEC/i386 real, CPL3, segmentos separados, BSS multipágina, datos inicializados y pila de 64 KiB.
+- brk crecer/reducir/regresar, páginas liberadas inaccesibles; mmap de 2 MiB + 4 KiB y buffer de SYS_WRITE que cruza PDEs.
+- Cuatro ELF concurrentes con globals/heap/pilas privados en 16/64 MiB, quinto slot rechazado y recolección exacta.
+- NX heap/pila, guard y texto readonly generan #PF recuperable; shell y NotLang continúan.
+- Rollback completo de carga inválida/truncada, creación parcial de tablas, crecimiento brk/mmap al cruzar una tabla PAE y fallo de pila kernel por OOM.
+- Parser: ASAN/UBSAN, todos los prefijos y 50000 mutaciones; sin modificar output al rechazar.
+- Todas las regresiones anteriores pasan. HTTPS público negoció TLSv1.3, HTTP200 y close_notify; TLS1.2 sigue cubierto por peers controlados.
+
+Logs `build/elf-16M.log`, `build/elf-64M.log`. CI remota y equipos físicos no verificados. libc, ABI POSIX, sockets y curl upstream siguen pendientes; ELF.md describe el alcance exacto.

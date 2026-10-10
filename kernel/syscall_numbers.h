@@ -7,6 +7,10 @@
 #define SYS_WRITE 3
 #define SYS_TEST_REPORT 4
 #define SYS_YIELD 5
+#define SYS_BRK 6
+#define SYS_MMAP 7
+#define SYS_MUNMAP 8
+#define ERROR_MEMORY 12
 #define SYSCALL_WRITE_LIMIT 160
 #define ERROR_PERMISSION 1
 #define ERROR_BAD_ADDRESS 14

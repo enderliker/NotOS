@@ -11,10 +11,15 @@ La arquitectura sigue siendo x86 de 32 bits: INT 0x80 es la entrada de syscall a
 - TLS1.2/1.3, CA/RTC/DRBG, SNI/SAN/EKU/firmas y pruebas negativas dentro del invitado.
 - NotFS propio persistente. No es un VFS POSIX.
 
+## Base ELF y VM implementada
+
+ELF32 estático validado, BSS multipágina, pila de 64 KiB, heap/brk y mmap anónimo RW/NX privados. El parser y la ejecución tienen pruebas específicas; ver ELF.md.
+Esto no completa un runtime de libc: falta startup argc/argv/envp/auxv, TLS de thread, ABI POSIX y malloc/stdio del port.
+
 ## Pendiente (no declarar curl disponible antes de los gates finales)
 
-1. ELF32 validado, segmentos multipágina W^X, BSS, pila razonable y rollback de cargas inválidas/OOM.
-2. brk/mmap por proceso y errno/ABI de retornos; pruebas reales de malloc/free en ring3.
+1. Runtime ELF para libc: startup/argumentos/auxv/TLS de thread y carga desde VFS, conservando el parser/VM ya implementados.
+2. Adaptar brk/mmap existentes a libc y completar errno/ABI de retornos; malloc/free real en ring3.
 3. Planificador con estado bloqueado y despertar por timeout/evento sin congelar la shell.
 4. Port de libc pequeña con syscalls: hello world y tests de asignación/stdio/strings/tiempo. Los headers freestanding de TLS no son esa libc.
 5. FDs por proceso, VFS RAM/NotFS y stdin/stdout/stderr.
