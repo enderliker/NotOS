@@ -9,7 +9,7 @@ for memory in ['16M','32M','64M','128M']:
         assert match,reply
         entries,total,free=map(int,match.groups())
         limit=min(int(memory[:-1]),64)*1024*1024//4096
-        assert 0<entries<=64 and limit-512<=total<=limit-256 and free==total,reply
+        assert 0<entries<=64 and limit-512<=total<=limit-256 and total-free==256,reply
         m.command('frame-test','MEM: frame selftest PASS\nnotos> ',timeout=30)
         after=m.command('mem','\nnotos> ')
         assert match.group(0) in after,after

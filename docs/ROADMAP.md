@@ -19,17 +19,21 @@ Cada hito se sube después de probar la imagen real con QEMU. Formato de commit:
 
 Se subió en dos avances comprobados: `feat(excepciones)` y `feat(interrupciones)`. Ver [alcance y limitaciones](INTERRUPTS.md).
 
-## Fase 3: memoria (en curso)
+## Fase 3: memoria — completada en QEMU
 
 - **Completado:** BIOS E820, reserva de memoria y asignador de frames de 4 KiB. Cargador ampliado a 64 KiB y segunda lectura comprobada.
 - **Completado:** paginación, CR0.WP, mappings/TLB y pruebas de fallos de página reales.
-- **Pendiente:** heap dinámico.
+- **Completado:** heap virtual de 1 MiB, kmalloc/kcalloc/kfree, split/coalesce, guards y pruebas de agotamiento/reutilización.
 
-El aislamiento completo y la ejecución en ring 3 requieren pasos adicionales; todavía no están implementados.
+Se subió en tres avances comprobados: `feat(memoria)`, `feat(paginacion)` y `feat(heap)`. Ver [diseño, pruebas y límites](MEMORY.md).
+
+## Fase 4 prevista: aislamiento básico
+
+TSS, entrada a ring 3 y espacios de direcciones protegidos serán el siguiente objetivo. No están implementados todavía. El aislamiento completo, la multitarea y un planificador requieren hitos adicionales.
 
 ## Próximos hitos, aún no implementados
 
-- Memoria paginada, asignación dinámica y aislamiento.
+- Aislamiento de ejecución y procesos, multitarea y planificador.
 - Ratón y UI interactiva más allá de la terminal.
 - Almacenamiento persistente y archivos de programas.
 - Retransmisión TCP, configuración de red y, posteriormente, HTTPS.

@@ -114,3 +114,17 @@ La prueba real de arranque detectó que E820 modifica DL; se restauró la unidad
 - DNS externo y HTTP 200 OK/891 bytes siguen pasando con paginación activa.
 
 Capturas `build/pagefault-*.ppm` y logs `build/pagefault-*.log`, `build/paging.log`. Se separaron segmentos ELF de código/datos y se alineó la región de solo lectura. El objetivo de instrucciones pasó a i486 por WP/INVLPG; no se declara soporte probado para hardware real.
+
+## Fase 3, heap y validación final de NotOS 0.6
+
+`make clean test` y `make test-online` — PASS en QEMU 9.2.4.
+
+- Heap real de 1 MiB respaldado por 256 frames; guards antes y después.
+- Pruebas nativas: split/coalesce, alineación, calloc/overflow, OOM, free inválido/doble, validación de metadata y 20000 operaciones con verificación de patrones.
+- Tres autopruebas del heap en el kernel; ocho asignaciones simultáneas mediante la shell y liberación fuera de orden. Se restaura exactamente el espacio libre y quedan cero asignaciones.
+- Frame-test y VM-test ejecutados con el heap ya presente; no dañan el heap ni pierden frames.
+- Escritura sobre el guard final genera #PF con error 2 y CR2 0xd0101000.
+- Todas las pruebas anteriores siguen pasando: las cuatro configuraciones de RAM, gráficos, lenguaje, excepciones, IRQ y HTTP por NAT.
+- DNS/HTTP externos pasan con PG/WP/IRQ/heap activos: respuesta 200 OK y 891 bytes recibidos.
+
+Logs `build/heap.log` y `build/heap-guard.log`; captura `build/heap-guard.ppm`. El payload del build observado termina en 0x17006, antes de la firma 0x1fffc; la imagen del kernel está rellenada a 65536 bytes. BSS termina en 0x49028, antes del guard de pila 0x80000. El linker comprueba ambos límites. Estos tamaños pueden cambiar con el compilador. No se han verificado CI remota ni hardware real.

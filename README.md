@@ -14,6 +14,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Interrupciones | PIC 8259, PIT por IRQ0 y teclado por IRQ1 | HLT, reloj durante trabajo en primer plano y cola PS/2 |
 | Memoria física | Mapa BIOS E820 y frames de 4 KiB con bitmap | Agotamiento/liberación en QEMU con 16/32/64/128 MiB |
 | Paginación | CR0.PG/WP, código de solo lectura y ventana virtual | Aliases, TLB y fallos #PF reales con CR2 |
+| Heap | kmalloc/kcalloc/kfree, split/coalesce y alineación de 16 bytes | 20000 operaciones nativas y asignaciones reales en el kernel |
 
 Cada avance se sube en un commit `feat(alcance) mensaje` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
 
@@ -54,6 +55,12 @@ sleep 200
 busy 250
 irqs
 int3
+mem
+vm-test
+heap
+alloc 128
+free 0
+heap-test
 ```
 
 `F1` muestra ayuda y `F2` limpia la terminal. Se controla por teclado PS/2 o por COM1. La fuente inicial representa las minúsculas como mayúsculas; el intérprete conserva la entrada original. La red responde de forma asíncrona en la terminal.
@@ -62,12 +69,12 @@ int3
 
 BIOS carga nuestro sector de 512 bytes. El cargador lee dos bloques de 64 sectores en `0x10000` y `0x18000`, activa A20, configura una GDT, selecciona VGA modo 13h y entra a modo protegido. La entrada del kernel configura una pila en `0x90000` y limpia BSS antes de llamar a C. El payload no puede superar 64 KiB; linker y generador verifican el límite. Una firma al final verifica la segunda lectura. El kernel detecta RAM mediante BIOS E820 y reserva el primer MiB; el gestor de frames tiene un límite físico de 64 MiB.
 
-El kernel funciona en ring 0 con memoria física. El PIC está remapeado, el PIT actualiza el reloj por IRQ0 y el teclado encola scancodes por IRQ1; la shell los procesa fuera del handler. La consola serie y la red siguen sondeadas. La red tiene buffers DMA estáticos y usa la tarjeta RTL8139 emulada y la NAT de QEMU para salir del equipo. El invitado genera y procesa sus propios paquetes; no llama a sockets de un sistema operativo base.
+El kernel funciona en ring 0 con paginación supervisor, frames físicos y un heap virtual de 1 MiB. El código/rodata están protegidos contra escritura y la página nula no está mapeada. El PIC está remapeado, el PIT actualiza el reloj por IRQ0 y el teclado encola scancodes por IRQ1; la shell los procesa fuera del handler. La consola serie y la red siguen sondeadas. La red tiene buffers DMA estáticos y usa la tarjeta RTL8139 emulada y la NAT de QEMU para salir del equipo. El invitado genera y procesa sus propios paquetes; no llama a sockets de un sistema operativo base.
 
 ## Límites importantes
 
 - Solo PC BIOS/x86 y hardware emulado especificado; no UEFI ni soporte comprobado en equipos reales.
-- Paginación supervisor activa, pero sin procesos, aislamiento, sistema de archivos persistente, instalador o multitarea. El heap dinámico aún está pendiente.
+- Paginación supervisor activa, pero sin procesos, aislamiento, sistema de archivos persistente, instalador o multitarea. El heap es fijo de 1 MiB y el gestor físico administra como máximo 64 MiB, según E820; no hay crecimiento automático.
 - Las excepciones fatales muestran diagnóstico y detienen el sistema; no hay recuperación de fallos de aplicaciones ni pila independiente para double fault. Las IRQ de timer y teclado están activas, pero no hay APIC, SMP ni un planificador.
 - Interfaz gráfica mínima, sin ratón, navegador ni gestor completo de ventanas.
 - NotLang es un intérprete pequeño, sin bucles, funciones ni acceso a archivos.

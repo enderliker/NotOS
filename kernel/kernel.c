@@ -7,6 +7,7 @@
 #include "keyboard.h"
 #include "physical.h"
 #include "paging.h"
+#include "heap.h"
 static char line[160];
 static unsigned used;
 static int dropped;
@@ -43,7 +44,7 @@ static void clock_command(const char *kind,const char *argument) {
     console_puts(" ms ticks=");console_uint(after_ticks-ticks);console_putc('\n');
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nfault divide/opcode/gp/null/readonly/guard/unmapped (HALTS)\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nnet  dns HOST  http HOST[:PORT]\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
@@ -91,6 +92,11 @@ static void command(const char *s) {
     else if(equal(s,"fault readonly")) paging_fault_readonly();
     else if(equal(s,"fault guard")) paging_fault_guard();
     else if(equal(s,"fault unmapped")) paging_fault_unmapped();
+    else if(equal(s,"heap")) heap_status();
+    else if(equal(s,"heap-test")) console_puts(heap_selftest()?"HEAP: split/coalesce/calloc/OOM selftest PASS\n":"HEAP ERROR: selftest failed or heap not empty\n");
+    else if(starts(s,"alloc ")) heap_command("alloc",s+6);
+    else if(starts(s,"free ")) heap_command("free",s+5);
+    else if(equal(s,"fault heap-end")) heap_fault_guard_end();
     else if(*s) console_puts("ERROR: unknown command\n");
 }
 static void input(char c) {
@@ -157,19 +163,24 @@ void kernel_main(void) {
         console_puts("VM ERROR: failed to enable paging\n");
         for(;;) __asm__ volatile("cli; hlt");
     }
+    if(!heap_init()) {
+        console_puts("HEAP ERROR: initialization failed\n");
+        for(;;) __asm__ volatile("cli; hlt");
+    }
     pic_init();
     clock_init();
     int keyboard_ready=keyboard_init();
     pic_unmask(0);pic_unmask(2);
     if(keyboard_ready) pic_unmask(1);
     __asm__ volatile("sti" ::: "memory");
-    console_puts("NotOS 0.6-paging\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
+    console_puts("NotOS 0.6\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
     console_puts("IDT: 256 gates installed\n");
     console_puts("IRQ: PIC remapped; PIT ~1000 Hz\n");
     console_puts(keyboard_ready?"KEYBOARD: IRQ1 ready\n":"KEYBOARD: unavailable; use serial\n");
     console_puts("BOOT: 64 KiB loader verified\n");
     physical_status();
     paging_status();
+    heap_status();
     net_init();
     console_puts("notos> ");
     for(;;) {

@@ -1,4 +1,4 @@
-# Memoria — fase 3, frames y paginación
+# Memoria — NotOS 0.6
 
 El cargador obtiene un mapa BIOS E820 completo antes de entrar en modo protegido. El header está en 0x5000; admite hasta 64 entradas de 24 bytes, con compatibilidad para entradas de 20 bytes. Si el BIOS no proporciona un mapa completo y válido, el sistema no continúa a la asignación de RAM.
 
@@ -15,7 +15,7 @@ frame-test
 
 El cargador ahora lee dos bloques de 32 KiB, en 0x10000 y 0x18000. Una firma al final de los 64 KiB verifica realmente la segunda lectura. La imagen del kernel está rellenada hasta 64 KiB; el linker y el generador rechazan contenido que exceda el límite. El sector BIOS sigue teniendo exactamente 512 bytes.
 
-El heap dinámico todavía está pendiente en este avance. No hay espacios de direcciones separados, ring 3, swapping ni recuperación de procesos.
+No hay espacios de direcciones separados, ring 3, swapping ni recuperación de procesos.
 
 ## Paginación implementada
 
@@ -39,3 +39,33 @@ fault unmapped
 Los comandos `fault` detienen deliberadamente la CPU y requieren reiniciar QEMU. Se comprueban #PF y CR2 reales: nulo (error 0, CR2 0), escritura en código (error 3, CR2 0x10000), guard virtual y acceso tras unmap. Este último toca el mapping antes de eliminarlo para comprobar la invalidación del TLB.
 
 `vm-test` verifica dos aliases de un mismo frame, traducción con offset, remapping a otro frame, limpieza y restauración del contador físico. Los mappings no tienen conteo de referencias: el llamador debe eliminar todos los aliases antes de liberar un frame. La ventana no es un API de usuario ni implica aislamiento de procesos. El identity mapping de los frames sigue existiendo y no hay NX, ASLR, demand paging, swapping ni espacios de direcciones por proceso.
+
+## Heap dinámico implementado
+
+Se reserva un heap de 1 MiB en 0xd0001000 usando 256 frames físicos, con guards no presentes en 0xd0000000 y 0xd0101000. Si no se pueden obtener todos los frames al iniciar, se eliminan los mappings adquiridos y se devuelven sus frames antes de reportar el fallo. El heap es fijo: las liberaciones reutilizan el espacio del heap, no devuelven sus páginas al gestor físico.
+
+API del kernel:
+
+- `kmalloc(bytes)`: asigna, con alineación de 16 bytes; devuelve null si bytes=0 o no cabe. Contenido no inicializado.
+- `kcalloc(count, bytes)`: comprueba overflow del producto y limpia el contenido solicitado. La limpieza se hace con IRQ habilitadas cuando lo estaban al entrar.
+- `kfree(pointer)`: libera un bloque válido; null es un no-op exitoso. Rechaza punteros ajenos, interiores, no alineados y doble liberación de un bloque que sigue libre.
+
+El algoritmo first-fit divide bloques cuando hay espacio para otro header/payload y une vecinos libres al liberar. Los headers tienen magic y comprobación de rangos/alineación/enlaces antes de recorrer la lista. Es una ayuda para detectar corrupción, no una defensa completa frente a código malicioso en ring 0. El heap no se usa dentro de handlers IRQ y no es un asignador SMP o de tiempo real.
+
+```text
+heap
+heap-test
+alloc 128
+alloc 4097
+heap
+free 0
+free 1
+heap
+fault heap-end
+```
+
+Los comandos `alloc`/`free` ofrecen ocho slots de diagnóstico. `alloc` usa kcalloc; `free` recibe el índice, no una dirección arbitraria. `heap-test` requiere heap sin asignaciones activas y comprueba alineación, división, unión, calloc, OOM y liberaciones inválidas; restaura el estado. `fault heap-end` escribe en el guard final: #PF esperado, error 2 y CR2 0xd0101000. **Este comando detiene el sistema.**
+
+Pruebas: 20000 operaciones de asignación/liberación con patrones en una arena nativa, más tres autopruebas en el invitado y ocho asignaciones simultáneas liberadas fuera de orden. Se verifica restauración de espacio/contadores y funcionamiento tras agotar frames libres. La validación de metadata corrupta se prueba nativamente; no se afirma recuperación segura de cualquier corrupción.
+
+Los guards protegen los bordes de la región virtual, no cada bloque individual. No hay detección completa de use-after-free, redzones, NX, aislamiento de aplicaciones ni crecimiento automático del heap. Todos los componentes siguen compartiendo el espacio supervisor.
