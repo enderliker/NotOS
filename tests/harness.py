@@ -9,14 +9,14 @@ import tempfile
 import time
 
 class Machine:
-    def __init__(self, network=False, logname="smoke", memory="32M", data_disk=None, entropy=True, rtc=None, image="build/notos.img"):
+    def __init__(self, network=False, logname="smoke", memory="32M", data_disk=None, entropy=True, rtc=None, image="build/notos.img", cpu="max", ready="notos> "):
         self.tmp = tempfile.TemporaryDirectory(prefix='notos-')
         self.output = bytearray()
         self.logname = logname
         self.sel = selectors.DefaultSelector()
         self.sock = None
         monitor = self.tmp.name + '/monitor'
-        args = [os.environ.get('QEMU', 'qemu-system-i386'), '-machine', 'pc', '-cpu', 'max', '-m', memory,
+        args = [os.environ.get('QEMU', 'qemu-system-i386'), '-machine', 'pc', '-cpu', cpu, '-m', memory,
                 '-drive', f'format=raw,file={image}', '-display', 'none',
                 '-qmp', f'unix:{monitor},server=on,wait=off',
                 '-serial', 'stdio', '-no-reboot']
@@ -53,7 +53,7 @@ class Machine:
             greeting = json.loads(self.stream.readline())
             assert 'QMP' in greeting
             self.qmp('qmp_capabilities')
-            self.expect('notos> ', 0)
+            self.expect(ready, 0)
         except BaseException:
             self.close()
             raise

@@ -1,6 +1,6 @@
 # NotOS
 
-Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits. Tiene cargador y kernel propios: no usa Linux, otro kernel ni una distribución como base. TLS utiliza BearSSL portable (MIT); no se afirma que esa biblioteca criptográfica sea original. GCC, Python y QEMU son herramientas del equipo de desarrollo, no componentes del sistema invitado.
+Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits. Tiene cargador y kernel propios: no usa Linux, otro kernel ni una distribución como base. TLS utiliza MbedTLS 3.6.5 (Apache-2.0), y HMAC-DRBG/SHA256 usa BearSSL (MIT); no se afirma que esa biblioteca criptográfica sea original. GCC, Python y QEMU son herramientas del equipo de desarrollo, no componentes del sistema invitado.
 
 ## Implementado y probado
 
@@ -9,7 +9,7 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | Arranque | Cargador BIOS propio, imagen cruda, A20, GDT y modo protegido | Ejecución real del kernel C en QEMU |
 | Interfaz gráfica | VGA 320×200, PS/2 mouse, cursor, toolbar y minimizar/restaurar | Framebuffer, movimiento/clicks QMP y teclado PS/2 |
 | Lenguaje | NotLang 0.1 kernel y 0.2 compilador/VM ring3, repeat y exec de archivos | Aritmética, loops, errores, aislamiento y ejecución tras reinicio |
-| Red | Driver RTL8139, ARP, IPv4, UDP/DNS, TCP/HTTP/HTTPS, retry y config estática | NAT, pérdidas SYN/GET/SYN-ACK/respuesta y DNS/HTTP/HTTPS público, X509, AEAD, pérdidas y certificados inválidos |
+| Red | Driver RTL8139, ARP, IPv4, UDP/DNS, TCP/HTTP/HTTPS, retry y config estática | NAT, pérdidas SYN/GET/SYN-ACK/respuesta y DNS/HTTP/HTTPS público, TLS1.2/1.3, X509, AEAD, pérdidas y certificados inválidos |
 | Excepciones | IDT propia de 256 entradas, frame x86 y pantalla de panic | INT3 recuperable y fallos reales #DE, #UD y #GP |
 | Interrupciones | PIC 8259, PIT por IRQ0 y teclado por IRQ1 | HLT, reloj durante trabajo en primer plano y cola PS/2 |
 | Memoria física | Mapa BIOS E820 y frames de 4 KiB con bitmap | Agotamiento/liberación en QEMU con 16/32/64/128 MiB |
@@ -37,7 +37,7 @@ make run
 
 `make run` abre QEMU con gráfica y salida serie en la terminal. La imagen arrancable es `build/notos.img`. Las pruebas usan emulación TCG, sin necesitar KVM. Se puede seleccionar otro ejecutable con la variable de entorno `QEMU` para las pruebas.
 
-La primera compilación descarga BearSSL con SHA256 fijado; se conserva en `.cache/`. Para compilar offline, usa `BEARSSL_ARCHIVE=/ruta/bearssl-0.6.tar.gz` (mismo hash verificado).
+La primera compilación descarga BearSSL y MbedTLS con SHA256 fijado; se conserva en `.cache/`. Para compilar offline, usa `BEARSSL_ARCHIVE=/ruta/bearssl-0.6.tar.gz` y `MBEDTLS_ARCHIVE=/ruta/mbedtls-3.6.5.tar.bz2` (hashes verificados).
 
 El workflow de GitHub ejecuta `make clean test` y conserva los artefactos. Su ejecución remota no fue comprobada desde este entorno.
 
@@ -128,3 +128,9 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - [Interrupciones y excepciones](docs/INTERRUPTS.md)
 - [Pruebas y resultados](docs/TESTING.md)
 - [Hitos y próximos pasos](docs/ROADMAP.md)
+
+## Port de curl — en desarrollo
+
+TLS 1.3 conserva TLS 1.2, con negociación/verificación dentro del invitado; ver [TLS](docs/TLS.md).
+PAE/NX ya protege datos y pilas. **curl upstream todavía no está portado ni disponible**: `https` es el cliente HTTP educativo, no curl.
+La hoja de ruta verificable de libc/ELF/memoria/sockets/VFS/poll está en [CURL_PORT](docs/CURL_PORT.md).

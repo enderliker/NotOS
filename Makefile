@@ -1,7 +1,7 @@
 CC := gcc
 LD := ld
 BEARSSL_INC := build/bearssl/bearssl-0.6/inc
-CFLAGS := -m32 -march=i486 -mno-sse -mno-sse2 -mno-mmx -msoft-float -std=c11 -Os -fno-builtin -ffreestanding -fno-pie -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Werror
+CFLAGS := -m32 -march=i486 -mno-sse -mno-sse2 -mno-mmx -msoft-float -std=c11 -Os -ffunction-sections -fdata-sections -fno-builtin -ffreestanding -fno-pie -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Werror
 .PHONY: all clean run test test-online
 all: build/notos.img
 build:
@@ -28,29 +28,29 @@ build/user_program.o: kernel/user_program.S kernel/syscall_numbers.h kernel/user
 build/isr.o: kernel/isr.S | build
 	$(CC) -m32 -c $< -o $@
 build/%.o: kernel/%.c $(wildcard kernel/*.h) | build
-	$(CC) $(CFLAGS) -Ikernel/freestanding -I$(BEARSSL_INC) -c $< -o $@
+	$(CC) $(CFLAGS) -Ikernel/freestanding -I$(BEARSSL_INC) $(MBEDTLS_FLAGS) -c $< -o $@
 build/bearssl.ready: tools/fetch_bearssl.py | build
 	python3 tools/fetch_bearssl.py
 build/libbearssl.a: build/bearssl.ready tools/build_bearssl.py
 	CC="$(CC)" NOTOS_CFLAGS="$(CFLAGS)" python3 tools/build_bearssl.py
-build/trust_roots.h: trust/roots.pem tools/trust_anchors.py | build
-	python3 tools/trust_anchors.py $< $@
+build/trust_roots.h: trust/roots.pem tools/trust_der.py | build
+	python3 tools/trust_der.py $< $@
 build/tls.o: build/trust_roots.h build/bearssl.ready
 build/tls_profile.o build/entropy.o build/tls_selftest.o build/x509_policy.o: build/bearssl.ready
-build/kernel.elf: $(KERNEL_OBJS) kernel/link.ld build/libbearssl.a
-	$(LD) -m elf_i386 -T kernel/link.ld $(KERNEL_OBJS) build/libbearssl.a -o $@
+build/kernel.elf: $(KERNEL_OBJS) kernel/link.ld build/libbearssl.a build/libmbedtls.a
+	$(LD) -m elf_i386 --gc-sections -T kernel/link.ld $(KERNEL_OBJS) build/libbearssl.a build/libmbedtls.a -o $@
 build/kernel.bin: build/kernel.elf
 	objcopy -O binary $< $@
 build/notos.img: build/boot.bin build/kernel.bin tools/image.py
 	python3 tools/image.py
 build/tls-fixtures.ready: tools/tls_fixtures.py | build
 	python3 tools/tls_fixtures.py
-build/test_trust_roots.h: build/tls-fixtures.ready tools/trust_anchors.py
-	python3 tools/trust_anchors.py build/tls-fixtures/ca.pem $@
+build/test_trust_roots.h: build/tls-fixtures.ready tools/trust_der.py
+	python3 tools/trust_der.py build/tls-fixtures/ca.pem $@
 build/tls_test.o: kernel/tls.c $(wildcard kernel/*.h) build/test_trust_roots.h build/bearssl.ready
-	$(CC) $(CFLAGS) -Ikernel/freestanding -I$(BEARSSL_INC) -DNOTOS_TRUST_HEADER='"../build/test_trust_roots.h"' -c $< -o $@
-build/kernel-tls-test.elf: $(filter-out build/tls.o,$(KERNEL_OBJS)) build/tls_test.o kernel/link.ld build/libbearssl.a
-	$(LD) -m elf_i386 -T kernel/link.ld $(filter-out build/tls.o,$(KERNEL_OBJS)) build/tls_test.o build/libbearssl.a -o $@
+	$(CC) $(CFLAGS) -Ikernel/freestanding -I$(BEARSSL_INC) $(MBEDTLS_FLAGS) -DNOTOS_TRUST_HEADER='"../build/test_trust_roots.h"' -c $< -o $@
+build/kernel-tls-test.elf: $(filter-out build/tls.o,$(KERNEL_OBJS)) build/tls_test.o kernel/link.ld build/libbearssl.a build/libmbedtls.a
+	$(LD) -m elf_i386 --gc-sections -T kernel/link.ld $(filter-out build/tls.o,$(KERNEL_OBJS)) build/tls_test.o build/libbearssl.a build/libmbedtls.a -o $@
 build/kernel-tls-test.bin: build/kernel-tls-test.elf
 	objcopy -O binary $< $@
 build/notos-tls-test.img: build/boot.bin build/kernel-tls-test.bin tools/image.py
@@ -79,7 +79,9 @@ build/utc-unit: tests/utc_unit.c kernel/utc.c kernel/platform_tls.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/utc_unit.c kernel/utc.c -o $@
 build/certificate-unit: tests/certificate_unit.c kernel/certificate_policy.c kernel/certificate_policy.h build/tls-fixtures.ready | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/certificate_unit.c kernel/certificate_policy.c -o $@
-test: all build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+test: all build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+	./build/tls-port-unit
+	./build/integer-unit
 	./build/certificate-unit
 	./build/utc-unit
 	./build/notlang-unit
@@ -111,3 +113,18 @@ test-online: all
 	python3 tests/https_online.py
 clean:
 	rm -rf build
+
+MBEDTLS_INC := build/mbedtls/mbedtls-3.6.5/include
+MBEDTLS_FLAGS := -Ikernel -I$(MBEDTLS_INC) -DMBEDTLS_CONFIG_FILE='"notos_mbedtls_config.h"'
+build/mbedtls.ready: tools/fetch_mbedtls.py | build
+	python3 tools/fetch_mbedtls.py
+build/libmbedtls.a: build/mbedtls.ready tools/build_mbedtls.py kernel/notos_mbedtls_config.h kernel/tls_platform_port.h $(wildcard kernel/freestanding/*.h)
+	CC="$(CC)" NOTOS_CFLAGS="$(CFLAGS)" python3 tools/build_mbedtls.py
+
+build/tls.o build/tls_test.o build/tls_platform_port.o: build/mbedtls.ready
+
+build/tls_profile.o build/tls_selftest.o: build/mbedtls.ready
+build/integer-unit: tests/integer_unit.c kernel/integer_runtime.c kernel/base.h | build
+	gcc -std=c11 -Wall -Wextra -Werror tests/integer_unit.c kernel/integer_runtime.c -o $@
+build/tls-port-unit: tests/tls_port_unit.c kernel/tls_platform_port.c kernel/tls_platform_port.h build/mbedtls.ready | build
+	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined $(MBEDTLS_FLAGS) tests/tls_port_unit.c kernel/tls_platform_port.c -o $@

@@ -16,7 +16,7 @@ static int cpu_nx(void) {
     if (!((changed^original)&0x200000u)) return 0;
     u32 a,b,c,d;
     __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(1));
-    if (!(d&64)) return 0;
+    if ((d&96)!=96) return 0; /* PAE and MSR instructions. */
     __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(0x80000000u));
     if (a<0x80000001u) return 0;
     __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(0x80000001u));

@@ -241,3 +241,20 @@ Logs `build/network.log`, `build/online.log`, `build/process.log`, `build/storag
 Logs `build/https-local.log`, `build/https-date-*.log`, `build/https-untrusted.log`, `build/https-no-entropy.log`, `build/https-online.log`; captura `build/https.pcap`. El kernel usa la imagen de 192 KiB/firma0x3fffc; los límites de payload/BSS/guard siguen comprobados por linker. Tamaños varían por toolchain.
 
 No se han comprobado CI remota ni hardware real. TLS requiere host/firmware/RTC confiables y semilla fresca; no TLS1.3, revocación ni auditoría PKI/producción completa. Ver [política, uso y límites](TLS.md).
+
+## NotOS 0.11: PAE/NX y TLS1.2/1.3
+
+`make clean test` y `make test-online` PASS en QEMU 9.2.4. Este avance sustituye el backend TLS12-only de 0.10.
+
+- MbedTLS freestanding y fuentes fijadas por SHA256; no host libc, FPU ni proxy TLS.
+- Servidor solo TLS1.3 y solo TLS1.2; SNI/SAN/wildcard, RSA-PSS/ECDSA, HelloRetryRequest P384 y cierre autenticado.
+- Ambas versiones rechazan SAN/EKU/root incorrectos, RSA débil, SHA1 de hoja, truncamiento y ciphertext alterado; pérdida RX recuperada.
+- Sin fuente de entropía no hay conexión; OOM sin fugas; todos los intentos devuelven frames/heap.
+- UTC 64 bits: epoch/2038/2099 y 10004 comparaciones calendario bajo ASAN/UBSAN.
+- División u64: límites y 100000 comparaciones; ejecución i386 en las operaciones RSA de TLS.
+- PCAP sin petición/cuerpo en claro y ClientHello random distinto por intento.
+- NX de dato/pila en ring3 produce #PF/error21; kernel recuperado. CPUID/PAE/NXE/WP comprobados, reserva BSS sin frames solapados.
+- HTTPS público: example.com negoció TLSv1.3, HTTP200, 892 bytes y close_notify. El tamaño puede cambiar.
+- Regresiones de todos los módulos anteriores pasan; CI remota/hardware físico no comprobados.
+
+curl upstream sigue pendiente; no se presenta `https` como curl. Ver CURL_PORT.md.

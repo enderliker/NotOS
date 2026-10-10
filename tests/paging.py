@@ -32,3 +32,9 @@ for fault,error,cr2 in [
         assert m.p.poll() is None,'CPU reset/triple fault'
         m.screenshot('pagefault-'+fault)
         print(f'PASS: actual #PF {fault}, correct error/CR2 and halted diagnostic screen')
+
+for cpu in ('486','pentium3','max,-nx'):
+    with Machine(cpu=cpu,ready='VM ERROR: PAE/NX CPU required or paging setup failed\n',logname='no-nx-'+cpu.replace(',','-')) as m:
+        assert b'PANIC:' not in m.output and b'VM: paging=1' not in m.output
+        assert m.p.poll() is None
+        print('PASS: unsupported CPU rejected before enabling paging:',cpu)

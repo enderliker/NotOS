@@ -41,3 +41,10 @@ El quantum es de 5 ticks del PIT; el presupuesto máximo es de 250 ticks entrega
 - Cambios funcionales en commits `feat(alcance) mensaje`, después de compilar con `-Wall -Wextra -Werror` y pasar las pruebas aplicables.
 
 La documentación de límites es parte del contrato. Un prototipo que pasa estos tests no equivale a un sistema de producción ni a una auditoría completa de seguridad.
+
+## TLS y memoria en 0.11
+
+PAE y NX reemplazan tablas de 32 bits: PDPT privado y directorio por tarea; BSS reservado explícitamente desde 1 MiB. Texto RX, rodata R/NX, datos/pilas RW/NX.
+`tls_profile.*` ahora configura MbedTLS 1.2/1.3; `tls.*` proporciona BIO no bloqueante, verifica el handshake y libera contextos/slots PSA.
+`certificate_policy.*` sigue aplicando SAN/EKU/límites sin borrar errores de MbedTLS. `x509_policy.*` es legado BearSSL, no se enlaza en el cliente actual.
+`tls_platform_port.*` adapta heap/RTC/DRBG; no es una libc POSIX. `integer_runtime.*` aporta división u64 probada para i386.

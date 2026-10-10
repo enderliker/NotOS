@@ -1,72 +1,113 @@
-/* HTTPS state machine, isolated from Ethernet/TCP and from platform services. */
+/* Nonblocking TLS 1.2/1.3 client; TCP only transports encrypted records. */
 #include "tls.h"
 #include "tls_profile.h"
-#include "x509_policy.h"
 #include "platform_tls.h"
+#include "tls_platform_port.h"
+#include "certificate_policy.h"
 #include "heap.h"
+#include <mbedtls/ssl.h>
+#include <mbedtls/x509_crt.h>
+#include <psa/crypto.h>
 #include <string.h>
 #ifndef NOTOS_TRUST_HEADER
 #define NOTOS_TRUST_HEADER "../build/trust_roots.h"
 #endif
 #include NOTOS_TRUST_HEADER
-#define INPUT_QUEUE 32768u
+#define QUEUE_SIZE 32768u
 #define RESPONSE_LIMIT (16u*1024u*1024u)
+struct record_queue {u8 bytes[QUEUE_SIZE];unsigned head,tail,used;};
 struct tls_connection {
-    br_ssl_client_context client;
-    br_x509_minimal_context validator;
-    struct x509_policy policy;
-    u8 buffers[BR_SSL_BUFSIZE_BIDI];
-    u8 input[INPUT_QUEUE];
-    unsigned head,tail,used;
+    mbedtls_ssl_context ssl;
+    mbedtls_ssl_config config;
+    mbedtls_x509_crt roots;
+    struct record_queue input,output;
     char host[96],request[256],status[128];
+    u8 plaintext[2048];
     unsigned request_bytes,request_offset,status_used,plaintext_bytes;
-    int request_sent,status_printed,eof,result;
+    int established,request_sent,status_printed,eof,result,closing,close_sent;
 };
 static struct tls_connection *connection;
+extern int notos_tls_random(void *context,unsigned char *output,size_t bytes);
+static int pending(int result) {return result==MBEDTLS_ERR_SSL_WANT_READ || result==MBEDTLS_ERR_SSL_WANT_WRITE;}
 static void failed(const char *reason) {
     if (!connection || connection->result) return;
     console_puts("TLS ERROR: ");console_puts(reason);console_putc('\n');connection->result=-1;
 }
+static void protocol_error(int code) {
+    console_puts("TLS ERROR: verification/protocol code=");console_int(code);console_putc('\n');connection->result=-1;
+}
+static void queue_write(struct record_queue *q,const u8 *data,unsigned bytes) {
+    for (unsigned i=0;i<bytes;i++) {q->bytes[q->head++]=data[i];q->head%=QUEUE_SIZE;}q->used+=bytes;
+}
+static int receive_record(void *context,unsigned char *out,size_t capacity) {
+    struct tls_connection *c=context;struct record_queue *q=&c->input;
+    if (!q->used) return c->eof?0:MBEDTLS_ERR_SSL_WANT_READ;
+    unsigned n=capacity>q->used?q->used:(unsigned)capacity;
+    for (unsigned i=0;i<n;i++) {out[i]=q->bytes[q->tail++];q->tail%=QUEUE_SIZE;}q->used-=n;return (int)n;
+}
+static int send_record(void *context,const unsigned char *data,size_t bytes) {
+    struct tls_connection *c=context;
+    if (bytes>QUEUE_SIZE-c->output.used) return MBEDTLS_ERR_SSL_WANT_WRITE;
+    queue_write(&c->output,data,(unsigned)bytes);return (int)bytes;
+}
+static int verify_certificate(void *context,mbedtls_x509_crt *certificate,int depth,uint32_t *flags) {
+    (void)context;
+    if (depth<0 || depth>7 || certificate->raw.len>16384 ||
+        !certificate_policy_role(certificate->raw.p,(unsigned)certificate->raw.len,depth==0))
+        *flags|=MBEDTLS_X509_BADCERT_OTHER;
+    return 0; /* Never clear the backend's chain, name, time or signature errors. */
+}
 void tls_stop(void) {
-    if (connection) {secure_clear(connection,sizeof(*connection));kfree(connection);connection=0;}
+    if (!connection) return;
+    mbedtls_ssl_free(&connection->ssl);mbedtls_ssl_config_free(&connection->config);
+    mbedtls_x509_crt_free(&connection->roots);
+    secure_clear(connection,sizeof(*connection));kfree(connection);connection=0;
+    mbedtls_psa_crypto_free(); /* Single TLS connection; release volatile PSA slots. */
 }
 int tls_start(const char *host) {
-    struct utc_time utc;u8 seed[64];
-    tls_stop();
+    struct utc_time utc;tls_stop();
     if (!host || !*host || length(host)>=96) {console_puts("TLS ERROR: invalid hostname\n");return 0;}
     if (!rtc_utc(&utc)) {console_puts("TLS ERROR: valid UTC RTC required\n");return 0;}
-    if (!entropy_get(seed,sizeof(seed))) {console_puts("TLS ERROR: fresh firmware entropy required\n");return 0;}
+    if (!entropy_ready()) {console_puts("TLS ERROR: fresh firmware entropy required\n");return 0;}
     connection=kcalloc(1,sizeof(*connection));
-    if (!connection) {secure_clear(seed,sizeof(seed));console_puts("TLS ERROR: memory unavailable\n");return 0;}
-    memcpy(connection->host,host,length(host)+1);
-    tls_profile(&connection->client,&connection->validator,trust_anchors,
-        sizeof(trust_anchors)/sizeof(trust_anchors[0]));
-    x509_policy_init(&connection->policy,&connection->validator);
-    br_ssl_engine_set_x509(&connection->client.eng,&connection->policy.vtable);
-    br_x509_minimal_set_time(&connection->validator,utc.days,utc.seconds);
-    br_ssl_engine_set_buffer(&connection->client.eng,connection->buffers,sizeof(connection->buffers),1);
-    br_ssl_engine_inject_entropy(&connection->client.eng,seed,sizeof(seed));
-    secure_clear(seed,sizeof(seed));
-    if (!br_ssl_client_reset(&connection->client,host,0)) {failed("initialization failed");tls_stop();return 0;}
+    if (!connection) {console_puts("TLS ERROR: memory unavailable\n");return 0;}
+    mbedtls_ssl_init(&connection->ssl);mbedtls_ssl_config_init(&connection->config);mbedtls_x509_crt_init(&connection->roots);
+    memcpy(connection->host,host,length(host)+1);int error=0;unsigned offset=0;
+    for (unsigned i=0;i<sizeof(trust_lengths)/sizeof(trust_lengths[0]);i++) {
+        error=mbedtls_x509_crt_parse_der(&connection->roots,trust_der+offset,trust_lengths[i]);
+        if (error) break;
+        offset+=trust_lengths[i];
+    }
+    if (!error) error=psa_crypto_init();
+    if (!error) error=tls_profile(&connection->config);
+    if (!error) {
+        mbedtls_ssl_conf_authmode(&connection->config,MBEDTLS_SSL_VERIFY_REQUIRED);
+        mbedtls_ssl_conf_ca_chain(&connection->config,&connection->roots,0);
+        mbedtls_ssl_conf_rng(&connection->config,notos_tls_random,0);
+        mbedtls_ssl_conf_verify(&connection->config,verify_certificate,0);
+        error=mbedtls_ssl_setup(&connection->ssl,&connection->config);
+    }
+    if (!error) error=mbedtls_ssl_set_hostname(&connection->ssl,host);
+    if (error) {protocol_error(error);tls_stop();return 0;}
+    mbedtls_ssl_set_bio(&connection->ssl,connection,send_record,receive_record,0);
     char *p=connection->request;
-    const char *parts[]={"GET / HTTP/1.0\r\nHost: ",host,"\r\nUser-Agent: NotOS/0.10\r\nConnection: close\r\n\r\n"};
+    const char *parts[]={"GET / HTTP/1.0\r\nHost: ",host,"\r\nUser-Agent: NotOS/0.11\r\nConnection: close\r\n\r\n"};
     for (unsigned i=0;i<3;i++) for (const char *s=parts[i];*s;s++) *p++=*s;
-    connection->request_bytes=(unsigned)(p-connection->request);
-    return 1;
+    connection->request_bytes=(unsigned)(p-connection->request);return 1;
 }
-int tls_feed(const u8 *bytes,unsigned size) {
-    if (!connection || connection->result || size>INPUT_QUEUE-connection->used) return 0;
-    for (unsigned i=0;i<size;i++) {connection->input[connection->head++]=bytes[i];connection->head%=INPUT_QUEUE;}
-    connection->used+=size;return 1;
+int tls_feed(const u8 *data,unsigned bytes) {
+    if (!connection || connection->result || bytes>QUEUE_SIZE-connection->input.used) return 0;
+    queue_write(&connection->input,data,bytes);return 1;
 }
-const u8 *tls_output(unsigned *size) {
-    *size=0;
-    if (!connection || connection->result) return 0;
-    size_t available=0;const u8 *p=br_ssl_engine_sendrec_buf(&connection->client.eng,&available);
-    *size=(unsigned)available;return p;
+const u8 *tls_output(unsigned *bytes) {
+    *bytes=0;if (!connection || connection->result) return 0;
+    struct record_queue *q=&connection->output;*bytes=q->used;
+    if (*bytes>QUEUE_SIZE-q->tail) *bytes=QUEUE_SIZE-q->tail;
+    return q->bytes+q->tail;
 }
-void tls_output_ack(unsigned size) {
-    if (connection && !connection->result) br_ssl_engine_sendrec_ack(&connection->client.eng,size);
+void tls_output_ack(unsigned bytes) {
+    if (!connection || bytes>connection->output.used) return;
+    connection->output.tail=(connection->output.tail+bytes)%QUEUE_SIZE;connection->output.used-=bytes;
 }
 void tls_eof(void) {if (connection) connection->eof=1;}
 static void application(const u8 *data,size_t bytes) {
@@ -87,59 +128,46 @@ static void application(const u8 *data,size_t bytes) {
 }
 void tls_poll(void) {
     if (!connection || connection->result) return;
-    br_ssl_engine_context *engine=&connection->client.eng;
-    for (unsigned budget=0;budget<128;budget++) {
-        if (connection->policy.rejected) {failed("certificate DNS SAN/EKU/size policy rejected");return;}
-        unsigned state=br_ssl_engine_current_state(engine);
-        if (state&BR_SSL_CLOSED) {
-            int error=br_ssl_engine_last_error(engine);
-            if (error) {
-                console_puts("TLS ERROR: verification/protocol code=");console_uint((u32)error);console_putc('\n');
-                connection->result=-1;
-            } else if (!connection->status_printed || !connection->request_sent) failed("incomplete HTTPS response");
-            else {
-                console_puts("HTTPS: received ");console_uint(connection->plaintext_bytes);
-                console_puts(" bytes; authenticated close_notify\n");connection->result=1;
-            }
-            return;
-        }
-        size_t size=0;
-        if (state&BR_SSL_RECVAPP) {
-            const u8 *data=br_ssl_engine_recvapp_buf(engine,&size);application(data,size);
-            if (connection->result) return;
-            br_ssl_engine_recvapp_ack(engine,size);continue;
-        }
-        if ((state&BR_SSL_SENDAPP) && !connection->request_sent) {
-            if (!connection->request_offset) {
-                console_puts("TLS: verified ");console_puts(connection->host);console_puts("; TLS 1.2\n");
-            }
-            u8 *data=br_ssl_engine_sendapp_buf(engine,&size);
-            unsigned remaining=connection->request_bytes-connection->request_offset;
-            if (size>remaining) size=remaining;
-            memcpy(data,connection->request+connection->request_offset,size);
-            br_ssl_engine_sendapp_ack(engine,size);connection->request_offset+=(unsigned)size;
-            if (connection->request_offset==connection->request_bytes) {
-                connection->request_sent=1;br_ssl_engine_flush(engine,0);
-            }
-            continue;
-        }
-        if ((state&BR_SSL_RECVREC) && connection->used) {
-            u8 *data=br_ssl_engine_recvrec_buf(engine,&size);
-            if (size>connection->used) size=connection->used;
-            if (size>INPUT_QUEUE-connection->tail) size=INPUT_QUEUE-connection->tail;
-            memcpy(data,connection->input+connection->tail,size);
-            connection->tail=(connection->tail+(unsigned)size)%INPUT_QUEUE;connection->used-=(unsigned)size;
-            br_ssl_engine_recvrec_ack(engine,size);continue;
-        }
-        if (connection->eof && !connection->used && !(state&BR_SSL_SENDREC)) failed("truncated TLS connection (no close_notify)");
+    struct tls_connection *c=connection;
+    if (!c->established) {
+        int error=mbedtls_ssl_handshake(&c->ssl);
+        if (pending(error)) return;
+        if (error) {protocol_error(error);return;}
+        if (mbedtls_ssl_get_verify_result(&c->ssl)) {failed("certificate verification rejected");return;}
+        c->established=1;console_puts("TLS: verified ");console_puts(c->host);console_puts("; ");
+        console_puts(mbedtls_ssl_get_version(&c->ssl));console_putc('\n');
+    }
+    if (!c->request_sent) {
+        int n=mbedtls_ssl_write(&c->ssl,(u8 *)c->request+c->request_offset,c->request_bytes-c->request_offset);
+        if (pending(n)) return;
+        if (n<=0) {protocol_error(n);return;}
+        c->request_offset+=(unsigned)n;c->request_sent=c->request_offset==c->request_bytes;
+        if (!c->request_sent) return;
+    }
+    for (unsigned budget=0;budget<32 && !c->closing;budget++) {
+        int n=mbedtls_ssl_read(&c->ssl,c->plaintext,sizeof(c->plaintext));
+        if (n>0) {application(c->plaintext,(size_t)n);if (c->result) return;continue;}
+        if (n==MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {c->closing=1;break;}
+        if (pending(n)) return;
+        if (!n || n==MBEDTLS_ERR_SSL_CONN_EOF) failed("truncated TLS connection (no close_notify)");
+        else protocol_error(n);
         return;
+    }
+    if (c->closing && !c->close_sent) {
+        int error=mbedtls_ssl_close_notify(&c->ssl);
+        if (pending(error)) return;
+        if (error) {protocol_error(error);return;}c->close_sent=1;
+    }
+    if (c->close_sent && !c->output.used) {
+        if (!c->status_printed) {failed("incomplete HTTPS response");return;}
+        console_puts("HTTPS: received ");console_uint(c->plaintext_bytes);
+        console_puts(" bytes; authenticated close_notify\n");c->result=1;
     }
 }
 int tls_result(void) {return connection?connection->result:-1;}
 int tls_verified(void) {return connection && connection->request_sent;}
 void tls_status(void) {
-    struct utc_time utc;
-    console_puts("TLS: version=1.2 entropy=");console_uint((u32)entropy_ready());
-    console_puts(" rtc=");console_uint((u32)rtc_utc(&utc));
-    console_puts(" roots=");console_uint(sizeof(trust_anchors)/sizeof(trust_anchors[0]));console_putc('\n');
+    struct utc_time utc;console_puts("TLS: version=1.2/1.3 entropy=");console_uint((u32)entropy_ready());
+    console_puts(" rtc=");console_uint((u32)rtc_utc(&utc));console_puts(" roots=");
+    console_uint(sizeof(trust_lengths)/sizeof(trust_lengths[0]));console_putc('\n');
 }

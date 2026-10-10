@@ -17,11 +17,12 @@ TEST_IMAGE='build/notos-tls-test.img'
 
 class Peer(socketserver.TCPServer):
     allow_reuse_address=True
-    def __init__(self,certificate='valid',cipher='ECDHE-RSA-AES128-GCM-SHA256',truncate=False,tls13=False):
-        self.requests=[];self.names=[];self.errors=[];self.truncate=truncate
+    def __init__(self,certificate='valid',cipher='ECDHE-RSA-AES128-GCM-SHA256',truncate=False,tls13=False,curve=None):
+        self.requests=[];self.names=[];self.errors=[];self.truncate=truncate;self.tls13=tls13;self.versions=[];self.ciphers=[]
         self.context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.context.minimum_version=ssl.TLSVersion.TLSv1_3 if tls13 else ssl.TLSVersion.TLSv1_2
         self.context.maximum_version=self.context.minimum_version
+        if curve:self.context.set_ecdh_curve(curve)
         self.context.set_ciphers(cipher+':@SECLEVEL=0')
         self.context.load_cert_chain(FIXTURES/(certificate+'.pem'),FIXTURES/(certificate+'.key'))
         self.context.set_servername_callback(lambda sock,name,ctx:self.names.append(name))
@@ -35,6 +36,7 @@ class Handler(socketserver.BaseRequestHandler):
         self.request.settimeout(8)
         try:
             with self.server.context.wrap_socket(self.request,server_side=True) as connection:
+                self.server.versions.append(connection.version());self.server.ciphers.append(connection.cipher()[0])
                 request=b''
                 while b'\r\n\r\n' not in request:
                     block=connection.recv(1024)
@@ -69,7 +71,7 @@ def attempt(m,peer,hostname='localhost',success=True):
     idle(m)
     reply=bytes(m.output[start:])
     if success:
-        assert f'TLS: verified {hostname}; TLS 1.2\n'.encode() in reply,reply
+        assert f'TLS: verified {hostname}; TLSv1.{3 if peer.tls13 else 2}\n'.encode() in reply,reply
         assert b'HTTPS: HTTP/1.0 200 OK\n' in reply,reply
         assert f'HTTPS: received {len(RESPONSE)} bytes;'.encode() in reply,reply
     else:
@@ -94,11 +96,29 @@ with Machine(network=True,image=TEST_IMAGE,logname='https-local') as m:
         assert b'NET TEST: corrupted TLS payload' in reply and b'HTTPS: HTTP/' not in reply,reply
     with Peer(cipher='ECDHE-RSA-CHACHA20-POLY1305') as peer:
         attempt(m,peer);assert len(peer.requests)==1
-    for certificate in ('san-mismatch','no-san','client-only','weak','weak-edge','restricted-chain'):
+    for certificate in ('san-mismatch','no-san','client-only','weak','weak-edge','restricted-chain','sha1'):
         with Peer(certificate=certificate) as peer:
             attempt(m,peer,success=False);assert not peer.requests,(certificate,peer.requests)
     with Peer(tls13=True) as peer:
-        attempt(m,peer,success=False);assert not peer.requests
+        for _ in range(2):attempt(m,peer)
+        assert len(peer.requests)==2 and peer.versions==['TLSv1.3']*2
+    with Peer(tls13=True) as peer:
+        m.command('net-drop response','NET TEST: one-packet loss armed\nnotos> ')
+        attempt(m,peer);assert len(peer.requests)==1
+    with Peer(tls13=True) as peer:
+        m.command('net-drop tamper','NET TEST: one-packet loss armed\nnotos> ')
+        attempt(m,peer,success=False)
+    for certificate in ('san-mismatch','no-san','client-only','weak','weak-edge','restricted-chain','sha1'):
+        with Peer(tls13=True,certificate=certificate) as peer:
+            attempt(m,peer,success=False);assert not peer.requests
+    with Peer(tls13=True,curve='secp384r1') as peer:
+        attempt(m,peer);assert peer.versions==['TLSv1.3']
+    for certificate in ('ecdsa','pss'):
+        for tls13 in (False,True):
+            with Peer(tls13=tls13,certificate=certificate,cipher='ECDHE-ECDSA-AES128-GCM-SHA256' if certificate=='ecdsa' else 'ECDHE-RSA-AES128-GCM-SHA256') as peer:
+                attempt(m,peer);assert len(peer.requests)==1
+    with Peer(tls13=True,truncate=True) as peer:
+        attempt(m,peer,success=False)
     with Peer(truncate=True) as peer:
         reply=attempt(m,peer,success=False)
         assert b'truncated TLS connection' in m.output,reply
@@ -111,8 +131,8 @@ with Machine(network=True,image=TEST_IMAGE,logname='https-local') as m:
     m.command('heap-test','HEAP: split/coalesce/calloc/OOM selftest PASS\nnotos> ')
     m.command('multitask-run four','SCHED: preemptive multitask/contexts/cleanup PASS\nnotos> ')
     m.command('tls-selftest','TLS: SHA256/profile/RTC selftest PASS\nnotos> ')
-    print('PASS: TLS12 AES-GCM/ChaCha20, SNI/SAN/wildcard, repeat, exact plaintext length and clean closure')
-    print('PASS: wrong identity, missing SAN, bad leaf/intermediate EKU, weak RSA, TLS13-only and truncation rejected; no leaks')
+    print('PASS: TLS12/13, RSA-PSS/ECDSA, HelloRetryRequest, AES-GCM/ChaCha20, SNI/SAN/wildcard, repeat, exact plaintext length and clean closure')
+    print('PASS: wrong identity, missing SAN, bad leaf/intermediate EKU, weak RSA, TLS13 verified, truncation rejected; no leaks')
 
 # Parse a passive Ethernet PCAP: no cleartext HTTP and distinct ClientHello randoms.
 os.environ.pop('QEMU_PCAP')

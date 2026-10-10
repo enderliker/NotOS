@@ -9,16 +9,21 @@ def openssl(*args):
 openssl('req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(root/'ca.key'),
     '-out',str(root/'ca.pem'),'-days','7','-sha256','-subj','/CN=NotOS ephemeral test CA',
     '-addext','basicConstraints=critical,CA:TRUE','-addext','keyUsage=critical,keyCertSign,cRLSign')
-def leaf(name,san,eku='serverAuth',bits=2048):
-    openssl('req','-new','-newkey',f'rsa:{bits}','-nodes','-keyout',str(root/(name+'.key')),
+def leaf(name,san,eku='serverAuth',bits=2048,ec=False,sha1=False,pss=False):
+    algorithm=['ec','-pkeyopt','ec_paramgen_curve:P-256'] if ec else [f'rsa:{bits}']
+    openssl('req','-new','-newkey',*algorithm,'-nodes','-keyout',str(root/(name+'.key')),
         '-out',str(root/(name+'.csr')),'-subj','/CN=localhost')
     extensions='basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage='+eku+'\n'
     if san: extensions+='subjectAltName='+san+'\n'
     (root/(name+'.ext')).write_text(extensions)
     openssl('x509','-req','-in',str(root/(name+'.csr')),'-CA',str(root/'ca.pem'),'-CAkey',str(root/'ca.key'),
-        '-CAcreateserial','-out',str(root/(name+'.pem')),'-days','2','-sha256','-extfile',str(root/(name+'.ext')))
+        '-CAcreateserial','-out',str(root/(name+'.pem')),'-days','2','-sha1' if sha1 else '-sha256',
+        *(['-sigopt','rsa_padding_mode:pss','-sigopt','rsa_pss_saltlen:digest'] if pss else []),'-extfile',str(root/(name+'.ext')))
     openssl('x509','-in',str(root/(name+'.pem')),'-outform','DER','-out',str(root/(name+'.der')))
 leaf('valid','DNS:localhost,DNS:*.notos.test')
+leaf('ecdsa','DNS:localhost',ec=True)
+leaf('pss','DNS:localhost',pss=True)
+leaf('sha1','DNS:localhost',sha1=True)
 leaf('san-mismatch','DNS:other.test')
 leaf('no-san',None)
 leaf('client-only','DNS:localhost','clientAuth')

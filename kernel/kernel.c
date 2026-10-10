@@ -205,7 +205,7 @@ void kernel_main(void) {
     if(mouse_ready) pic_unmask(12);
     if(keyboard_ready) pic_unmask(1);
     __asm__ volatile("sti" ::: "memory");
-    console_puts("NotOS 0.10\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
+    console_puts("NotOS 0.11\nBOOT: protected mode OK\nBOOT: kernel C OK\nGUI: 320x200 OK\nType help.\n");
     console_puts("IDT: 256 gates installed\n");
     console_puts("IRQ: PIC remapped; PIT ~1000 Hz\n");
     console_puts(keyboard_ready?"KEYBOARD: IRQ1 ready\n":"KEYBOARD: unavailable; use serial\n");

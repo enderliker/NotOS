@@ -43,18 +43,23 @@ Se subió en dos avances comprobados: `feat(ring3)` y `feat(aislamiento)`. Las d
 
 Se subió en tres avances comprobados: `feat(tareas)`, `feat(planificador)` y `feat(multitarea)`. Ver [contratos, pruebas y límites](TASKS.md).
 
-## Hitos posteriores — estado en NotOS 0.10
+## Hitos posteriores — estado en NotOS 0.11
 
 - **Completado en QEMU:** gestor con cuatro slots, PID, spawn/ps/kill, ejecución en segundo plano y recolección automática. Integrado: exec de programas fuente NotLang; no cargador ELF.
 - **Completado básico en QEMU:** ratón PS/2 IRQ12, cursor, toolbar clickable y minimizar/restaurar ventana. No es un escritorio completo.
 - **Almacenamiento completado en QEMU:** ATA PIO y NotFS persistente con CRC/snapshots y CRUD. Integrado: archivos fuente NotLang compilados y ejecutados en ring 3.
-- **Completado básico en QEMU:** retransmisión TCP con backoff, pérdidas, ACK validado, config IPv4 /24 y HTTPS/TLS1.2 con cadena/DNS/SAN/EKU/fecha verificados. Límites documentados en TLS.md.
+- **Completado básico en QEMU:** retransmisión TCP con backoff, pérdidas, ACK validado, config IPv4 /24 y HTTPS/TLS1.2/1.3 con cadena/DNS/SAN/EKU/fecha verificados. Límites documentados en TLS.md.
 - **Completado básico en QEMU:** NotLang 0.2 con repeat anidado, compilador de bytecode, VM ring3 y exec de archivos persistentes. No incluye funciones ni un lenguaje general.
 
 Las primeras versiones son prototipos de laboratorio, no sustitutos de un sistema de escritorio. No se declara un hito completo solo por compilar, y no se afirma soporte para hardware que no se haya probado.
 
 ## HTTPS — completado con alcance explícito
 
-- **Comprobado:** TLS1.2 real dentro del invitado, raíces Mozilla/curl, entropía por firmware/HMAC-DRBG, RTC UTC y validación de cadena/identidad/uso/fechas. Pruebas positivas, certificados inválidos, AEAD alterado, truncamiento, PCAP y HTTPS público. No incluye TLS1.3, PKI completa, navegador ni soporte físico.
+- **Comprobado:** TLS1.2 y TLS1.3 reales dentro del invitado, raíces Mozilla/curl, entropía por firmware/HMAC-DRBG, RTC UTC y validación de cadena/identidad/uso/fechas. Pruebas positivas, certificados inválidos, AEAD alterado, truncamiento, PCAP y HTTPS público. No incluye curl, PKI completa, navegador ni soporte físico.
 
 Los límites de cada módulo (ELF, funciones de lenguaje, USB, kernel preemptivo, filesystem general, DHCP/IPv6, etc.) están documentados; no se han convertido silenciosamente en capacidades implementadas.
+
+## Port de curl
+
+PAE/NX y backend TLS1.2/1.3 son prerrequisitos comprobados; no completan un port de curl.
+Ver [CURL_PORT](CURL_PORT.md) para los gates de ELF, memoria user, libc, sockets, bloqueo y ejecución del binario upstream.
