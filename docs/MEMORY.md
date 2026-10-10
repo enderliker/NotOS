@@ -23,7 +23,7 @@ Páginas x86 de 4 KiB, directorio/tablas propias y CR0.PG + CR0.WP activos. Se r
 
 - Página cero no presente: las lecturas nulas provocan #PF.
 - Código y rodata alineados y de solo lectura, incluso para escrituras supervisor con WP.
-- Página 0x80000 no presente como guard inferior de la zona de pila. Un desbordamiento que corrompa la pila puede necesitar TSS/stack alternativo, todavía ausentes.
+- Página 0x90000 no presente como guard inferior de la zona de pila. Un desbordamiento que corrompa la pila puede necesitar TSS/stack alternativo, todavía ausentes.
 - Ventana virtual supervisor de 4 MiB en 0xd0000000 para mapear frames ya asignados. Todas las entradas son supervisor, no user.
 - Map/unmap con invalidación TLB mediante INVLPG y secciones críticas que preservan IF. No se permite sobrescribir un mapping ya presente.
 
@@ -78,5 +78,5 @@ Text RX; rodata R/NX; datos, heap y pilas RW/NX. El descriptor se publica despu�
 Cada tarea tiene PDPT y directorio privado, compartiendo exclusivamente los mapeos supervisor.
 Las pruebas ejecutan saltos desde ring3 al dato/pila: #PF con error 21, sin terminar el kernel.
 
-El cargador lee 384 KiB y valida el sello final. BSS reside a partir de 1 MiB, se borra en entry y se reserva en el asignador E820 antes de tomar frames.
+El cargador lee 512 KiB y valida el sello final. BSS reside a partir de 1 MiB, se borra en entry y se reserva en el asignador E820 antes de tomar frames.
 Esto no es todavía mmap por proceso ni un cargador ELF general.

@@ -32,7 +32,7 @@ int paging_init(void) {
             u32 address=(table*512+i)*4096,flags=3;
             int kernel_bss=address>=(u32)__bss_start && address<(u32)__bss_end;
             int execute=address>=(u32)__readonly_start && address<(u32)__text_end;
-            if (!address || address==0x80000 || (address>=0x100000 && !kernel_bss && !physical_usable(address))) flags=0;
+            if (!address || address==0x90000 || (address>=0x100000 && !kernel_bss && !physical_usable(address))) flags=0;
             else if (address>=(u32)__readonly_start && address<(u32)__readonly_end) flags=1;
             else if (address>=0xa0000 && address<0xc0000) flags|=0x18;
             if (flags) page_entry_set(&identity[table][i],address,flags,execute);

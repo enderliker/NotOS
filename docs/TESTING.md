@@ -319,3 +319,7 @@ Logs `build/libc-16M.log`, `build/libc-64M.log`, `build/libc-noentropy.log`, `bu
 - Regresiones completas de libc, ELF/VM/aislamiento, scheduler/esperas, UI, IRQ, NotLang, memoria, almacenamiento y TLS pasan. Internet real: DNS/HTTP200 y HTTPS TLSv1.3/HTTP200/close_notify; los peers controlados mantienen cobertura TLS1.2/1.3.
 
 Logs `build/vfs-16M.log`, `build/vfs-64M.log`, `build/vfs-notfs.log`, `build/vfs-notfs-reboot.log`. Código propio con Werror activo; sigue el warning upstream de Picolibc ya documentado en 0.14. No se comprobaron CI remota ni hardware físico. VFS.md especifica cuotas, montaje disco read-only, entrada enrutada por PID y funciones POSIX ausentes. Todavía no hay sockets/poll ni curl upstream.
+
+## Preparación de transporte TCP: capacidad BIOS
+
+`make test` PASS en QEMU 9.2.4. El loader carga 512 KiB en 16 lecturas de 32 KiB, sello 0x8fffc. La pila inicial se mueve a 0x9f000, bajo EBDA del target QEMU; guard 0x90000, fuera del payload. BSS sigue desde 1 MiB y reservado antes de asignar frames. Se mantienen todas las regresiones de memoria, ring3, VFS y TLS. No añade todavía sockets ni nuevos protocolos por sí mismo.
