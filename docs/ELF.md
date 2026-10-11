@@ -15,7 +15,7 @@ ps
 
 `elf-run` arranca ELF32 estáticos **reales** compilados por separado y embebidos como archivos ELF, no código plano rebautizado. Se ejecutan en ring3, comparten el gestor de cuatro procesos con NotLang y son recolectados al terminar. La shell no espera a que acabe el proceso. Las variantes de fallo son diagnósticos intencionales: solo termina la tarea.
 
-No hay todavía un VFS de ejecutables binarios. `exec FILE` conserva su significado existente: compilar un archivo fuente NotLang. No se declara curl disponible.
+No hay todavía un VFS de ejecutables binarios. `exec FILE` conserva su significado existente: compilar un archivo fuente NotLang. Curl upstream HTTP-only usa el mismo cargador; ver CURL_PORT.md.
 
 ## Validación y carga
 
@@ -58,13 +58,13 @@ Esto **no** es ABI Linux, ni mmap POSIX completo, ni una implementación complet
 - Fallos reales #PF: ejecución de heap/pila (NX), guard y escritura de texto RX; kernel continúa.
 - OOM al crear root/tablas, al crecer heap/mmap después de cruzar una tabla PAE y al reservar pila kernel. Frames/breaks originales restaurados.
 
-No se afirma soporte para binarios arbitrarios, libc completa, señales, FDs/sockets, curl, kernel preemptivo ni hardware físico.
+No se afirma soporte para binarios arbitrarios, libc completa, señales, kernel preemptivo ni hardware físico.
 
 ## Espera por syscall
 
 NotOS 0.13 agrega SYS_SLEEP=9 para procesos gestionados: 0..60000 ms, cero yield y retorno 0 al despertar.
-TASK_BLOCKED conserva el frame privado y no es seleccionado hasta vencer el timeout. Ver PROCESSES.md para restricciones de lotes síncronos y el trabajo pendiente de poll/sockets.
+TASK_BLOCKED conserva el frame privado y no es seleccionado hasta vencer el timeout. Ver PROCESSES.md para restricciones de lotes síncronos y POLL.md para espera de FDs.
 
-## Startup y libc en 0.14
+## Startup y libc
 
-`process_spawn_elf_args` añade nombre y un argumento acotados al stack privado, seguido de argv NULL, envp vacío y auxv AT_NULL. ESP inicial alineado a 16 bytes; copy se realiza por aliases supervisor antes de ejecutar. El CRT separado conserva segmentos W^X y ejecuta arrays init/fini. Ver LIBC.md para syscalls 10..13 y límites del port.
+`process_spawn_elf_args` añade nombre y un argumento acotados al stack privado, seguido de argv NULL, envp vacío y auxv AT_NULL. ESP inicial alineado a 16 bytes; copy se realiza por aliases supervisor antes de ejecutar. El CRT separado conserva segmentos W^X y ejecuta arrays init/fini. La API `process_spawn_elf_split` admite hasta 256 bytes separados por espacios y 16 elementos de argv, incluido el nombre, conservando el mismo layout. Los excesos se rechazan y la creación revierte todos los recursos. Ver LIBC.md y CURL_PORT.md.

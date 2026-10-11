@@ -81,7 +81,8 @@ build/utc-unit: tests/utc_unit.c kernel/utc.c kernel/platform_tls.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/utc_unit.c kernel/utc.c -o $@
 build/certificate-unit: tests/certificate_unit.c kernel/certificate_policy.c kernel/certificate_policy.h build/tls-fixtures.ready | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/certificate_unit.c kernel/certificate_policy.c -o $@
-test: build/float-unit build/poll-unit build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+test: build/argument-unit build/float-unit build/poll-unit build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+	./build/argument-unit
 	./build/float-unit
 	./build/poll-unit
 	python3 tests/lognames_unit.py
@@ -111,6 +112,7 @@ test: build/float-unit build/poll-unit build/notos-socket-test.img all build/vfs
 	python3 tests/sockets.py
 	python3 tests/vfs.py
 	python3 tests/libc.py
+	python3 tests/curl.py
 	python3 tests/elf.py
 	python3 tests/user.py
 	python3 tests/multitask.py
@@ -265,6 +267,10 @@ build/curl-blob.o: build/curl.elf
 	  --add-section .note.GNU-stack=/dev/null \
 	  --set-section-flags .note.GNU-stack=noload,readonly \
 	  build/curl-app.elf $@
+
+
+build/argument-unit: tests/argument_unit.c kernel/argument_core.c kernel/argument_core.h | build
+	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -no-pie tests/argument_unit.c kernel/argument_core.c -o $@
 
 build/float-unit: tests/float_unit.c user/float_runtime.c | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -no-pie -DNOTOS_HOST_TEST -DFLOAT_TEST_PREFIX tests/float_unit.c user/float_runtime.c -o $@

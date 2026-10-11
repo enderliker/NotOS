@@ -20,11 +20,14 @@
 #include "elf_command.h"
 #include "libc_command.h"
 #include "socket_command.h"
+#include "curl_command.h"
+#include "argument_core.h"
 #include "socket_stack.h"
 #include "vfs.h"
 #include "fd.h"
 #include "platform_tls.h"
-static char line[160];
+#define SHELL_LINE_BYTES 160u
+static char line[ARGUMENT_MAX_BYTES+sizeof("curl ")];
 static unsigned used;
 static int dropped;
 void console_putc(char c) {
@@ -60,7 +63,7 @@ static void clock_command(const char *kind,const char *argument) {
     console_puts(" ms ticks=");console_uint(after_ticks-ticks);console_putc('\n');
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nrun-user PROGRAM  exec FILE\nnet  dns HOST  http HOST[:PORT]\nhttps HOST[:PORT] [IP]  tls  tls-selftest\nnet-config IP GATEWAY DNS  net-drop LOSS\nsockets  socket-run MODE PORT  socket-drop syn/tx/rx\nsocket-run poll-basic/poll-stdin/poll-timer/poll-web PORT\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nlibc-test  libc-run test/exit/noentropy/files/stdin/disk/hold/fault\nelf-run demo/nx-heap/nx-stack/stack-guard/readonly/sleep  elf-test\nmultitask-test  multitask-run SCENARIO\nmkfs  ls  cat NAME  write NAME TEXT  rm NAME\nspawn worker/spin/fault  ps  kill PID\nvfs  feed PID TEXT  feed-eof PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nrun-user PROGRAM  exec FILE\nnet  dns HOST  http HOST[:PORT]\ncurl [OPTIONS] URL (HTTP only)\nhttps HOST[:PORT] [IP]  tls  tls-selftest\nnet-config IP GATEWAY DNS  net-drop LOSS\nsockets  socket-run MODE PORT  socket-drop syn/tx/rx\nsocket-run poll-basic/poll-stdin/poll-timer/poll-web PORT\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nlibc-test  libc-run test/exit/noentropy/files/stdin/disk/hold/fault/curl-file\nelf-run demo/nx-heap/nx-stack/stack-guard/readonly/sleep  elf-test\nmultitask-test  multitask-run SCENARIO\nmkfs  ls  cat NAME  write NAME TEXT  rm NAME\nspawn worker/spin/fault  ps  kill PID\nvfs  feed PID TEXT  feed-eof PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
@@ -75,6 +78,8 @@ static void command(const char *s) {
     else if(equal(s,"sockets")) socket_stack_status();
     else if(starts(s,"socket-run ")) socket_command(s+11);
     else if(starts(s,"socket-drop ")) socket_stack_drop(s+12);
+    else if(starts(s,"curl ")) curl_command(s+5);
+    else if(equal(s,"curl")) curl_command(0);
     else if(equal(s,"net")) net_status();
     else if(starts(s,"dns ")) net_command("dns",s+4);
     else if(starts(s,"https ")) net_command("https",s+6);
@@ -153,7 +158,12 @@ static void input(char c) {
     if(c=='\n'||c=='\r') {
         console_putc('\n');
         if(dropped) { console_puts("ERROR: input too long; discarded\n"); dropped=0; }
-        else { line[used]=0;command(line); }
+        else {
+            line[used]=0;
+            if(used>=SHELL_LINE_BYTES && !starts(line,"curl "))
+                console_puts("ERROR: input too long; discarded\n");
+            else command(line);
+        }
         used=0;console_puts("notos> ");
     } else if(dropped) {
         return;
@@ -199,7 +209,7 @@ void kernel_main(void) {
     gui_init();
     interrupts_init();
     arch_init();
-    if(*(volatile u32 *)0x8fffc!=0x4e4f544f) {
+    if(*(volatile u32 *)0x8fffc!=0x4e4f544f || *(volatile u32 *)0x14fffc!=0x4e4f544f) {
         console_puts("BOOT ERROR: final kernel chunk missing\n");
         for(;;) __asm__ volatile("cli; hlt");
     }
@@ -228,7 +238,7 @@ void kernel_main(void) {
     console_puts("IRQ: PIC remapped; PIT ~1000 Hz\n");
     console_puts(keyboard_ready?"KEYBOARD: IRQ1 ready\n":"KEYBOARD: unavailable; use serial\n");
     console_puts(mouse_ready?"MOUSE: IRQ12 ready\n":"MOUSE: unavailable\n");
-    console_puts("BOOT: 512 KiB loader verified\n");
+    console_puts("BOOT: 512 KiB loader + 320 KiB high image verified\n");
     physical_status();
     paging_status();
     heap_status();

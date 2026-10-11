@@ -37,7 +37,7 @@ MbedTLS 3.6.5 (Apache-2.0) suministra TLS1.2/1.3 y X.509; BearSSL conserva solo 
 
 CMOS se lee con snapshots coherentes; formatos BCD/binario y 12/24 h, UTC 2000..2099. Clock ausente/inválido falla cerrado. Host/firmware/RTC pertenecen al límite de confianza; no hay tiempo autenticado ni protección contra rollback del host. El snapshot de raíces también requiere mantenimiento explícito.
 
-El cargador lee 512 KiB en dieciséis transferencias; firma final 0x8fffc. BSS reservado a partir de 1 MiB. Límites de payload, readonly/BSS y guard de stack siguen comprobados por linker. CSPRNG y TLS son kernel no preemptivo; procesamiento criptográfico puede demorar el loop.
+El cargador conserva 512 KiB bajos y añade 320 KiB altos para el ELF curl, con firmas 0x8fffc y 0x14fffc. BSS comienza en 0x150000; la región estática alta se reserva antes de asignar frames. Ver MEMORY.md. Límites de payload, readonly/BSS y guard de stack siguen comprobados por linker. CSPRNG y TLS son kernel no preemptivo; procesamiento criptográfico puede demorar el loop.
 
 ## Pruebas y límites
 

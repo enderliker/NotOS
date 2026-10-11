@@ -209,6 +209,18 @@ static void disk_test(void) {
     CHECK(!close(fd) && open("/disk/hello.txt",O_WRONLY)==-1 && errno==EROFS);
     puts("VFS: NotFS read-only snapshots PASS");
 }
+static void curl_file(void) {
+    FILE *file=fopen("/tmp/curl.bin","rb");CHECK(file);
+    struct stat status;CHECK(!stat("/tmp/curl.bin",&status) && status.st_size==32768);
+    unsigned char buffer[997];unsigned offset=0;size_t bytes;
+    while ((bytes=fread(buffer,1,sizeof(buffer),file))) {
+        for (size_t i=0;i<bytes;i++) CHECK(buffer[i]==(unsigned char)((offset+i)*17u+3u));
+        offset+=(unsigned)bytes;
+    }
+    CHECK(offset==32768 && feof(file) && !ferror(file));
+    CHECK(!fclose(file) && !unlink("/tmp/curl.bin"));
+    puts("LIBC: curl binary file/content/unlink PASS");
+}
 static void held_file(int fault) {
     char name[48];CHECK(snprintf(name,sizeof(name),"/tmp/held-%d",(int)getpid())>0);
     int file=open(name,O_CREAT|O_RDWR,0600);CHECK(file==3 && dup(file)==4);
@@ -225,6 +237,7 @@ int main(int argc,char **argv) {
         puts("LIBC: entropy unavailable FAIL-CLOSED PASS");return 0;
     }
     if (!strcmp(argv[1],"exit")) {printf("LIBC: buffered output");exit(23);}
+    if (!strcmp(argv[1],"curl-file")) {curl_file();return 0;}
     if (!strcmp(argv[1],"files")) {files();return 0;}
     if (!strcmp(argv[1],"stdin")) {input_test();return 0;}
     if (!strcmp(argv[1],"disk")) {disk_test();return 0;}

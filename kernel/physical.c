@@ -3,12 +3,12 @@ struct boot_memory {u32 magic,count;struct e820_entry entries[64];} __attribute_
 static struct frame_pool pool;
 static u32 test_frames[FRAME_COUNT];
 static unsigned map_count;
-extern char __bss_start[],__bss_end[];
+extern char __kernel_static_start[],__bss_end[];
 int physical_init(void) {
     const struct boot_memory *map=(const struct boot_memory *)0x5000;
     if(map->magic!=0x4e4d4150 || !map->count || map->count>64) return 0;
     if(!frame_pool_init(&pool,map->entries,map->count)) return 0;
-    if (!frame_reserve(&pool,(u32)__bss_start,(u32)(__bss_end-__bss_start))) return 0;
+    if (!frame_reserve(&pool,(u32)__kernel_static_start,(u32)(__bss_end-__kernel_static_start))) return 0;
     map_count=map->count;return 1;
 }
 u32 physical_alloc(void) {u32 flags=irq_save();u32 p=frame_take(&pool);irq_restore(flags);return p;}

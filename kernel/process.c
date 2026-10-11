@@ -28,12 +28,15 @@ u32 process_spawn_image(const char *name, const u8 *code, u32 bytes,
     for (unsigned i = 0; i < data_bytes; ++i) ((u8 *)slot->task.space.data)[i] = data[i];
     return next_pid++;
 }
-u32 process_spawn_elf_args(const char *name,const u8 *image,u32 bytes,const char *argument) {
+static u32 process_spawn_elf_arguments(const char *name,const u8 *image,u32 bytes,
+    const char *argument,int split) {
     if (!name || length(name)>=PROCESS_NAME_BYTES || !next_pid || next_pid>0x7fffffffu) return 0;
     unsigned index=0;
     while (index<SCHEDULER_CAPACITY && slots[index].task.state!=TASK_UNUSED) index++;
     if (index==SCHEDULER_CAPACITY || !task_create_elf(&slots[index].task,next_pid,image,bytes)) return 0;
-    if (!space_arguments(&slots[index].task.space,name,argument)) {
+    struct user_space *space=&slots[index].task.space;
+    int prepared=split?space_arguments_split(space,name,argument):space_arguments(space,name,argument);
+    if (!prepared) {
         task_destroy(&slots[index].task);return 0;
     }
     /* Creation built a context before argc/argv existed; update only its saved ESP. */
@@ -41,6 +44,12 @@ u32 process_spawn_elf_args(const char *name,const u8 *image,u32 bytes,const char
     tail->esp=slots[index].task.space.initial_stack;
     for (unsigned i=0;(slots[index].name[i]=name[i]);i++) {}
     return next_pid++;
+}
+u32 process_spawn_elf_args(const char *name,const u8 *image,u32 bytes,const char *argument) {
+    return process_spawn_elf_arguments(name,image,bytes,argument,0);
+}
+u32 process_spawn_elf_split(const char *name,const u8 *image,u32 bytes,const char *arguments) {
+    return process_spawn_elf_arguments(name,image,bytes,arguments,1);
 }
 u32 process_spawn_elf(const char *name,const u8 *image,u32 bytes) {
     return process_spawn_elf_args(name,image,bytes,0);

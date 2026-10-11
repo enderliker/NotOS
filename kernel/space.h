@@ -16,6 +16,8 @@ int space_create(struct user_space *space,const u8 *image,unsigned bytes);
 int space_create_elf(struct user_space *space,const u8 *image,u32 bytes);
 int space_copy_to_user(struct user_space *space,u32 address,const void *data,u32 bytes);
 int space_arguments(struct user_space *space,const char *name,const char *argument);
+/* Prepare aligned argc/argv; space-separated text has bounded length/count. */
+int space_arguments_split(struct user_space *space,const char *name,const char *arguments);
 int space_destroy(struct user_space *space);
 int space_range(const struct user_space *space,u32 address,u32 bytes,int writable);
 /* Return old break on failure. These are NotOS APIs, not a Linux syscall ABI. */

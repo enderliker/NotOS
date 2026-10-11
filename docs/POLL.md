@@ -67,10 +67,19 @@ socket-run poll-web 80
 
 `tests/poll.py` arranca la imagen real en 16/64 MiB: dos conexiones pendientes, datos demorados por dos peers en una espera de múltiples FDs, duplicados/PEEK, FIN/RDHUP/HUP, refusal/RST, SO_ERROR no consumido, TX que llega a EAGAIN y vuelve a OUT, stdin/EOF, worker/INT3/shell durante espera, cuatro procesos bloqueados con despertar de uno solo, kill, fallo #UD y slot reutilizado. Recursos de aplicación, frames y heap deben restaurarse exactamente. `tests/poll_online.py` añade HTTP200 público. El fixture RST cierra directamente con SO_LINGER(0), evitando que socketserver envíe un FIN previo por su cierre automático.
 
+## Adaptador select
+
+La libc ofrece `select` sobre esta syscall, con nfds hasta 64. Filtra los
+conjuntos solicitados, devuelve EBADF para POLLNVAL y conserva los conjuntos
+en error. Timeout limpia los conjuntos; timeval64 se convierte sin overflow,
+con redondeo hacia arriba y saturación en INT_MAX ms. No modifica timeval.
+`exceptfds` solicita POLLPRI; la pila no produce eventos TCP urgentes.
+Las pruebas del ELF de libc cubren readiness, timeout, límites y buffers.
+
 ## Alcance pendiente
 
-No hay ppoll/pselect, señales/EINTR, threads/SMP/kernel preemptivo, sockets server ni UDP público. La multiplexación necesaria para un cliente curl configurado con poll tiene una base comprobada, **pero curl upstream aún no está portado**. El siguiente gate es completar los hooks/configuración que demande su compilación y ejecutar el binario HTTP-only. TLS userspace para curl sigue siendo un gate independiente; el TLS kernel 1.2/1.3 se conserva. Solo QEMU y hardware emulado especificado, no equipos reales ni auditoría de seguridad.
-
-select está disponible como adaptador libc sobre poll, hasta 64 FDs. Filtra
-conjuntos y devuelve EBADF para NVAL; exceptfds pide POLLPRI, evento urgente no
-implementado. Contrato y pruebas descritos en LIBC.md.
+No hay ppoll/pselect, señales/EINTR, threads/SMP/kernel preemptivo, sockets
+server ni UDP público. Curl upstream 8.11.1 HTTP-only usa poll directamente;
+ver [CURL_PORT.md](CURL_PORT.md). HTTPS para curl requiere un backend userspace
+independiente. El cliente TLS kernel 1.2/1.3 se conserva. La cobertura se limita
+a QEMU y al hardware emulado especificado.

@@ -1,4 +1,4 @@
-# Libc de usuario — NotOS 0.14
+# Libc de usuario
 
 ## Qué se ha portado
 
@@ -27,7 +27,7 @@ El hash se comprueba también al usar un archivo local. No se ejecutan binarios 
 
 ## Runtime y funciones comprobadas
 
-- `_start` prepara la llamada C alineada; el kernel prepara `argc`, `argv`, un `envp` vacío y el par `AT_NULL`. La interfaz actual permite nombre de hasta 23 bytes (slot de 24) y **un argumento** de hasta 64 bytes; no es una shell POSIX.
+- `_start` prepara la llamada C alineada; el kernel prepara `argc`, `argv`, un `envp` vacío y el par `AT_NULL`. La API `process_spawn_elf_args` conserva nombre de hasta 23 bytes y un argumento de hasta 64 bytes. `process_spawn_elf_split`, usada por curl, admite 256 bytes de texto separado por espacios y hasta 16 elementos de argv, incluido el nombre; sin comillas ni escapes.
 - BSS a cero; ejecución de `.init_array` antes de `main`, `.fini_array` al salir y `atexit`. Retornar de `main` usa `exit`; `stdout`/`stderr` se vacían antes de `_exit`.
 - `malloc`, `calloc`, `realloc`, `free`, `strdup`: asignador real de Picolibc sobre `sbrk`/SYS_BRK. Heap privado de hasta 4 MiB; crecimiento y rollback pertenecen al gestor VM. Recolección de todo el espacio al terminar o cancelar el proceso.
 - Strings/memoria, `strtol`/`strtoll`, detección de overflow, `qsort`/`bsearch` y `setenv`/`getenv`/`unsetenv`.
@@ -52,16 +52,35 @@ EAX número/resultado; EBX, ECX y EDX argumentos. Se preservan los números ante
 
 SYS_TIME escribe una estructura wire de 12 bytes: segundos low/high de 32 bits y nanosegundos de 32 bits. No expone padding ni tipos nativos del kernel. En este target Picolibc, `timespec`/`timeval` tienen esa misma disposición, protegida por static assertions. El adaptador traduce también identificadores de reloj. El kernel valida todo el rango y permisos antes de leer/escribir un puntero de usuario.
 
-## Límites explícitos y curl (actualizado en 0.17)
+## Runtime adicional para curl
+
+`user/float_runtime.c` implementa helpers binary64 mediante operaciones enteras,
+sin FPU/SSE ni libgcc. Incluye conversiones, comparaciones y suma/resta/producto/
+división. La prueba diferencial nativa compara un millón de pares con el
+hardware del host bajo ASAN/UBSAN; no equivale a una biblioteca libm completa.
+
+`select` adapta conjuntos de descriptores a `poll`, filtra por intereses
+solicitados y devuelve el número de bits listos en los conjuntos. Rechaza
+nfds fuera de 0..64, timeouts inválidos y buffers inaccesibles; NVAL produce
+EBADF. Los conjuntos se limpian al vencer el timeout y permanecen intactos
+cuando la llamada falla. No modifica timeval; redondea hacia arriba a ms y
+satura en INT_MAX sin overflow. `exceptfds` corresponde a POLLPRI, evento
+urgente que la pila actual no implementa. No hay pselect ni señales/EINTR.
+
+`mkdir` devuelve ENOTSUP para cualquier ruta. `/tmp` es un montaje plano y no
+se informa creación de subdirectorios. El port HTTP de curl y sus límites están
+en [CURL_PORT.md](CURL_PORT.md).
+
+## Límites explícitos
 
 - Desde 0.15 hay FDs por proceso, archivos tmpfs, snapshots NotFS read-only y open/read/write/close/seek/stat/dup/ftruncate/fcntl; `fopen` opera sobre ellos. Ver VFS.md para cuotas y operaciones ausentes; no es VFS POSIX completo.
 - Stdin bloquea hasta datos/EOF entregados con feed/feed-eof al PID; NONBLOCK produce EAGAIN y stdio diferencia EOF de error. stdout/stderr comparten la consola y dup2 permite redirección a archivos. Desde 0.17 hay poll; no hay raw TTY/job control.
-- Desde 0.16 hay API BSD parcial TCP/IPv4 y getaddrinfo DNS; ver SOCKETS.md. Desde 0.17 hay poll de FDs (POLL.md); select adapta poll, sin señales, fork, ejecutables desde archivos, enlazado dinámico ni TLS de threads.
-- FPU/MMX/SSE siguen rechazados por el kernel. No se declara `libm`, conversión/formato float ni conformidad C/POSIX completa. La configuración selecciona stdio entero; el archive upstream contiene componentes adicionales no preparados para este runtime.
+- Desde 0.16 hay API BSD parcial TCP/IPv4 y getaddrinfo DNS; ver SOCKETS.md. Desde 0.17 hay poll de FDs (POLL.md); con adaptador `select`, sin señales, fork, ejecutables desde archivos, enlazado dinámico ni TLS de threads.
+- FPU/MMX/SSE siguen rechazados por el kernel. No se declara `libm`, formato float general ni conformidad C/POSIX completa. Los helpers binary64 descritos arriba tienen cobertura específica. La configuración selecciona stdio entero; el archive upstream contiene componentes adicionales no preparados para este runtime.
 - `mmap`/`munmap` básicos del kernel siguen disponibles por ABI, pero no se presenta un wrapper POSIX completo. El asignador comprobado usa `sbrk`.
 - Solo QEMU/TCG y hardware emulado del proyecto; no prueba en hardware físico ni auditoría de seguridad.
 
-Es un prerrequisito real de curl, **no el port de curl terminado**. Los siguientes gates están en `CURL_PORT.md`.
+Curl upstream 8.11.1 HTTP-only ya se ejecuta con esta libc. HTTPS en curl requiere un backend de usuario separado; ver [CURL_PORT.md](CURL_PORT.md).
 
 ## Pruebas
 
@@ -69,18 +88,6 @@ Es un prerrequisito real de curl, **no el port de curl terminado**. Los siguient
 
 Cada terminación debe restaurar exactamente frames físicos y estado del heap kernel. También prueba reloj real en 2050, ausencia de entropía, el mapa de enlace upstream, syscalls legacy con buffers inválidos y rollback ELF/OOM. La división signed/unsigned de 64 bits tiene pruebas nativas de límites y 100000 comparaciones; el reloj verifica carry al envolver los 32 bits bajos. Las regresiones completas y la red se describen en `TESTING.md`.
 
-## Adaptadores y runtime para curl
-
-select valida los rangos de conjuntos/timeval antes de leerlos, filtra eventos
-por los intereses originales y devuelve EBADF para POLLNVAL sin cambiar salida.
-Los timeouts inválidos se rechazan; los de 64 bits saturan en INT_MAX ms sin
-overflow. Los conjuntos se limpian en timeout. No modifica timeval; exceptfds
-solicita POLLPRI, evento urgente que la pila no produce. No hay pselect/señales.
-
-mkdir devuelve ENOTSUP para cualquier ruta: el VFS plano no crea directorios ni
-simula éxito. Las pruebas del ELF de libc cubren estas operaciones.
-
-Los helpers binary64 propios se comparan bajo ASAN/UBSAN con un millón de pares
-contra el hardware del host: conversiones, comparaciones, suma/resta y producto/
-división, incluidos subnormales. make test ejecuta esta unidad. No se habilita
-FPU/SSE ni se enlaza libgcc; stdio sigue usando formatos enteros.
+La batería de libc también comprueba select con intereses distintos, un FD en
+varios conjuntos, timeout, EBADF, EFAULT, timeval64 enorme y rechazo de mkdir.
+`tests/curl.py` verifica el cliente upstream y archivos binarios desde otro ELF.

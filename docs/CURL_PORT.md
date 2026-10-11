@@ -1,30 +1,87 @@
-# Port real de curl: estado y gates
+# curl upstream en NotOS
 
-Objetivo: compilar y ejecutar el cliente curl **upstream** como ELF de usuario, sin renombrar `https` ni usar TLS/proxy del anfitrión.
-La arquitectura sigue siendo x86 de 32 bits: INT 0x80 es la entrada de syscall adecuada; no requiere syscall/sysret de x86_64.
+## Alcance
 
-## Comprobado
+curl **8.11.1** se compila como ELF32 estático y se ejecuta en ring 3 con
+Picolibc 1.8.11, heap y pila privados. El cliente utiliza sockets TCP/IPv4 y
+DNS del invitado sobre RTL8139/lwIP, y `poll` para esperar eventos.
 
-- PAE, páginas de 4 KiB, CR0.WP y EFER.NXE, texto RX, datos/pilas RW/NX y aislamiento ring3.
-- IRQ0, reloj, procesos básicos, cambio de contexto y SYS_SLEEP bloqueante para procesos gestionados; bloqueo connect/send/recv por proceso; poll de múltiples FDs desde 0.17; sin select.
-- RTL8139, ARP, IPv4, DNS UDP y un transporte TCP educativo de una conexión. Se conserva para el cliente kernel. Desde 0.16, lwIP aporta transporte TCP/IPv4 general y un API BSD parcial de usuario; ver SOCKETS.md.
-- TLS1.2/1.3, CA/RTC/DRBG, SNI/SAN/EKU/firmas y pruebas negativas dentro del invitado.
-- NotFS propio persistente; montaje read-only `/disk` y tmpfs `/tmp`. FDs privados, stdio binario, dup/seek y stdin bloqueante en ring3. Ver VFS.md; no es POSIX completo.
+Este port habilita **HTTP**. El comando kernel `https` conserva TLS 1.2/1.3;
+ese backend no está conectado a curl. Una URL HTTPS en curl devuelve el error
+upstream de protocolo no soportado.
 
-## Base ELF y VM implementada
+## Uso
 
-ELF32 estático validado, BSS multipágina, pila de 64 KiB, heap/brk y mmap anónimo RW/NX privados. El parser y la ejecución tienen pruebas específicas; ver ELF.md.
-Picolibc 1.8.11 ya ejecuta malloc/free, stdio entero, strings, errno privado, tiempo64, espera y entropía en un ELF ring3. CRT, argc/argv, envp vacío, AT_NULL, constructores y exit/atexit/destructores están comprobados. Ver LIBC.md: no es ABI POSIX completa ni TLS de threads.
+```text
+curl --version
+curl -sS http://example.com/
+curl -sS -o /tmp/page.txt http://example.com/
+curl -sS --max-time 1 http://10.0.2.2:8080/
+ps
+kill PID
+```
 
-## Pendiente (no declarar curl disponible antes de los gates finales)
+La shell informa el PID y continúa atendiendo entrada. La terminación se
+reporta como `PROCESS: pid=... exit=... ticks=...`. Los errores de opciones,
+HTTP con `-f`, DNS, conexión y timeout conservan los códigos de salida de curl.
 
-1. Extender runtime/argumentos según lo que requiera curl y cargar ejecutables desde VFS. Sin TLS de threads; solo proceso single-thread por ahora.
-2. La base FDs/tmpfs/stdin ya está comprobada. Para el port final de curl, completar los hooks adicionales que necesite, validar sus rutas/config y ampliar cuotas para descargas/CA bundle si corresponde. `/disk` es read-only; no hay escritura POSIX persistente.
-3. Transporte TCP/IPv4, connect/send/recv/options, fcntl y getaddrinfo DNS implementados y comprobados en 0.16; completar lo adicional que demande curl, sin asumir POSIX completo.
-4. poll y espera de múltiples FDs implementados en 0.17; eventos TCP/FDs, timeouts y cancelación comprobados. Configurar curl para usar poll, sin asumir select/ppoll/señales ni POSIX completo; ver POLL.md.
-5. Completar los hooks y funciones de libc adicionales que demande la compilación de curl; el port inicial no prueba toda la biblioteca upstream ni float/libm.
-6. curl upstream estático HTTP-only usando el sysroot reproducible, adaptando su configuración y ejecutando peticiones y `-o` dentro del invitado.
-7. Backend TLS de curl en userspace: TLS1.3/1.2, CA/hostname/fecha, timeouts, errores y CLI verificadas. El TLS kernel de `https` no satisface este gate por sí solo.
+Los argumentos se separan solo por espacios; los espacios repetidos se
+colapsan. Máximo **256 bytes** después de `curl ` y **16 elementos de argv**,
+incluido `argv[0]` (15 argumentos después del nombre). Las comillas y barras inversas son caracteres literales;
+no hay expansión, escapes ni sintaxis de shell POSIX. Los excesos se rechazan,
+sin ejecutar una entrada truncada. Los demás comandos conservan 159 caracteres.
 
-Pruebas finales: `curl --version`, HTTP/HTTPS reales, peer solo 1.2 y solo 1.3, salida a archivo, DNS/timeout/error, rechazo de certificados y recursos restaurados.
-No se añade un comando `curl` simulado para aparentar cumplimiento.
+## Construcción
+
+`tools/fetch_curl.py` descarga el archivo 8.11.1 con SHA256 fijado. Para usar un
+archivo local verificado: `CURL_ARCHIVE=/ruta/curl-8.11.1.tar.xz make`.
+`tools/build_curl.py` compila libcurl y la herramienta después de extraer las
+fuentes. Make agrupa ambos archives en una sola receta, también bajo `-j`.
+
+`user/curl_port/curl_config.h` selecciona HTTP, IPv4 y poll. El enlace incorpora
+la libc del sysroot y runtimes propios de enteros/binary64; no utiliza libc del
+host, libgcc, semihosting ni instrucciones FPU/MMX/SSE. Stdio sigue configurado
+para formatos enteros: no se declara soporte general de libm o formato float.
+
+El ELF stripped se incorpora como bloque de solo lectura/NX en memoria física
+alta. El cargador BIOS mantiene los 512 KiB del kernel bajo 1 MiB y copia otros
+320 KiB mediante un buffer temporal, sin ocupar VGA. Ver [memoria](MEMORY.md).
+
+El código propio mantiene `-Wall -Wextra -Werror`. Curl upstream se compila con
+`-Wall -Wextra`, siguiendo la política separada de dependencias sin modificar
+sus fuentes. GCC 15.2 muestra avisos de conversión enum/bool en `transfer.c` y
+función sin uso en `url.c`; no se silencian.
+
+## Límites
+
+- Cuatro procesos gestionados, ocho endpoints TCP y 16 FDs por proceso.
+- Archivos `/tmp/NAME` planos de hasta 64 KiB; cuota global de 256 KiB.
+  `/disk` permanece de solo lectura. Ver [VFS](VFS.md) y [sockets](SOCKETS.md).
+- `mkdir` devuelve ENOTSUP; `--create-dirs` no crea directorios.
+- Sin HTTPS, HTTP/2, HTTP/3, proxy, cookies, MIME/multipart, FTP ni protocolos
+  adicionales. La salida de `--version` enumera solo `http`.
+- Sin ejecutables desde VFS, fork, threads, señales ni conformidad POSIX completa.
+- La resolución DNS del adaptador tiene su propio límite de espera; no se
+  garantiza que `--max-time` interrumpa una resolución en curso.
+- La cobertura es de QEMU/TCG; no se declara validación de hardware físico.
+
+## Validación
+
+`make test` incluye `tests/curl.py`: versión/protocolo, argumentos vacíos y sus
+límites, HTTP, descarga binaria de 32768 bytes, lectura/verificación/unlink desde
+otro ELF y upload POST del mismo contenido. Comprueba HTTP404 con `-f`, protocolo
+no soportado, conexión rechazada, timeout, shell/INT3 disponibles, cuatro
+procesos y cancelación/slot reutilizado. DNS A/NXDOMAIN utiliza un peer local
+con la imagen de fixture, mientras producción conserva el puerto DNS 53.
+
+Después de escenarios sin archivos persistentes en tmpfs, frames, heap,
+descripciones, endpoints y consultas vuelven al estado inicial. El mapa de
+enlace verifica Picolibc y ausencia de bibliotecas del host. El runtime binary64
+se compara con el hardware del host bajo ASAN/UBSAN con un millón de pares.
+
+## Siguiente hito
+
+Integrar un backend TLS en curl userspace con validación de CA, identidad,
+fechas y cierre autenticado. Exige peers TLS 1.2/1.3, certificados inválidos,
+timeouts, limpieza de recursos y pruebas HTTP/HTTPS públicas. El cliente kernel
+no sustituye esa validación.

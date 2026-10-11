@@ -3,7 +3,7 @@ import re
 from harness import Machine
 for memory in ['16M','32M','64M','128M']:
     with Machine(memory=memory,logname='physical-'+memory) as m:
-        assert b'BOOT: 512 KiB loader verified\n' in m.output
+        assert b'BOOT: 512 KiB loader + 320 KiB high image verified\n' in m.output
         reply=m.command('mem','\nnotos> ')
         match=re.search(rb'MEM: E820 entries=(\d+) managed_frames=(\d+) free_frames=(\d+) cap_MiB=64\n',reply)
         assert match,reply

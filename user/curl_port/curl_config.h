@@ -61,7 +61,7 @@
 #define CURL_FORMAT_CURL_OFF_T "lld"
 #define CURL_FORMAT_CURL_OFF_TU "llu"
 
-/* Multiplexing: poll is supported in NotOS 0.17; select is NOT implemented */
+/* Use poll directly; select is a separate libc adapter. */
 #define HAVE_POLL 1
 #define HAVE_POLL_H 1
 #define HAVE_POLL_FINE 1

@@ -2,6 +2,8 @@
 #define NOTOS_PROCESS_H
 #include "base.h"
 u32 process_spawn_elf_args(const char *name,const u8 *image,u32 bytes,const char *argument);
+/* Return a managed PID, or zero after rolling back failed creation. */
+u32 process_spawn_elf_split(const char *name,const u8 *image,u32 bytes,const char *arguments);
 u32 process_spawn_elf(const char *name,const u8 *image,u32 bytes);
 void process_poll(void);
 void process_input_command(const char *argument,int eof);

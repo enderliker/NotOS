@@ -54,7 +54,7 @@ kill PID
 
 ## Pendiente
 
-**Desde 0.17 hay poll (ver POLL.md); no hay select, sockets UDP públicos, bind/listen/accept, IPv6, DHCP, reensamblado IP, threads, fork, ejecutables VFS ni curl upstream.** El siguiente gate es completar los hooks y configurar/ejecutar curl upstream HTTP-only con poll. El backend TLS de curl deberá portarse y probarse en userspace; el comando kernel HTTPS no satisface ese gate. Solo QEMU/TCG y hardware emulado especificado están comprobados, no equipos reales ni una auditoría de seguridad.
+Hay poll y un adaptador select (POLL.md), y curl upstream HTTP-only (CURL_PORT.md). No hay sockets UDP públicos, bind/listen/accept, IPv6, DHCP, reensamblado IP, threads, fork ni ejecutables VFS. El backend TLS de curl deberá portarse y probarse en userspace; el comando kernel HTTPS no satisface ese gate. Solo QEMU/TCG y hardware emulado especificado están comprobados, no equipos reales ni una auditoría de seguridad.
 
 ## Wire de syscalls (INT 0x80)
 

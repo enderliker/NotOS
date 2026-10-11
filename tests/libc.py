@@ -39,7 +39,7 @@ for ram in ('16M','64M'):
         assert reply.count(b'LIBC: started pid=')==4 and reply.count(b'LIBC: process-local errno/heap PASS\n')==4,reply
         assert b'LIBC FAIL:' not in reply and b'PROCESS FAULT:' not in reply,reply
         assert snapshot(m)==baseline
-        m.command('libc-run unknown','LIBC ERROR: choose test/exit/noentropy/files/stdin/disk/hold/fault\nnotos> ')
+        m.command('libc-run unknown','LIBC ERROR: choose test/exit/noentropy/files/stdin/disk/hold/fault/curl-file\nnotos> ')
         m.command('user-run bad-buffer','USER: private-CR3/TSS/syscall/cleanup PASS\nnotos> ')
         m.command('elf-test','ELF: load/W^X/BSS/stack/OOM rollback PASS\nnotos> ',timeout=30)
         m.command('heap-test','HEAP: split/coalesce/calloc/OOM selftest PASS\nnotos> ')

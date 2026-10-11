@@ -2,7 +2,7 @@
 
 ## Alcance comprobado
 
-La libc ahora opera sobre **archivos reales del invitado**, no sobre archivos/sockets del anfitrión. El kernel tiene una tabla de descriptores por tarea, descripciones de archivo abiertas con referencias compartidas y un VFS mínimo. No es un filesystem POSIX completo ni termina el port de curl.
+La libc ahora opera sobre **archivos reales del invitado**, no sobre archivos/sockets del anfitrión. El kernel tiene una tabla de descriptores por tarea, descripciones de archivo abiertas con referencias compartidas y un VFS mínimo. No es un filesystem POSIX completo. Curl HTTP-only utiliza tmpfs para sus salidas; ver CURL_PORT.md.
 
 | Ruta | Backend | Semántica |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ La libc ahora opera sobre **archivos reales del invitado**, no sobre archivos/so
 | `/dev/console` | consola/cola de ese proceso | acceso según flags de open |
 | `/dev/null` | dispositivo nulo | lectura EOF real y escritura descartada |
 
-Solo rutas absolutas y nombres planos de 1..23 caracteres alfanuméricos, punto, guion o underscore. Se rechazan componentes `.`, `..`, subdirectorios y rutas demasiado largas. La ruta wire permite hasta 63 caracteres + terminador. No hay cwd, creación de directorios, symlinks, rename ni montaje configurable. El adaptador libc mkdir devuelve ENOTSUP para cualquier ruta, incluso /tmp.
+Solo rutas absolutas y nombres planos de 1..23 caracteres alfanuméricos, punto, guion o underscore. Se rechazan componentes `.`, `..`, subdirectorios y rutas demasiado largas. La ruta wire permite hasta 63 caracteres + terminador. No hay cwd, creación de directorios, symlinks, rename ni montaje configurable. El adaptador libc mkdir devuelve ENOTSUP, incluso bajo /tmp.
 
 NotFS no se formatea automáticamente ni escribe el boot drive. Para `/disk`, debe existir el disco dedicado y haberse montado/formateado mediante los comandos existentes. `open` para escribir y `unlink` en ese montaje fallan EROFS. No se presenta escritura POSIX persistente como implementada. Un handle abierto conserva una copia inmutable incluso si la shell modifica/formatea NotFS; es una política explícita de snapshot, no semántica POSIX de modificación compartida del archivo en disco.
 
@@ -54,7 +54,7 @@ Sustituir PID por el reportado al arrancar la aplicación. `feed` añade la lín
 
 Una lectura vacía bloqueante conserva el frame como TASK_WAIT_INPUT y vuelve al event loop. `process_poll` entrega datos mediante aliases supervisor del espacio **de esa tarea**, establece el resultado de la syscall y la vuelve READY. No consume presupuesto CPL3 mientras está bloqueada. Los lotes diagnósticos síncronos no pueden mantener esa espera y devuelven ENOTSUP. El timer/SYS_SLEEP conserva su política anterior.
 
-Teclado y serial siguen alimentando la shell: ésta enruta explícitamente líneas al proceso seleccionado. No hay job control, raw TTY, termios, señales, Ctrl-C dirigido a procesos ni poll de terminal/sockets. Esta interfaz evita que varios procesos roben teclas a la shell o entre sí.
+Teclado y serial siguen alimentando la shell: ésta enruta explícitamente líneas al proceso seleccionado. No hay job control, raw TTY, termios, señales, Ctrl-C dirigido a procesos ni control de terminal completo. Poll de FDs está disponible; ver POLL.md. Esta interfaz evita que varios procesos roben teclas a la shell o entre sí.
 
 ## ABI incremental
 
@@ -95,4 +95,4 @@ No se ha probado hardware físico ni CI remota desde este entorno. Las cuotas ha
 
 ## Descriptores de socket en 0.16
 
-FILE_SOCKET comparte referencias/flags NONBLOCK mediante dup igual que otras descripciones. El último close libera el endpoint; stat informa S_IFSOCK y seek/truncate se rechazan. Exit/kill/fault también cancela registros DNS del propietario. Ver SOCKETS.md para cuotas, bloqueo y límites; no añade poll ni archivos de disco escribibles.
+FILE_SOCKET comparte referencias/flags NONBLOCK mediante dup igual que otras descripciones. El último close libera el endpoint; stat informa S_IFSOCK y seek/truncate se rechazan. Exit/kill/fault también cancela registros DNS del propietario. Ver SOCKETS.md para cuotas, bloqueo y límites; poll se describe en POLL.md; no añade archivos de disco escribibles.

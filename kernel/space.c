@@ -1,5 +1,6 @@
 /* Per-process PAE tables and zero-filled frames. Ownership is recovered by walking tables. */
 #include "space.h"
+#include "argument_core.h"
 #include "physical.h"
 #include "paging.h"
 #include "elf.h"
@@ -183,24 +184,35 @@ int space_copy_to_user(struct user_space *space,u32 address,const void *data,u32
     }
     return 1;
 }
-int space_arguments(struct user_space *space,const char *name,const char *argument) {
-    if (!space || !space->root || !name || !*name || length(name)>64
-        || (argument && length(argument)>64)) return 0;
-    u32 argc=argument?2:1,cursor=space->stack_top;
-    cursor-=length(name)+1;u32 name_address=cursor;
-    if (!space_copy_to_user(space,cursor,name,length(name)+1)) return 0;
-    u32 argument_address=0;
-    if (argument) {
-        cursor-=length(argument)+1;argument_address=cursor;
-        if (!space_copy_to_user(space,cursor,argument,length(argument)+1)) return 0;
+static int space_argument_stack(struct user_space *space,const char *const *values,u32 count) {
+    if (!space || !space->root) return 0;
+    u32 words[ARGUMENT_MAX_COUNT+5]={0},cursor=space->stack_top;
+    words[0]=count;
+    for (u32 i=0;i<count;i++) {
+        u32 bytes=length(values[i])+1;
+        if (cursor<space->stack_low || bytes>cursor-space->stack_low) return 0;
+        cursor-=bytes;
+        if (!space_copy_to_user(space,cursor,values[i],bytes)) return 0;
+        words[i+1]=cursor;
     }
-    u32 words[7]={argc,name_address,0,0,0,0,0};
-    if (argument) words[2]=argument_address;
     /* argc, argv pointers+NULL, empty envp, AT_NULL pair. */
-    u32 bytes=(argc+5)*sizeof(u32),stack=(cursor-bytes)&~15u;
+    u32 bytes=(count+5)*sizeof(u32);
+    if (cursor<space->stack_low || bytes>cursor-space->stack_low) return 0;
+    u32 stack=(cursor-bytes)&~15u;
     if (!space_copy_to_user(space,stack,words,bytes)) return 0;
     space->initial_stack=stack;
     return 1;
+}
+int space_arguments(struct user_space *space,const char *name,const char *argument) {
+    if (!name || !*name || length(name)>ARGUMENT_NAME_BYTES
+        || (argument && length(argument)>64)) return 0;
+    const char *values[]={name,argument};
+    return space_argument_stack(space,values,argument?2:1);
+}
+int space_arguments_split(struct user_space *space,const char *name,const char *arguments) {
+    struct argument_list list;
+    if (!argument_split(&list,name,arguments)) return 0;
+    return space_argument_stack(space,list.values,list.count);
 }
 u32 space_brk(struct user_space *space,u32 requested) {
     if (!space || !space->root) return 0;
