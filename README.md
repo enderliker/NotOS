@@ -35,6 +35,7 @@ Objetivo de CPU: x86 de 32 bits con PAE, MSR y NX (QEMU `-cpu max`), probado sol
 Requisitos del host: GNU Make 4.3+, GCC capaz de generar código `-m32` (el kernel no necesita libc de 32 bits), GNU binutils, Meson/Ninja, Python 3.12+ (para extracción segura de la dependencia), OpenSSL para fixtures y `qemu-system-i386`. En Ubuntu/Debian:
 
 ```sh
+sudo apt-get update
 sudo apt-get install gcc binutils make python3 meson ninja-build openssl qemu-system-x86
 make
 make test

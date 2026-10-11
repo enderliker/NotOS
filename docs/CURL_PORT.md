@@ -25,6 +25,11 @@ La shell informa el PID y continúa atendiendo entrada. La terminación se
 reporta como `PROCESS: pid=... exit=... ticks=...`. Los errores de opciones,
 HTTP con `-f`, DNS, conexión y timeout conservan los códigos de salida de curl.
 
+El ELF se ejecuta en el invitado NotOS y usa sus syscalls, libc y pila TCP/IP;
+no llama al curl, libc ni sockets del host. QEMU proporciona la NIC virtual.
+Con el backend NAT de QEMU, el acceso externo depende de la conectividad y de
+la configuración de red del sistema anfitrión.
+
 Los argumentos se separan solo por espacios; los espacios repetidos se
 colapsan. Máximo **256 bytes** después de `curl ` y **16 elementos de argv**,
 incluido `argv[0]` (15 argumentos después del nombre). Las comillas y barras inversas son caracteres literales;
