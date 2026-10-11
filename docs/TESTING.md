@@ -15,6 +15,10 @@ y el protocolo cliente se ejecutan dentro del invitado. Los logs y capturas se
 guardan en `build/`, excluido de git. Las claves TLS efímeras también quedan
 fuera de los artifacts de CI.
 
+Para navegación y archivos: `tests/path_unit.c` (ASAN/UBSAN),
+`tests/files.py` (QEMU 16/64 MiB y reinicio con disco) y el listado/stat de
+descargas en `tests/curl.py`.
+
 Para curl HTTP: `tests/argument_unit.c`, `tests/float_unit.c`, las comprobaciones
 select/mkdir del ELF de libc y `tests/curl.py`. Esta última requiere la imagen de
 producción y `build/notos-socket-test.img`; `make test` construye ambas.

@@ -5,7 +5,7 @@ PS/2 estándar de tres bytes, IRQ12. Inicialización i8042 con PIC enmascarado, 
 El event loop procesa hasta 128 bytes por vuelta. Cursor de 8×8 con respaldo del framebuffer, coordenadas recortadas a 320×200. La consola restaura el fondo antes de dibujar y vuelve a superponer el cursor para no dejar rastros.
 
 - **CLR** limpia la terminal y descarta su entrada parcial.
-- **FILES** muestra archivos montados; **TASKS** muestra procesos activos.
+- **FILES** lista el directorio actual de la shell; **TASKS** muestra procesos activos.
 - Click en la barra de título minimiza/restaura la ventana. La consola conserva sus celdas y sigue recibiendo salida cuando está minimizada.
 - `mouse` informa coordenadas, botones, paquetes y descartes.
 

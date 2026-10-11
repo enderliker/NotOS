@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory() as directory:
         m.command('write hello.txt original', 'FS: transaction committed\nnotos> ')
         m.command('write hello.txt updated', 'FS: transaction committed\nnotos> ')
         m.command('cat hello.txt', '\nupdated\nnotos> ')
-        m.command('write ../bad rejected', 'FS ERROR: invalid name\nnotos> ')
+        m.command('write ../bad rejected', 'FS ERROR: file not found\nnotos> ')
         m.command('ls', 'FS: list complete\nnotos> ')
     with Machine(data_disk=path, logname='storage-reboot') as m:
         assert b'FS: NotFS mounted' in m.output

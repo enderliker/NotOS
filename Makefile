@@ -81,7 +81,8 @@ build/utc-unit: tests/utc_unit.c kernel/utc.c kernel/platform_tls.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/utc_unit.c kernel/utc.c -o $@
 build/certificate-unit: tests/certificate_unit.c kernel/certificate_policy.c kernel/certificate_policy.h build/tls-fixtures.ready | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/certificate_unit.c kernel/certificate_policy.c -o $@
-test: build/argument-unit build/float-unit build/poll-unit build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+test: build/path-unit build/argument-unit build/float-unit build/poll-unit build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+	./build/path-unit
 	./build/argument-unit
 	./build/float-unit
 	./build/poll-unit
@@ -121,6 +122,7 @@ test: build/argument-unit build/float-unit build/poll-unit build/notos-socket-te
 	python3 tests/process.py
 	python3 tests/wait.py
 	python3 tests/storage.py
+	python3 tests/files.py
 	python3 tests/tls_platform.py
 	python3 tests/https.py
 	python3 tests/network.py
@@ -274,3 +276,6 @@ build/argument-unit: tests/argument_unit.c kernel/argument_core.c kernel/argumen
 
 build/float-unit: tests/float_unit.c user/float_runtime.c | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -no-pie -DNOTOS_HOST_TEST -DFLOAT_TEST_PREFIX tests/float_unit.c user/float_runtime.c -o $@
+
+build/path-unit: tests/path_unit.c kernel/path_core.c kernel/path_core.h kernel/file_abi.h kernel/base.h kernel/syscall_numbers.h | build
+	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/path_unit.c kernel/path_core.c -o $@

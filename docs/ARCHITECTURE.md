@@ -100,3 +100,11 @@ INT 15h/AH=87. El linker coloca el blob curl R/NX en 0x100000 y BSS desde
 0x150000; physical reserva toda la región estática antes de asignar frames.
 La ejecución sigue ocurriendo en el espacio privado de usuario. Ver MEMORY.md,
 LIBC.md y CURL_PORT.md para contratos y límites.
+
+## Comandos de archivos
+
+`path_core.*` normaliza rutas kernel sin I/O ni asignación; tiene pruebas
+nativas con sanitizadores. `file_command.*` conserva cwd de la shell y adapta
+los comandos a tmpfs y NotFS, sin cambiar la ABI de aplicaciones. `vfs_entry`
+expone copias de nombres enlazados para listado, sin transferir referencias.
+El lanzador conserva `data.img` fuera de los productos de construcción.

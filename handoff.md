@@ -65,3 +65,13 @@ terceros salvo autorización expresa.
 Límites a respetar: cuatro procesos, ocho endpoints, VFS plano, archivos tmpfs
 hasta 64 KiB y 256 KiB globales. No usar `mkdir` falso ni presentar el cliente
 kernel HTTPS como curl. No hay TODOs añadidos al código en este avance.
+
+## Shell y disco de datos
+
+Curl oculta PID/estadísticas por defecto; `process-trace on/off` controla los
+reportes sin cambiar ejecución background ni limpieza. Las demos conservan
+sus diagnósticos. `path_core.*` y `file_command.*` añaden cd/pwd, ls/cat,
+write/touch/rm, stat y df sobre directorios fijos. Las aplicaciones conservan
+rutas absolutas y `/disk` de solo lectura. El lanzador conecta `data.img`,
+creado exclusivamente si falta, fuera de build y Git; mkfs es explícito.
+Consultar STORAGE.md y tests/path_unit.c, files.py y curl.py al modificarlo.

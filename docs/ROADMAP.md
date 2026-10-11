@@ -13,7 +13,7 @@ histórica; cada documento de módulo especifica sus contratos y límites.
 | Memoria | Frames, heap kernel, PAE/NX, W^X y espacios privados | [Memoria](MEMORY.md), [ELF](ELF.md) |
 | Ejecución | Cuatro procesos, round-robin, bloqueo, cancelación y recolección | [Tareas](TASKS.md), [Procesos](PROCESSES.md) |
 | Aplicaciones | ELF32 estático embebido y Picolibc con runtime propio | [ELF](ELF.md), [Libc](LIBC.md) |
-| Archivos | tmpfs, FDs privados, stdin por PID y NotFS persistente separado | [VFS](VFS.md), [Almacenamiento](STORAGE.md) |
+| Archivos | tmpfs, FDs privados, NotFS separado y shell cd/ls/cat/write/touch/rm/stat/df | [VFS](VFS.md), [Almacenamiento](STORAGE.md) |
 | Red | RTL8139, TCP/IPv4 y DNS de usuario; cliente kernel HTTP/HTTPS | [Sockets](SOCKETS.md), [TLS](TLS.md) |
 | Multiplexación | poll y adaptador select con espera por proceso | [Poll](POLL.md) |
 | curl | Cliente upstream 8.11.1 HTTP, descargas y uploads | [Port de curl](CURL_PORT.md) |

@@ -157,6 +157,10 @@ def main():
             assert b'curl-guest-response\n' in run(machine, '-sS ' + base + '/text')
             run(machine, '-sS -o /tmp/curl.bin ' + base + '/binary')
             assert snapshot(machine, files=1)[1] == baseline[1]
+            reply = machine.command('ls /tmp', '\nnotos> ')
+            assert b'FILE: curl.bin bytes=32768' in reply, reply
+            reply = machine.command('stat /tmp/curl.bin', '\nnotos> ')
+            assert b'bytes=32768' in reply, reply
             assert b'upload-verified\n' in run(machine, '-sS --data-binary @/tmp/curl.bin ' + base + '/upload')
             check_binary(machine)
             assert snapshot(machine) == baseline

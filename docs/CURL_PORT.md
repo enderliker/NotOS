@@ -39,10 +39,11 @@ incluido `argv[0]` (15 argumentos después del nombre). Las comillas y barras in
 no hay expansión, escapes ni sintaxis de shell POSIX. Los excesos se rechazan,
 sin ejecutar una entrada truncada. Los demás comandos conservan 159 caracteres.
 
-`ls`, `cat NAME` y `rm NAME` operan sobre NotFS, no sobre `/tmp`. Una descarga
-a `/tmp/page.txt` permanece en el VFS en memoria hasta unlink o reinicio;
-no hay todavía comandos de shell para listar o leer esas rutas. `vfs` muestra
-las cuotas y los contadores del VFS.
+`ls /tmp`, `stat /tmp/page.txt`, `cat /tmp/page.txt` y `rm /tmp/page.txt`
+operan sobre las descargas. `cd /tmp` permite usar nombres relativos en los
+comandos de archivos de la shell; curl sigue requiriendo rutas absolutas.
+Los archivos tmpfs viven hasta unlink o reinicio. Ver [STORAGE.md](STORAGE.md)
+para navegar y escribir en el disco persistente mediante la shell.
 
 ## Construcción
 

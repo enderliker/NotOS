@@ -193,3 +193,12 @@ void vfs_status(void) {
     console_puts("VFS: files=");console_uint(c.files);console_puts(" nodes=");console_uint(c.nodes);
     console_puts(" pages=");console_uint(c.pages);console_puts(" refs=");console_uint(c.references);console_putc('\n');
 }
+
+int vfs_entry(u32 index, char name[24], u32 *bytes) {
+    if (index >= VFS_NODE_COUNT || !name || !bytes) return 0;
+    const struct vfs_node *node = &nodes[index];
+    if (!node->used || node->disk || !node->linked) return 0;
+    copy(name, node->name, length(node->name) + 1);
+    *bytes = node->size;
+    return 1;
+}

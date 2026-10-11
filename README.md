@@ -43,7 +43,10 @@ make test-online  # opcional: requiere DNS, HTTP y HTTPS salientes
 make run
 ```
 
-`make run` abre QEMU con gráfica y salida serie en la terminal. La imagen arrancable es `build/notos.img`. Las pruebas usan emulación TCG, sin necesitar KVM. Se puede seleccionar otro ejecutable con la variable de entorno `QEMU` para las pruebas.
+`make run` abre QEMU con gráfica y salida serie en la terminal. Sin escritorio
+gráfico, usa `python3 tools/run.py -display none`. El lanzador crea y conserva
+`data.img` como disco de datos separado; ejecuta `mkfs` solo para formatearlo
+explícitamente (borra sus datos). Ver [STORAGE.md](docs/STORAGE.md). La imagen arrancable es `build/notos.img`. Las pruebas usan emulación TCG, sin necesitar KVM. Se puede seleccionar otro ejecutable con la variable de entorno `QEMU` para las pruebas.
 
 La primera compilación descarga BearSSL, MbedTLS, Picolibc, lwIP y curl con SHA256 fijado; se conserva en `.cache/`. Para compilar offline, usa `BEARSSL_ARCHIVE=/ruta/bearssl-0.6.tar.gz` y `MBEDTLS_ARCHIVE=/ruta/mbedtls-3.6.5.tar.bz2` y `PICOLIBC_ARCHIVE=/ruta/picolibc-1.8.11.tar.xz` y `LWIP_ARCHIVE=/ruta/lwip-2.2.1.tar.gz` y `CURL_ARCHIVE=/ruta/curl-8.11.1.tar.xz` (hashes verificados).
 
@@ -94,6 +97,14 @@ socket-run poll-basic 1
 socket-run poll-web 80
 curl --version
 curl -sS -o /tmp/page.txt http://example.com/
+ls /tmp
+cat /tmp/page.txt
+cd /tmp
+pwd
+touch empty.txt
+stat empty.txt
+rm empty.txt
+df
 feed 1 hello-vfs
 feed-eof 1
 elf-run demo

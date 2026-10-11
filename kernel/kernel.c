@@ -12,6 +12,7 @@
 #include "user.h"
 #include "multitask.h"
 #include "fs.h"
+#include "file_command.h"
 #include "process.h"
 #include "mouse.h"
 #include "gui.h"
@@ -63,7 +64,7 @@ static void clock_command(const char *kind,const char *argument) {
     console_puts(" ms ticks=");console_uint(after_ticks-ticks);console_putc('\n');
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nrun-user PROGRAM  exec FILE\nnet  dns HOST  http HOST[:PORT]\ncurl [OPTIONS] URL (HTTP only)\nhttps HOST[:PORT] [IP]  tls  tls-selftest\nnet-config IP GATEWAY DNS  net-drop LOSS\nsockets  socket-run MODE PORT  socket-drop syn/tx/rx\nsocket-run poll-basic/poll-stdin/poll-timer/poll-web PORT\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nlibc-test  libc-run test/exit/noentropy/files/stdin/disk/hold/fault/curl-file\nelf-run demo/nx-heap/nx-stack/stack-guard/readonly/sleep  elf-test\nmultitask-test  multitask-run SCENARIO\nmkfs  ls  cat NAME  write NAME TEXT  rm NAME\nspawn worker/spin/fault  ps  kill PID\nprocess-trace on/off\nvfs  feed PID TEXT  feed-eof PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nrun-user PROGRAM  exec FILE\nnet  dns HOST  http HOST[:PORT]\ncurl [OPTIONS] URL (HTTP only)\nhttps HOST[:PORT] [IP]  tls  tls-selftest\nnet-config IP GATEWAY DNS  net-drop LOSS\nsockets  socket-run MODE PORT  socket-drop syn/tx/rx\nsocket-run poll-basic/poll-stdin/poll-timer/poll-web PORT\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nlibc-test  libc-run test/exit/noentropy/files/stdin/disk/hold/fault/curl-file\nelf-run demo/nx-heap/nx-stack/stack-guard/readonly/sleep  elf-test\nmultitask-test  multitask-run SCENARIO\npwd  cd [PATH]  ls [PATH]  cat PATH\nwrite PATH TEXT  touch PATH  rm PATH  stat PATH  df\nmkfs (erases dedicated data disk)\nspawn worker/spin/fault  ps  kill PID\nprocess-trace on/off\nvfs  feed PID TEXT  feed-eof PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
@@ -147,10 +148,7 @@ static void command(const char *s) {
     else if(equal(s,"ps")) process_command("ps", "");
     else if(starts(s,"spawn ")) process_command("spawn",s+6);
     else if(starts(s,"kill ")) process_command("kill",s+5);
-    else if(equal(s,"mkfs") || equal(s,"ls")) fs_command(s, "");
-    else if(starts(s,"write ")) fs_command("write",s+6);
-    else if(starts(s,"cat ")) fs_command("cat",s+4);
-    else if(starts(s,"rm ")) fs_command("rm",s+3);
+    else if(file_command(s)) {}
     else if(*s) console_puts("ERROR: unknown command\n");
 }
 static void input(char c) {
@@ -247,6 +245,7 @@ void kernel_main(void) {
     console_puts("ARCH: TSS selector=0x28; user gate ready\n");
     entropy_init();
     fs_init();
+    file_command_init();
     net_init();
     console_puts("notos> ");
     for(;;) {
@@ -257,7 +256,7 @@ void kernel_main(void) {
         mouse_poll();
         enum gui_action action=gui_next_action();
         if(action==GUI_CLEAR) {gui_clear();used=0;dropped=0;console_puts("\nUI: clear\nnotos> ");}
-        else if(action==GUI_FILES) {console_puts("\nUI: files\n");fs_command("ls", "");console_puts("notos> ");}
+        else if(action==GUI_FILES) {console_puts("\nUI: files\n");file_command("ls");console_puts("notos> ");}
         else if(action==GUI_TASKS) {console_puts("\nUI: tasks\n");process_command("ps", "");console_puts("notos> ");}
         process_poll();
         __asm__ volatile("pause");

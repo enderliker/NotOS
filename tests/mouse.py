@@ -27,7 +27,7 @@ with Machine(logname='mouse') as m:
     move(m,197,10)
     start=len(m.output);click(m);m.expect('UI: clear\nnotos> ',start)
     move(m,222,10)
-    start=len(m.output);click(m);m.expect('UI: files\nFS ERROR: not mounted\nnotos> ',start)
+    start=len(m.output);click(m);m.expect('UI: files\nFS: list complete\nnotos> ',start)
     move(m,258,10)
     start=len(m.output);click(m);m.expect('PROCESS: list complete\nnotos> ',start)
     move(m,140,38);click(m)
