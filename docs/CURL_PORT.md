@@ -21,8 +21,11 @@ ps
 kill PID
 ```
 
-La shell informa el PID y continúa atendiendo entrada. La terminación se
-reporta como `PROCESS: pid=... exit=... ticks=...`. Los errores de opciones,
+La shell continúa atendiendo entrada mientras curl se ejecuta en segundo
+plano. Por defecto solo se muestra la salida de curl, sin PID ni estadísticas
+de terminación. `process-trace on` habilita estos diagnósticos;
+`process-trace off` los deshabilita. `ps` permite consultar procesos activos.
+Los errores de opciones,
 HTTP con `-f`, DNS, conexión y timeout conservan los códigos de salida de curl.
 
 El ELF se ejecuta en el invitado NotOS y usa sus syscalls, libc y pila TCP/IP;
@@ -35,6 +38,11 @@ colapsan. Máximo **256 bytes** después de `curl ` y **16 elementos de argv**,
 incluido `argv[0]` (15 argumentos después del nombre). Las comillas y barras inversas son caracteres literales;
 no hay expansión, escapes ni sintaxis de shell POSIX. Los excesos se rechazan,
 sin ejecutar una entrada truncada. Los demás comandos conservan 159 caracteres.
+
+`ls`, `cat NAME` y `rm NAME` operan sobre NotFS, no sobre `/tmp`. Una descarga
+a `/tmp/page.txt` permanece en el VFS en memoria hasta unlink o reinicio;
+no hay todavía comandos de shell para listar o leer esas rutas. `vfs` muestra
+las cuotas y los contadores del VFS.
 
 ## Construcción
 

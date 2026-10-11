@@ -9,9 +9,10 @@
 #include "wait_policy.h"
 #include "syscall_numbers.h"
 #define PROCESS_NAME_BYTES 24u
-struct process_slot { struct task task; char name[PROCESS_NAME_BYTES]; };
+struct process_slot { struct task task; char name[PROCESS_NAME_BYTES]; int quiet; };
 static struct process_slot slots[SCHEDULER_CAPACITY];
 static unsigned cursor;
+static int trace_enabled;
 static u32 next_pid = 1;
 extern const u8 user_blob_start[], user_blob_end[];
 
@@ -23,6 +24,7 @@ u32 process_spawn_image(const char *name, const u8 *code, u32 bytes,
     while (index < SCHEDULER_CAPACITY && slots[index].task.state != TASK_UNUSED) index++;
     if (index == SCHEDULER_CAPACITY || !next_pid || next_pid>0x7fffffffu) return 0;
     struct process_slot *slot = &slots[index];
+    slot->quiet = 0;
     if (!task_create(&slot->task, next_pid, code, bytes)) return 0;
     for (unsigned i = 0; (slot->name[i] = name[i]); ++i) {}
     for (unsigned i = 0; i < data_bytes; ++i) ((u8 *)slot->task.space.data)[i] = data[i];
@@ -34,6 +36,7 @@ static u32 process_spawn_elf_arguments(const char *name,const u8 *image,u32 byte
     unsigned index=0;
     while (index<SCHEDULER_CAPACITY && slots[index].task.state!=TASK_UNUSED) index++;
     if (index==SCHEDULER_CAPACITY || !task_create_elf(&slots[index].task,next_pid,image,bytes)) return 0;
+    slots[index].quiet = 0;
     struct user_space *space=&slots[index].task.space;
     int prepared=split?space_arguments_split(space,name,argument):space_arguments(space,name,argument);
     if (!prepared) {
@@ -54,11 +57,24 @@ u32 process_spawn_elf_split(const char *name,const u8 *image,u32 bytes,const cha
 u32 process_spawn_elf(const char *name,const u8 *image,u32 bytes) {
     return process_spawn_elf_args(name,image,bytes,0);
 }
+void process_quiet(u32 pid) {
+    for (unsigned i = 0; i < SCHEDULER_CAPACITY; i++) {
+        if (slots[i].task.state != TASK_UNUSED && slots[i].task.id == pid) {
+            slots[i].quiet = 1;
+            return;
+        }
+    }
+}
+int process_trace_enabled(void) {
+    return trace_enabled;
+}
 static void collect(struct process_slot *slot) {
-    console_puts("PROCESS: pid="); console_uint(slot->task.id);
-    console_puts(" exit="); console_uint(slot->task.result.status);
-    console_puts(" ticks="); console_uint(slot->task.statistics.cpu_ticks);
-    console_putc('\n');
+    if (!slot->quiet || trace_enabled) {
+        console_puts("PROCESS: pid="); console_uint(slot->task.id);
+        console_puts(" exit="); console_uint(slot->task.result.status);
+        console_puts(" ticks="); console_uint(slot->task.statistics.cpu_ticks);
+        console_putc('\n');
+    }
     if (slot->task.result.reason==TASK_EXIT_FAULT) {
         console_puts("PROCESS FAULT: vector=");console_uint(slot->task.result.fault_vector);
         console_puts(" error=");console_uint(slot->task.result.fault_error);
@@ -121,6 +137,16 @@ void process_poll(void) {
     }
 }
 void process_command(const char *command, const char *argument) {
+    if (equal(command, "process-trace")) {
+        if (equal(argument, "on")) trace_enabled = 1;
+        else if (equal(argument, "off")) trace_enabled = 0;
+        else {
+            console_puts("PROCESS ERROR: use process-trace on/off\n");
+            return;
+        }
+        console_puts(trace_enabled ? "PROCESS: trace on\n" : "PROCESS: trace off\n");
+        return;
+    }
     if (equal(command, "ps")) {
         for (unsigned i = 0; i < SCHEDULER_CAPACITY; ++i) if (slots[i].task.state != TASK_UNUSED) {
             console_puts("PROCESS: pid="); console_uint(slots[i].task.id);

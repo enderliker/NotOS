@@ -16,7 +16,7 @@ Las reglas de contribución están en [AGENTS.md](AGENTS.md).
 - `argument_core.*` valida y separa hasta 256 bytes/16 argumentos, sin truncar.
   `space.*` construye argc/argv/envp/AT_NULL y alinea ESP a 16 bytes;
   `process_spawn_elf_split` reutiliza creación y rollback existentes.
-- `curl_command.*` lanza el binario upstream y reporta PID o fallo.
+- `curl_command.*` lanza el binario upstream; reporta fallos y, con `process-trace on`, PID.
 - El loader copia 320 KiB adicionales desde un buffer BIOS temporal a
   0x100000..0x150000. La imagen curl es R/NX y BSS comienza en 0x150000;
   el asignador reserva toda la región estática. Se mantienen kernel bajo,

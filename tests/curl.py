@@ -115,6 +115,20 @@ def check_binary(machine):
     assert b'LIBC: curl binary file/content/unlink PASS' in reply, reply
 
 
+def check_quiet_version(machine):
+    start = len(machine.output)
+    machine.command("curl --version", "Release-Date:")
+    machine.expect("Protocols: http\nFeatures: Largefile\n", start)
+    deadline = time.monotonic() + 5
+    while True:
+        reply = machine.command("ps", "PROCESS: list complete\nnotos> ")
+        if b" name=curl " not in reply:
+            break
+        assert time.monotonic() < deadline, reply
+    reply = bytes(machine.output[start:])
+    assert b"CURL: started" not in reply and b" exit=" not in reply, reply
+
+
 def main():
     link_map = Path('build/curl.map').read_text()
     assert 'build/sysroot/lib/notos/libc.a' in link_map
@@ -122,6 +136,9 @@ def main():
     for memory in ('16M', '64M'):
         with HTTPPeer() as peer, Machine(network=True, memory=memory, logname='curl-' + memory) as machine:
             baseline = snapshot(machine)
+            check_quiet_version(machine)
+            assert snapshot(machine) == baseline
+            machine.command("process-trace on", "PROCESS: trace on\nnotos> ")
             reply = run(machine, '--version')
             assert b'curl 8.11.1 (notos) libcurl/8.11.1' in reply and b'Protocols: http\n' in reply, reply
             run(machine, None, 2)
@@ -163,12 +180,17 @@ def main():
                 finish(machine, pid, start, 143)
             assert snapshot(machine) == baseline
             run(machine, '--version')
+            machine.command("process-trace off", "PROCESS: trace off\nnotos> ")
+            check_quiet_version(machine)
+            assert snapshot(machine) == baseline
         with Machine(network=True, memory=memory, logname='curl-refused-' + memory) as machine:
+            machine.command("process-trace on", "PROCESS: trace on\nnotos> ")
             baseline = snapshot(machine)
             run(machine, f'-sS http://10.0.2.2:{peer.port}/', 7)
             assert snapshot(machine) == baseline
         print(f'PASS: curl HTTP-only, arguments, binary tmpfs/upload, timeout/errors and cleanup on {memory}')
     with DNS() as dns, HTTPPeer() as peer, Machine(network=True, image='build/notos-socket-test.img', logname='curl-dns') as machine:
+        machine.command("process-trace on", "PROCESS: trace on\nnotos> ")
         machine.command('net-config 10.0.2.15 10.0.2.2 10.0.2.2', 'configuration applied\nnotos> ')
         baseline = snapshot(machine)
         assert b'curl-guest-response\n' in run(machine, f'-sS http://curl.socket.test:{peer.port}/text')

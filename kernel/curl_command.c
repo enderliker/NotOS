@@ -10,6 +10,8 @@ void curl_command(const char *arguments) {
         console_puts("CURL ERROR: invalid arguments or ELF, no slot or memory\n");
         return;
     }
+    process_quiet(pid);
+    if (!process_trace_enabled()) return;
     console_puts("CURL: started pid=");
     console_uint(pid);
     console_putc('\n');

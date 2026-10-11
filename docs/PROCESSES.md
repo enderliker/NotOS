@@ -49,3 +49,12 @@ poll_wait guarda un snapshot acotado de fd/events y deadline relativo o infinito
 16 elementos con argv[0]); curl usa esta entrada. Ambas comparten creación,
 preparación de ESP y rollback. El PID avanza solo tras una creación completa.
 Ver ELF.md y CURL_PORT.md.
+
+## Diagnósticos de aplicaciones
+
+Curl oculta los mensajes de creación y terminación por defecto. El comando
+`process-trace on` los habilita y `process-trace off` los deshabilita;
+la configuración vive hasta reiniciar. `ps` sigue mostrando tareas activas.
+Las demos conservan sus reportes para diagnóstico. Los fallos user y los
+errores de limpieza se reportan incluso con la traza deshabilitada. No cambia
+la recolección de recursos ni convierte curl en un comando foreground.
