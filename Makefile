@@ -14,7 +14,7 @@ build/entry.o: kernel/entry.S | build
 	$(CC) -m32 -c $< -o $@
 ELF_DEMOS := demo nx-heap nx-stack stack-guard readonly sleep
 ELF_DEMO_OBJS := $(addprefix build/elf-,$(addsuffix -blob.o,$(ELF_DEMOS)))
-KERNEL_OBJS := build/socket-demo-blob.o build/libc-demo-blob.o $(ELF_DEMO_OBJS) build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
+KERNEL_OBJS := build/curl-blob.o build/socket-demo-blob.o build/libc-demo-blob.o $(ELF_DEMO_OBJS) build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
 build/notlang_vm.o: user/notlang_vm.c kernel/notlang_bytecode.h kernel/syscall_numbers.h kernel/base.h | build
 	$(CC) $(CFLAGS) -ffunction-sections -c $< -o $@
 build/notlang_vm.elf: build/notlang_vm.o user/link.ld
@@ -230,3 +230,76 @@ build/socket-demo.o: user/include/poll.h kernel/poll_abi.h
 build/poll-demo.o: user/poll_demo.c user/poll_demo.h user/libc/os.h user/include/poll.h kernel/poll_abi.h kernel/syscall_numbers.h $(wildcard user/include/*/*.h) build/picolibc-built.ready
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
 build/socket-demo.o: user/poll_demo.h
+
+# --- curl 8.11.1 HTTP-only port ---
+CURL_SRC := build/curl/curl-8.11.1
+CURL_BASE_FLAGS := -m32 -march=i486 -mno-sse -mno-sse2 -mno-mmx -msoft-float -std=c11 -Os \
+    -ffunction-sections -fdata-sections -fno-builtin -ffreestanding -fno-pie \
+    -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables \
+    $(LIBC_INCLUDES) -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -U__linux__ -U__unix__ -D__NOTOS__
+CURL_FLAGS := $(CURL_BASE_FLAGS) -Iuser/curl_port -I$(CURL_SRC)/include -I$(CURL_SRC)/lib -DHAVE_CONFIG_H -DBUILDING_LIBCURL -DCURL_STATICLIB -DHTTP_ONLY=1
+CURL_TOOL_FLAGS := $(CURL_BASE_FLAGS) -Iuser/curl_port -I$(CURL_SRC)/include -I$(CURL_SRC)/lib -I$(CURL_SRC)/src -DHAVE_CONFIG_H -DCURL_STATICLIB -DHTTP_ONLY=1
+
+build/curl.ready: tools/fetch_curl.py | build
+	python3 tools/fetch_curl.py
+
+CURL_LIB_NAMES := altsvc amigaos asyn-ares asyn-thread base64 bufq bufref c-hyper cf-h1-proxy cf-h2-proxy cf-haproxy cf-https-connect cf-socket cfilters conncache connect content_encoding cookie curl_addrinfo curl_des curl_endian curl_fnmatch curl_get_line curl_gethostname curl_gssapi curl_memrchr curl_multibyte curl_ntlm_core curl_range curl_rtmp curl_sasl curl_sha512_256 curl_sspi curl_threads curl_trc cw-out dict dllmain doh dynbuf dynhds easy easygetopt easyoptions escape file fileinfo fopen formdata ftp ftplistparser getenv getinfo gopher hash headers hmac hostasyn hostip hostip4 hostip6 hostsyn hsts http http1 http2 http_aws_sigv4 http_chunks http_digest http_negotiate http_ntlm http_proxy idn if2ip imap inet_ntop inet_pton krb5 ldap llist macos md4 md5 memdebug mime mprintf mqtt multi netrc nonblock noproxy openldap parsedate pingpong pop3 progress psl rand rename request rtsp select sendf setopt sha256 share slist smb smtp socketpair socks socks_gssapi socks_sspi speedcheck splay strcase strdup strerror strtok strtoofft system_win32 telnet tftp timediff timeval transfer url urlapi version version_win32 warnless ws
+CURL_SRC_NAMES := slist_wc terminal tool_binmode tool_bname tool_cb_dbg tool_cb_hdr tool_cb_prg tool_cb_rea tool_cb_see tool_cb_soc tool_cb_wrt tool_cfgable tool_dirhie tool_doswin tool_easysrc tool_filetime tool_findfile tool_formparse tool_getparam tool_getpass tool_help tool_helpers tool_hugehelp tool_ipfs tool_libinfo tool_listhelp tool_main tool_msgs tool_operate tool_operhlp tool_paramhlp tool_parsecfg tool_progress tool_setopt tool_sleep tool_stderr tool_strdup tool_urlglob tool_util tool_vms tool_writeout tool_writeout_json tool_xattr var
+CURLX_SRC_NAMES := dynbuf base64 nonblock strtoofft warnless timediff
+
+CURL_EXTRA_LIB_OBJS := build/curl-lib-vauth.o build/curl-lib-digest.o build/curl-lib-vtls.o build/curl-lib-vquic.o
+CURL_LIB_OBJS := $(addprefix build/curl-lib-,$(addsuffix .o,$(CURL_LIB_NAMES))) $(CURL_EXTRA_LIB_OBJS)
+CURLX_SRC_OBJS := $(addprefix build/curl-src-curlx-,$(addsuffix .o,$(CURLX_SRC_NAMES)))
+CURL_SRC_OBJS := $(addprefix build/curl-src-,$(addsuffix .o,$(CURL_SRC_NAMES))) $(CURLX_SRC_OBJS)
+
+build/curl-lib-%.o: $(CURL_SRC)/lib/%.c user/curl_port/curl_config.h build/curl.ready build/picolibc-built.ready
+	$(CC) $(CURL_FLAGS) -c $< -o $@
+
+build/curl-lib-vauth.o: $(CURL_SRC)/lib/vauth/vauth.c user/curl_port/curl_config.h build/curl.ready build/picolibc-built.ready
+	$(CC) $(CURL_FLAGS) -c $< -o $@
+
+build/curl-lib-digest.o: $(CURL_SRC)/lib/vauth/digest.c user/curl_port/curl_config.h build/curl.ready build/picolibc-built.ready
+	$(CC) $(CURL_FLAGS) -c $< -o $@
+
+build/curl-lib-vtls.o: $(CURL_SRC)/lib/vtls/vtls.c user/curl_port/curl_config.h build/curl.ready build/picolibc-built.ready
+	$(CC) $(CURL_FLAGS) -c $< -o $@
+
+build/curl-lib-vquic.o: $(CURL_SRC)/lib/vquic/vquic.c user/curl_port/curl_config.h build/curl.ready build/picolibc-built.ready
+	$(CC) $(CURL_FLAGS) -c $< -o $@
+
+build/libcurl.a: $(CURL_LIB_OBJS)
+	ar rcs $@ $^
+
+build/curl-src-%.o: $(CURL_SRC)/src/%.c user/curl_port/curl_config.h build/curl.ready build/picolibc-built.ready
+	$(CC) $(CURL_TOOL_FLAGS) -c $< -o $@
+
+build/curl-src-curlx-%.o: $(CURL_SRC)/lib/%.c user/curl_port/curl_config.h build/curl.ready build/picolibc-built.ready
+	$(CC) $(CURL_TOOL_FLAGS) -c $< -o $@
+
+build/libc-select.o: user/libc/select.c user/include/poll.h kernel/poll_abi.h build/picolibc-built.ready
+	$(CC) $(LIBC_FLAGS) -c $< -o $@
+
+build/libc-mkdir.o: user/libc/mkdir.c build/picolibc-built.ready
+	$(CC) $(LIBC_FLAGS) -c $< -o $@
+
+build/user-float-runtime.o: user/float_runtime.c kernel/base.h | build
+	$(CC) $(CFLAGS) -c $< -o $@
+
+CURL_LIBC_OBJS := build/libc-port.o build/libc-start.o build/libc-crt.o \
+    build/libc-socket.o build/libc-poll.o build/libc-select.o \
+    build/libc-mkdir.o build/user-integer-runtime.o build/user-float-runtime.o
+
+build/curl.elf: $(CURL_SRC_OBJS) build/libcurl.a $(CURL_LIBC_OBJS) user/elf_link.ld build/picolibc-built.ready
+	$(LD) -m elf_i386 --gc-sections -z noexecstack -z max-page-size=16 \
+	  -T user/elf_link.ld --Map=build/curl.map \
+	  $(CURL_SRC_OBJS) build/libcurl.a $(CURL_LIBC_OBJS) \
+	  build/sysroot/lib/notos/libc.a -o $@
+
+build/curl-blob.o: build/curl.elf
+	objcopy --strip-all $< build/curl-app.elf
+	objcopy -I binary -O elf32-i386 -B i386 \
+	  --rename-section .data=.rodata.curlimage,alloc,load,readonly,data,contents \
+	  --add-section .note.GNU-stack=/dev/null \
+	  --set-section-flags .note.GNU-stack=noload,readonly \
+	  build/curl-app.elf $@
+
