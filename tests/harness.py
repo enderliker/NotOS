@@ -55,7 +55,16 @@ class Machine:
                 time.sleep(.01)
             self.sock = socket.socket(socket.AF_UNIX)
             self.sock.settimeout(10)
-            self.sock.connect(monitor)
+            while True:
+                try:
+                    self.sock.connect(monitor)
+                    break
+                except (FileNotFoundError, ConnectionRefusedError):
+                    if self.p.poll() is not None:
+                        raise AssertionError(self.p.stderr.read().decode())
+                    if time.monotonic() > deadline:
+                        raise AssertionError('monitor did not accept connections')
+                    time.sleep(.01)
             self.stream = self.sock.makefile('rwb', buffering=0)
             greeting = json.loads(self.stream.readline())
             assert 'QMP' in greeting

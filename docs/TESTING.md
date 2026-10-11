@@ -354,3 +354,10 @@ Los recursos protocolarios estáticos TIME_WAIT/ARP/DNS son acotados, no se exig
 Logs `build/poll-16M.log`, `build/poll-64M.log`, `build/poll-online.log`, más logs de regresiones. El fixture RST ahora cierra directamente con SO_LINGER(0): el cierre automático de socketserver hacía shutdown(SHUT_WR) antes de close y podía introducir FIN. La suite limpia final pasó después de hacerlo determinista. Los nombres generados siguen el guard portable añadido para upload-artifact.
 
 No se comprobaron CI remota ni hardware físico. Alcance parcial: sin select/ppoll/pselect, señales/EINTR, threads/SMP, urgent TCP, ni curl upstream/TLS userspace. Ver POLL.md y CURL_PORT.md para límites y siguiente gate.
+
+## Sincronización del monitor QEMU
+
+El arnés espera hasta que el socket QMP acepte conexiones, dentro del plazo
+de arranque de diez segundos. La presencia del archivo por sí sola no indica
+que el monitor esté listo. Se reintentan ENOENT/ECONNREFUSED; QEMU terminado
+o plazo agotado siguen produciendo un fallo de la prueba.
