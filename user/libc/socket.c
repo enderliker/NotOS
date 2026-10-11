@@ -61,6 +61,14 @@ int connect(int fd,const struct sockaddr *address,socklen_t length) {
     struct notos_socket_address wire;memcpy(wire.ip,&in->sin_addr,4);wire.port=ntohs(in->sin_port);
     return notos_checked(notos_raw_call(SYS_CONNECT,(uint32_t)fd,(uint32_t)&wire,0));
 }
+int accept(int fd,struct sockaddr *address,socklen_t *length) {
+    (void)fd;(void)address;(void)length;
+    errno=ENOTSUP;return -1;
+}
+struct hostent *gethostbyname(const char *name) {
+    (void)name;
+    errno=ENOTSUP;return 0;
+}
 ssize_t send(int fd,const void *buffer,size_t bytes,int flags) {
     if (bytes>INT_MAX || (flags&~(MSG_DONTWAIT|MSG_NOSIGNAL))) {errno=EINVAL;return -1;}
     if (bytes>NOTOS_IO_LIMIT) bytes=NOTOS_IO_LIMIT;

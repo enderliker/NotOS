@@ -8,6 +8,9 @@ struct sockaddr {sa_family_t sa_family;char sa_data[14];};
 #define AF_UNSPEC 0
 #define AF_INET 2
 #define AF_INET6 10
+#define PF_UNSPEC AF_UNSPEC
+#define PF_INET AF_INET
+#define PF_INET6 AF_INET6
 #define SOCK_STREAM 1
 #define SOCK_DGRAM 2
 #define SOCK_NONBLOCK 0x100
@@ -29,6 +32,7 @@ struct sockaddr {sa_family_t sa_family;char sa_data[14];};
 #define SHUT_RDWR 2
 int socket(int,int,int);
 int connect(int,const struct sockaddr *,socklen_t);
+int accept(int,struct sockaddr *,socklen_t *);
 ssize_t send(int,const void *,size_t,int);
 ssize_t recv(int,void *,size_t,int);
 int shutdown(int,int);

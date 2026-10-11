@@ -1,6 +1,14 @@
 #ifndef NOTOS_USER_NETDB_H
 #define NOTOS_USER_NETDB_H
 #include <sys/socket.h>
+struct hostent {
+    char *h_name;
+    char **h_aliases;
+    int h_addrtype;
+    int h_length;
+    char **h_addr_list;
+};
+#define h_addr h_addr_list[0]
 struct addrinfo {
     int ai_flags,ai_family,ai_socktype,ai_protocol;
     socklen_t ai_addrlen;
@@ -24,4 +32,5 @@ struct addrinfo {
 int getaddrinfo(const char *,const char *,const struct addrinfo *,struct addrinfo **);
 void freeaddrinfo(struct addrinfo *);
 const char *gai_strerror(int);
+struct hostent *gethostbyname(const char *);
 #endif
