@@ -38,13 +38,13 @@ El quantum es de 5 ticks del PIT; el presupuesto máximo es de 250 ticks entrega
 - Errores de programa y fallos del kernel son categorías diferentes.
 - Constantes ABI nombradas, compartidas por C/assembly y protegidas por dependencias de Make.
 - Los tests de kernel arrancan la imagen real; los algoritmos puros se prueban también nativamente.
-- Cambios funcionales en commits `feat(alcance) mensaje`, después de compilar con `-Wall -Wextra -Werror` y pasar las pruebas aplicables.
+- Cambios funcionales en commits `feature(alcance) descripción`, después de compilar con `-Wall -Wextra -Werror` y pasar las pruebas aplicables.
 
 La documentación de límites es parte del contrato. Un prototipo que pasa estos tests no equivale a un sistema de producción ni a una auditoría completa de seguridad.
 
 ## TLS y memoria en 0.11
 
-PAE y NX reemplazan tablas de 32 bits: PDPT privado y directorio por tarea; BSS reservado explícitamente desde 1 MiB. Texto RX, rodata R/NX, datos/pilas RW/NX.
+PAE y NX reemplazan tablas de 32 bits: PDPT privado y directorio por tarea; región estática alta reservada explícitamente antes de asignar frames; BSS actual desde 0x150000. Texto RX, rodata R/NX, datos/pilas RW/NX.
 `tls_profile.*` ahora configura MbedTLS 1.2/1.3; `tls.*` proporciona BIO no bloqueante, verifica el handshake y libera contextos/slots PSA.
 `certificate_policy.*` sigue aplicando SAN/EKU/límites sin borrar errores de MbedTLS. `x509_policy.*` es legado BearSSL, no se enlaza en el cliente actual.
 `tls_platform_port.*` adapta heap/RTC/DRBG; no es una libc POSIX. `integer_runtime.*` aporta división u64 probada para i386.
@@ -68,7 +68,7 @@ Los lotes síncronos no registran una espera que no puedan despertar: devuelven 
 
 `platform_abi.h` fija límites y layout wire del tiempo. Las syscalls validan rangos/permisos antes de tocar buffers; el runtime de usuario no puede desactivar esa comprobación. `clock_uptime_ms` toma una instantánea atómica de 64 bits con IF preservado. `integer_runtime.*` proporciona división/remainder signed y unsigned al kernel y al ELF por enlaces separados, sin libgcc host.
 
-Los hooks no soportados no devuelven éxito ficticio. libc privada single-thread no significa threads, VFS, sockets ni conformidad POSIX. Ver LIBC.md.
+Los hooks no soportados no devuelven éxito ficticio. libc privada single-thread no significa threads ni conformidad POSIX completa. VFS y sockets tienen los adaptadores descritos abajo. Ver LIBC.md.
 
 ## FDs, VFS y entrada en 0.15
 
@@ -87,3 +87,16 @@ El backend tiene tests ASAN/UBSAN con un asignador de frames falso host-only; `t
 ## poll en 0.17
 
 poll_abi.h fija vector/eventos; fd_poll y socket_events.h calculan readiness sin consumo ni política de espera. socket_ready solo adapta estado/capacidad de lwIP a esa política. poll_wait.* valida/copia snapshots y conserva/devolver el frame mediante scheduler_block. process_poll orquesta wakeup; ni IRQ ni FD backend planifican procesos. El adaptador user/libc/poll.c traduce structs/errno; poll_demo.c es un módulo de pruebas del ELF, no una implementación alternativa. Ver POLL.md.
+
+## curl HTTP y runtime de argumentos
+
+`argument_core.*` separa texto acotado sin I/O ni asignación. `space.*` copia
+strings y construye el stack ABI; `process.*` comparte creación y rollback
+para argumentos simples o separados. `curl_command.*` solo lanza el ELF
+upstream. `select` es un adaptador de libc sobre poll, no una syscall nueva.
+
+El cargador BIOS añade un bloque alto de 320 KiB usando un buffer temporal y
+INT 15h/AH=87. El linker coloca el blob curl R/NX en 0x100000 y BSS desde
+0x150000; physical reserva toda la región estática antes de asignar frames.
+La ejecución sigue ocurriendo en el espacio privado de usuario. Ver MEMORY.md,
+LIBC.md y CURL_PORT.md para contratos y límites.

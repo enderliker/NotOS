@@ -1,6 +1,6 @@
 # NotOS
 
-Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits. Tiene cargador y kernel propios: no usa Linux, otro kernel ni una distribución como base. TLS utiliza MbedTLS 3.6.5 (Apache-2.0), y HMAC-DRBG/SHA256 usa BearSSL (MIT); no se afirma que esa biblioteca criptográfica sea original. La libc de usuario es Picolibc 1.8.11 upstream, con sus licencias originales y un port propio; no se afirma que esa biblioteca sea original. TCP y DNS de usuario utilizan lwIP 2.2.1 upstream (BSD-3-Clause), con integración propia; no se afirma autoría de esa pila. GCC, Python y QEMU son herramientas del equipo de desarrollo, no componentes del sistema invitado.
+Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits. Tiene cargador y kernel propios: no usa Linux, otro kernel ni una distribución como base. TLS utiliza MbedTLS 3.6.5 (Apache-2.0), y HMAC-DRBG/SHA256 usa BearSSL (MIT); no se afirma que esa biblioteca criptográfica sea original. La libc de usuario es Picolibc 1.8.11 upstream, con sus licencias originales y un port propio; no se afirma que esa biblioteca sea original. TCP y DNS de usuario utilizan lwIP 2.2.1 upstream (BSD-3-Clause), con integración propia; no se afirma autoría de esa pila. curl upstream 8.11.1 (licencia curl) aporta el cliente HTTP de usuario. GCC, Python y QEMU son herramientas del equipo de desarrollo, no componentes del sistema invitado.
 
 ## Implementado y probado
 
@@ -22,16 +22,17 @@ Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits.
 | VFS y FDs | tmpfs, NotFS read-only, FDs privados, dup/seek y stdin bloqueante | Stdio binario ring3, cuotas/OOM, cuatro procesos, EOF y kill/fault sin fugas |
 | Sockets de usuario | lwIP TCP/IPv4, API BSD parcial, DNS y bloqueo por proceso | 32 KiB binarios, HTTP->tmpfs, cuatro procesos, pérdidas, TIME_WAIT, errores y cancelación |
 | Multiplexación | poll de hasta 64 entradas sobre sockets/FDs, espera por proceso | Eventos TCP/stdin, timeouts, backpressure, cuatro esperas y cancelación |
+| curl | Upstream 8.11.1 HTTP-only en ring 3 | HTTP, archivos/upload binarios, DNS, timeout, argumentos y cancelación |
 | Archivos | ATA PIO y NotFS propio en disco de datos separado | Reinicios, CRC, rollback y CRUD persistente |
 | Multitarea básica | Round-robin por IRQ0, cuatro slots, pilas privadas y SYS_YIELD | Contextos/registros, lotes mixtos, presupuesto, FPU rechazada y rollback OOM |
 
-Cada avance se sube en un commit `feat(alcance) mensaje` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
+Cada avance se registra en un commit `feature(alcance) descripción` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
 
 ## Construir, probar y arrancar
 
 Objetivo de CPU: x86 de 32 bits con PAE, MSR y NX (QEMU `-cpu max`), probado solo en QEMU. El kernel comprueba las capacidades antes de activar PAE/NXE. El código se genera sin SSE/FPU.
 
-Requisitos del host: GNU Make, GCC capaz de generar código `-m32` (el kernel no necesita libc de 32 bits), GNU binutils, Meson/Ninja, Python 3.12+ (para extracción segura de la dependencia), OpenSSL para fixtures y `qemu-system-i386`. En Ubuntu/Debian:
+Requisitos del host: GNU Make 4.3+, GCC capaz de generar código `-m32` (el kernel no necesita libc de 32 bits), GNU binutils, Meson/Ninja, Python 3.12+ (para extracción segura de la dependencia), OpenSSL para fixtures y `qemu-system-i386`. En Ubuntu/Debian:
 
 ```sh
 sudo apt-get install gcc binutils make python3 meson ninja-build openssl qemu-system-x86
@@ -43,7 +44,7 @@ make run
 
 `make run` abre QEMU con gráfica y salida serie en la terminal. La imagen arrancable es `build/notos.img`. Las pruebas usan emulación TCG, sin necesitar KVM. Se puede seleccionar otro ejecutable con la variable de entorno `QEMU` para las pruebas.
 
-La primera compilación descarga BearSSL, MbedTLS, Picolibc y lwIP con SHA256 fijado; se conserva en `.cache/`. Para compilar offline, usa `BEARSSL_ARCHIVE=/ruta/bearssl-0.6.tar.gz` y `MBEDTLS_ARCHIVE=/ruta/mbedtls-3.6.5.tar.bz2` y `PICOLIBC_ARCHIVE=/ruta/picolibc-1.8.11.tar.xz` y `LWIP_ARCHIVE=/ruta/lwip-2.2.1.tar.gz` (hashes verificados).
+La primera compilación descarga BearSSL, MbedTLS, Picolibc, lwIP y curl con SHA256 fijado; se conserva en `.cache/`. Para compilar offline, usa `BEARSSL_ARCHIVE=/ruta/bearssl-0.6.tar.gz` y `MBEDTLS_ARCHIVE=/ruta/mbedtls-3.6.5.tar.bz2` y `PICOLIBC_ARCHIVE=/ruta/picolibc-1.8.11.tar.xz` y `LWIP_ARCHIVE=/ruta/lwip-2.2.1.tar.gz` y `CURL_ARCHIVE=/ruta/curl-8.11.1.tar.xz` (hashes verificados).
 
 El workflow de GitHub ejecuta `make clean test` y conserva los artefactos. Su ejecución remota no fue comprobada desde este entorno.
 
@@ -90,6 +91,8 @@ sockets
 socket-run web 80
 socket-run poll-basic 1
 socket-run poll-web 80
+curl --version
+curl -sS -o /tmp/page.txt http://example.com/
 feed 1 hello-vfs
 feed-eof 1
 elf-run demo
@@ -116,7 +119,7 @@ user-run kernel-read
 
 ## Diseño
 
-BIOS carga nuestro sector de 512 bytes. El cargador lee dieciséis bloques de 64 sectores consecutivos desde `0x10000`, activa A20, configura una GDT, selecciona VGA modo 13h y entra a modo protegido. La entrada del kernel configura una pila en `0x9f000` y limpia BSS antes de llamar a C. El payload no puede superar 512 KiB; linker y generador verifican el límite. Una firma en 0x8fffc verifica la última lectura. El kernel detecta RAM mediante BIOS E820 y reserva el primer MiB y el BSS situado desde 1 MiB; el gestor de frames tiene un límite físico de 64 MiB.
+BIOS carga nuestro sector de 512 bytes. El cargador lee dieciséis bloques de 64 sectores consecutivos desde `0x10000`, activa A20, configura una GDT, selecciona VGA modo 13h y entra a modo protegido. La entrada del kernel configura una pila en `0x9f000` y limpia BSS antes de llamar a C. El kernel bajo admite 512 KiB; un bloque adicional de 320 KiB se copia por BIOS desde un buffer temporal a partir de 1 MiB para incorporar curl. Las firmas 0x8fffc y 0x14fffc verifican ambas cargas; linker y generador comprueban los límites. El kernel detecta RAM mediante BIOS E820 y reserva el primer MiB y la región estática alta, con BSS desde 0x150000; el gestor de frames tiene un límite físico de 64 MiB.
 
 El kernel funciona en ring 0 con paginación supervisor, frames físicos y un heap virtual de 1 MiB. El código/rodata están protegidos contra escritura y la página nula no está mapeada. El PIC está remapeado, el PIT actualiza el reloj por IRQ0 y el teclado encola scancodes por IRQ1; la shell los procesa fuera del handler. La consola serie y la red siguen sondeadas. La red tiene buffers DMA estáticos y usa la tarjeta RTL8139 emulada y la NAT de QEMU para salir del equipo. El invitado genera y procesa sus propios paquetes; no llama a sockets de un sistema operativo base.
 
@@ -128,7 +131,7 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - Interfaz gráfica mínima con ratón PS/2, toolbar y minimizar/restaurar; sin navegador ni gestor completo de ventanas.
 - NotLang tiene intérprete 0.1 y compilador/VM ring3 0.2 con repeat y exec de archivos fuente; sin funciones ni acceso a archivos desde las aplicaciones.
 - Red con IP estática para QEMU, cliente kernel de una solicitud a la vez y ocho sockets TCP/IPv4 de usuario (ver SOCKETS.md), HTTP y HTTPS/TLS1.2/1.3 con validación X509. Configuración estática /24 y retransmisión con backoff; sin DHCP, IPv6 ni reensamblado de fragmentos IP. TLS requiere semilla fresca por firmware y RTC UTC válidos. El cliente muestra el estado HTTP y la cantidad de bytes, no renderiza páginas web.
-- Picolibc es un port parcial: stdio entero, heap y tiempo, con archivos tmpfs y stdin por proceso; con sockets TCP/IPv4 y DNS parciales; con poll básico; sin VFS POSIX completo, select ni float/libm. No equivale a curl disponible.
+- Picolibc es un port parcial: stdio entero, heap y tiempo, con archivos tmpfs y stdin por proceso; con sockets TCP/IPv4 y DNS parciales; con poll básico; con select sobre poll y helpers binary64 por software; sin VFS POSIX completo ni libm/formato float general. Curl HTTP está disponible; HTTPS en curl sigue pendiente.
 - Pensado para pruebas de laboratorio; no usar para información sensible ni redes hostiles.
 
 ## Documentación
@@ -153,8 +156,14 @@ El kernel funciona en ring 0 con paginación supervisor, frames físicos y un he
 - [Pruebas y resultados](docs/TESTING.md)
 - [Hitos y próximos pasos](docs/ROADMAP.md)
 
-## Port de curl — en desarrollo
+## curl HTTP
 
-TLS 1.3 conserva TLS 1.2, con negociación/verificación dentro del invitado; ver [TLS](docs/TLS.md).
-PAE/NX ya protege datos y pilas; ELF32, brk y mmap anónimo privados se describen en [ELF](docs/ELF.md). Picolibc ya ejecuta una aplicación real en ring3 con malloc/stdio/errno/tiempo; ver [LIBC](docs/LIBC.md). FDs, archivos tmpfs, snapshots NotFS y stdin se describen en [VFS](docs/VFS.md). **curl upstream todavía no está portado ni disponible**: `https` es el cliente HTTP educativo, no curl.
-La hoja de ruta verificable de libc/ELF/memoria/sockets/VFS/poll está en [CURL_PORT](docs/CURL_PORT.md).
+curl upstream 8.11.1 se ejecuta como ELF ring 3 y utiliza la red del invitado.
+Admite HTTP, descarga a tmpfs y upload binario; la CLI acepta 256 bytes y hasta
+16 argumentos separados por espacios, sin comillas ni escapes. Los demás
+comandos mantienen su límite de 159 caracteres. `mkdir` falla con ENOTSUP.
+
+HTTPS en curl requiere un backend userspace pendiente. El comando `https`
+conserva el cliente TLS kernel 1.2/1.3 y su validación independiente.
+Ver [port de curl](docs/CURL_PORT.md), [libc](docs/LIBC.md) y
+[hoja de ruta](docs/ROADMAP.md) para el alcance y las pruebas.

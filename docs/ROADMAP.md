@@ -1,98 +1,45 @@
-# Hitos
+# Hoja de ruta
 
-Cada hito se sube después de probar la imagen real con QEMU. Formato de commit: `feat(alcance) mensaje`.
+Los hitos se consideran verificados con ejecución de la imagen real, además de
+las pruebas nativas aplicables. [TESTING.md](TESTING.md) conserva la evidencia
+histórica; cada documento de módulo especifica sus contratos y límites.
 
-## Primer prototipo: completado
+## Base implementada
 
-1. **Arranque:** cargador propio, modo protegido, kernel C y salida serie.
-2. **Interfaz gráfica:** VGA gráfico, renderizado propio, ventana de terminal y entrada mediante teclado PS/2.
-3. **Lenguaje:** intérprete NotLang con variables enteras, expresiones y errores comprobados.
-4. **Red:** RTL8139 y pila propia; DNS y petición HTTP pública comprobados. No incluye TLS.
+| Área | Alcance actual | Documentación |
+| --- | --- | --- |
+| Arranque | BIOS, E820, modo protegido y carga en memoria baja/alta | [Memoria](MEMORY.md) |
+| Interrupciones | IDT, PIC, PIT, PS/2 y fallos recuperables de aplicaciones | [Interrupciones](INTERRUPTS.md) |
+| Memoria | Frames, heap kernel, PAE/NX, W^X y espacios privados | [Memoria](MEMORY.md), [ELF](ELF.md) |
+| Ejecución | Cuatro procesos, round-robin, bloqueo, cancelación y recolección | [Tareas](TASKS.md), [Procesos](PROCESSES.md) |
+| Aplicaciones | ELF32 estático embebido y Picolibc con runtime propio | [ELF](ELF.md), [Libc](LIBC.md) |
+| Archivos | tmpfs, FDs privados, stdin por PID y NotFS persistente separado | [VFS](VFS.md), [Almacenamiento](STORAGE.md) |
+| Red | RTL8139, TCP/IPv4 y DNS de usuario; cliente kernel HTTP/HTTPS | [Sockets](SOCKETS.md), [TLS](TLS.md) |
+| Multiplexación | poll y adaptador select con espera por proceso | [Poll](POLL.md) |
+| curl | Cliente upstream 8.11.1 HTTP, descargas y uploads | [Port de curl](CURL_PORT.md) |
+| Interfaz | VGA, teclado/ratón PS/2, controles básicos | [UI](UI.md) |
+| Lenguaje | NotLang kernel y compilador/VM ring 3 con archivos fuente | [NotLang](NOTLANG.md), [VM](NOTLANG_USER.md) |
 
-## Fase 2: interrupciones — completada en QEMU
+## Próximo hito: HTTPS en curl
 
-1. IDT, stubs x86, INT3 recuperable y diagnóstico de excepciones fatales.
-2. PIC 8259 remapeado, EOI y tratamiento de IRQ7/15 espurias.
-3. PIT por IRQ0, reloj con fracciones y espera HLT, sin depender del sondeo del bucle principal.
-4. Teclado por IRQ1, cola y procesamiento diferido fuera de los handlers.
-5. Pruebas de CPU, temporizador, teclado y regresión de gráficos/NotLang/red.
+1. Adaptar un backend TLS al ELF de usuario sin reutilizar el comando kernel
+   como implementación de curl.
+2. Definir almacenamiento de raíces dentro de las cuotas del VFS, con
+   procedencia y actualización explícitas.
+3. Verificar TLS 1.2 y 1.3, CA/hostname/fechas, errores de certificados,
+   truncamiento, timeout y recuperación exacta de recursos.
+4. Añadir HTTP/HTTPS públicos y salida a archivo a la validación opcional online.
 
-Se subió en dos avances comprobados: `feat(excepciones)` y `feat(interrupciones)`. Ver [alcance y limitaciones](INTERRUPTS.md).
+HTTP-only no completa ese hito. Las limitaciones de CLI, protocolos y tiempos
+DNS están en [CURL_PORT.md](CURL_PORT.md).
 
-## Fase 3: memoria — completada en QEMU
+## Trabajo posterior sin compromiso de fecha
 
-- **Completado:** BIOS E820, reserva de memoria y asignador de frames de 4 KiB. Cargador ampliado a 64 KiB y segunda lectura comprobada.
-- **Completado:** paginación, CR0.WP, mappings/TLB y pruebas de fallos de página reales.
-- **Completado:** heap virtual de 1 MiB, kmalloc/kcalloc/kfree, split/coalesce, guards y pruebas de agotamiento/reutilización.
+- Carga de ejecutables desde VFS y aplicación de FD_CLOEXEC al ejecutar.
+- Directorios reales y almacenamiento escribible persistente para aplicaciones.
+- Ampliación del runtime/libc según necesidades comprobadas de aplicaciones.
+- Nuevas funciones de red o UI, con alcance y pruebas definidos por separado.
 
-Se subió en tres avances comprobados: `feat(memoria)`, `feat(paginacion)` y `feat(heap)`. Ver [diseño, pruebas y límites](MEMORY.md).
-
-## Fase 4: aislamiento básico — completada en QEMU
-
-- **Completado:** GDT/TSS, CPL3 real, pila ESP0, INT 0x80 y retorno al kernel con limpieza de frames.
-- **Completado:** directorios CR3 privados, datos user separados, terminación recuperable de fallos y validación completa de buffers.
-- **Completado:** presupuesto de ejecución por IRQ0 y pruebas de bucles infinitos, permisos I/O/IDT y regresión de red.
-
-Se subió en dos avances comprobados: `feat(ring3)` y `feat(aislamiento)`. Las demos son síncronas, no un sistema de procesos completo. Ver [alcance y límites](USERSPACE.md).
-
-## Fase 5: multitarea básica — completada en QEMU
-
-- **Completado:** modelo de tareas y separación entre runtime, syscalls y diagnóstico, conservando las regresiones.
-- **Completado:** round-robin, contextos/pilas propios y cambios por IRQ0 comprobados con workers sin yield.
-- **Completado:** SYS_YIELD, lotes de cuatro tareas, fallos concurrentes, presupuesto individual, FPU rechazada por #NM y rollback de creación ante OOM.
-
-Se subió en tres avances comprobados: `feat(tareas)`, `feat(planificador)` y `feat(multitarea)`. Ver [contratos, pruebas y límites](TASKS.md).
-
-## Hitos posteriores — estado en NotOS 0.17
-
-- **Completado en QEMU:** gestor con cuatro slots, PID, spawn/ps/kill, ejecución en segundo plano y recolección automática. Integrado: exec de programas fuente NotLang y ELF32 estáticos embebidos; sin carga de ejecutables desde VFS.
-- **Completado básico en QEMU:** ratón PS/2 IRQ12, cursor, toolbar clickable y minimizar/restaurar ventana. No es un escritorio completo.
-- **Almacenamiento completado en QEMU:** ATA PIO y NotFS persistente con CRC/snapshots y CRUD. Integrado: archivos fuente NotLang compilados y ejecutados en ring 3.
-- **Completado básico en QEMU:** retransmisión TCP con backoff, pérdidas, ACK validado, config IPv4 /24 y HTTPS/TLS1.2/1.3 con cadena/DNS/SAN/EKU/fecha verificados. Límites documentados en TLS.md.
-- **Completado básico en QEMU:** NotLang 0.2 con repeat anidado, compilador de bytecode, VM ring3 y exec de archivos persistentes. No incluye funciones ni un lenguaje general.
-
-Las primeras versiones son prototipos de laboratorio, no sustitutos de un sistema de escritorio. No se declara un hito completo solo por compilar, y no se afirma soporte para hardware que no se haya probado.
-
-## HTTPS — completado con alcance explícito
-
-- **Comprobado:** TLS1.2 y TLS1.3 reales dentro del invitado, raíces Mozilla/curl, entropía por firmware/HMAC-DRBG, RTC UTC y validación de cadena/identidad/uso/fechas. Pruebas positivas, certificados inválidos, AEAD alterado, truncamiento, PCAP y HTTPS público. No incluye curl, PKI completa, navegador ni soporte físico.
-
-Los límites de cada módulo (ELF, funciones de lenguaje, USB, kernel preemptivo, filesystem general, DHCP/IPv6, etc.) están documentados; no se han convertido silenciosamente en capacidades implementadas.
-
-## Port de curl
-
-PAE/NX y backend TLS1.2/1.3 son prerrequisitos comprobados; no completan un port de curl.
-Ver [CURL_PORT](CURL_PORT.md) para los gates de ELF, memoria user, libc, sockets, bloqueo y ejecución del binario upstream.
-
-## ELF32 y memoria de aplicaciones
-
-- Cargador static ET_EXEC/i386, entry validado, PT_LOAD separados W^X, BSS y pila privada de 64 KiB.
-- Heap por proceso, brk y mmap anónimo bajo demanda, munmap/TLB y rollback OOM.
-- Ejecución y fallos recuperables en ring3, coexistencia con NotLang y cuatro procesos.
-
-Ver ELF.md. El startup/libc inicial de 0.14 está descrito en LIBC.md; no es POSIX completo ni curl upstream. Los sockets parciales añadidos en 0.16 se describen en SOCKETS.md.
-
-## Esperas temporizadas de procesos gestionados
-
-TASK_BLOCKED y SYS_SLEEP: guardado del frame, devolución al event loop, despertar relativo, cancelación y recolección.
-Esto prepara el bloqueo de libc/poll, pero se amplía después con FDs y sockets; desde 0.17 incluye poll acotado (ver POLL.md), sin POSIX completo. Los lotes diagnósticos síncronos rechazan esta espera de forma explícita.
-
-## Libc de usuario — port inicial comprobado
-
-Picolibc upstream estática con sysroot, startup argc/argv/envp, init/fini/atexit, malloc/calloc/realloc/free sobre brk privado, stdio entero, errno por proceso, time_t64 y espera/entropía. Pruebas en ELF ring3, cuatro procesos concurrentes, OOM y recursos restaurados.
-
-FDs/VFS/stdin básicos se añaden en 0.15. En 0.16 se añaden TCP sockets y DNS; poll se añade en 0.17; el siguiente gate de curl es compilar y ejecutar el cliente upstream HTTP-only con los hooks requeridos, no renombrar el cliente HTTPS. No hay POSIX completo ni float/libm comprobados. Ver LIBC.md y CURL_PORT.md.
-
-## FDs y VFS mínimo — comprobados en 0.15
-
-Tablas por proceso, descripciones compartidas por dup/dup2, tmpfs binario con cuotas, snapshot NotFS read-only, stdio/seek/stat/unlink/truncate y stdin bloqueante enrutado por PID. Rollback de memoria y limpieza por exit/kill/fault; no VFS completo ni escritura POSIX persistente. Ver VFS.md.
-
-## TCP/IPv4 y DNS de usuario — 0.16
-
-lwIP 2.2.1 estático, driver propio, ocho endpoints, descriptores privados/dup, API BSD parcial y connect/send/recv bloqueantes por proceso. DNS A asíncrono, errores/timeouts, cancelación y tokens sin reutilización. Transferencias de 32 KiB, HTTP a tmpfs, cuatro procesos concurrentes, pérdidas y ciclos TIME_WAIT/FD comprobados. No se usa la libc ni sockets del host en el invitado.
-
-Ver SOCKETS.md: poll se añade en 0.17; sigue sin select, server sockets, IPv6 ni curl. El TLS kernel 1.2/1.3 se conserva; TLS userspace/curl sigue siendo un gate independiente.
-
-## Multiplexación de FDs — 0.17
-
-poll real de hasta 64 entradas, snapshots del task, eventos TCP/FDs sin consumo, tiempo relativo/indefinido y suspensión por proceso. Readiness/error/half-close, stdin y TX sin espacio comprobados; cuatro procesos esperando, cancelación/fault/slot reutilizado y recursos restaurados. Ver POLL.md. Sin select, señales ni curl: el siguiente gate es el cliente upstream HTTP-only y los hooks/runtime que requiera.
+No se declara soporte para hardware físico, UEFI, SMP, kernel preemptivo,
+FPU/SSE, threads ni POSIX completo. Estos límites requieren decisiones de diseño
+propias; no se resuelven elevando cuotas o cambiando nombres de comandos.

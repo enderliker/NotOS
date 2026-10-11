@@ -1,4 +1,38 @@
-# Verificaciones
+# Verificación y evidencia
+
+## Ejecutar las pruebas
+
+| Comando | Cobertura |
+| --- | --- |
+| `make` | Imagen de producción y dependencias fijadas |
+| `make test` | Unidades nativas y suites sobre imágenes reales de QEMU |
+| `make clean test` | Reconstrucción desde cero y la misma suite |
+| `make test-online` | DNS/HTTP/HTTPS públicos de los clientes existentes |
+
+Las unidades de parsers, memoria, VFS, poll y runtimes pertinentes usan
+ASAN/UBSAN. Los peers HTTP, TCP, DNS y TLS son fixtures del host; las aplicaciones
+y el protocolo cliente se ejecutan dentro del invitado. Los logs y capturas se
+guardan en `build/`, excluido de git. Las claves TLS efímeras también quedan
+fuera de los artifacts de CI.
+
+Para curl HTTP: `tests/argument_unit.c`, `tests/float_unit.c`, las comprobaciones
+select/mkdir del ELF de libc y `tests/curl.py`. Esta última requiere la imagen de
+producción y `build/notos-socket-test.img`; `make test` construye ambas.
+Ver [CURL_PORT.md](CURL_PORT.md) para cobertura y límites.
+
+## Sincronización del monitor QEMU
+
+El arnés espera hasta que QMP acepte conexiones, dentro del plazo de arranque
+de diez segundos. La presencia del archivo del socket no garantiza que esté
+listo: se reintentan ENOENT/ECONNREFUSED. QEMU terminado o el plazo agotado
+siguen fallando; no se omiten pruebas ni se amplían sus timeouts.
+
+## Lectura del registro histórico
+
+Las secciones siguientes describen pruebas de cada hito en su fecha; sus
+versiones de QEMU, tamaños y funciones pendientes no son el estado actual.
+Los contratos vigentes están en los documentos de módulo y en
+[ROADMAP.md](ROADMAP.md). Un PASS local no acredita CI remota ni hardware físico.
 
 ## Hito de arranque
 
@@ -355,9 +389,26 @@ Logs `build/poll-16M.log`, `build/poll-64M.log`, `build/poll-online.log`, más l
 
 No se comprobaron CI remota ni hardware físico. Alcance parcial: sin select/ppoll/pselect, señales/EINTR, threads/SMP, urgent TCP, ni curl upstream/TLS userspace. Ver POLL.md y CURL_PORT.md para límites y siguiente gate.
 
-## Sincronización del monitor QEMU
+## curl HTTP: validación local y CI
 
-El arnés espera hasta que el socket QMP acepte conexiones, dentro del plazo
-de arranque de diez segundos. La presencia del archivo por sí sola no indica
-que el monitor esté listo. Se reintentan ENOENT/ECONNREFUSED; QEMU terminado
-o plazo agotado siguen produciendo un fallo de la prueba.
+En este avance se ejecutaron make y make test con GCC 15.2.0, binutils 2.46 y
+QEMU 10.2.1/TCG: PASS. La construcción limpia también se comprobó durante la
+integración; los fallos encontrados en expectativas de ayuda y sincronización
+de fixtures se corrigieron antes de publicar la fase.
+
+La fase build (77f80c5), libc (8886cc0) y curl (714e2b7) pasaron cada una make y
+make test localmente, y su CI remoto make clean test concluyó success:
+
+- [Construcción y QMP](https://github.com/enderliker/NotOS/actions/runs/38106625143)
+- [Contratos de libc y binary64](https://github.com/enderliker/NotOS/actions/runs/38107037072)
+- [Integración curl HTTP](https://github.com/enderliker/NotOS/actions/runs/38107623839)
+
+Curl informa versión 8.11.1 y solo http; se comprobaron argumentos, archivos y
+upload binarios de 32768 bytes, DNS A/NXDOMAIN, HTTP404, conexión rechazada,
+timeout, cuatro procesos, kill/reuso y recuperación de frames/heap/FDs/endpoints.
+La regresión TLS kernel 1.2/1.3 y almacenamiento/boot drive pasa. No se ejecutó
+make test-online para este avance ni se probó HTTPS en curl o hardware físico.
+
+El código propio mantiene Werror. Los avisos upstream de Picolibc _set_tls y
+curl transfer.c/url.c quedan visibles y documentados; no se modificaron fuentes
+ni versiones de dependencias. No se añadieron TODOs.
