@@ -56,7 +56,7 @@ SYS_TIME escribe una estructura wire de 12 bytes: segundos low/high de 32 bits y
 
 - Desde 0.15 hay FDs por proceso, archivos tmpfs, snapshots NotFS read-only y open/read/write/close/seek/stat/dup/ftruncate/fcntl; `fopen` opera sobre ellos. Ver VFS.md para cuotas y operaciones ausentes; no es VFS POSIX completo.
 - Stdin bloquea hasta datos/EOF entregados con feed/feed-eof al PID; NONBLOCK produce EAGAIN y stdio diferencia EOF de error. stdout/stderr comparten la consola y dup2 permite redirección a archivos. Desde 0.17 hay poll; no hay raw TTY/job control.
-- Desde 0.16 hay API BSD parcial TCP/IPv4 y getaddrinfo DNS; ver SOCKETS.md. Desde 0.17 hay poll de FDs (POLL.md); sin `select`, señales, fork, ejecutables desde archivos, enlazado dinámico ni TLS de threads.
+- Desde 0.16 hay API BSD parcial TCP/IPv4 y getaddrinfo DNS; ver SOCKETS.md. Desde 0.17 hay poll de FDs (POLL.md); select adapta poll, sin señales, fork, ejecutables desde archivos, enlazado dinámico ni TLS de threads.
 - FPU/MMX/SSE siguen rechazados por el kernel. No se declara `libm`, conversión/formato float ni conformidad C/POSIX completa. La configuración selecciona stdio entero; el archive upstream contiene componentes adicionales no preparados para este runtime.
 - `mmap`/`munmap` básicos del kernel siguen disponibles por ABI, pero no se presenta un wrapper POSIX completo. El asignador comprobado usa `sbrk`.
 - Solo QEMU/TCG y hardware emulado del proyecto; no prueba en hardware físico ni auditoría de seguridad.
@@ -68,3 +68,19 @@ Es un prerrequisito real de curl, **no el port de curl terminado**. Los siguient
 `tests/libc.py` arranca la imagen real con 16 y 64 MiB, ejecuta dos procesos secuenciales, salida 23 y cuatro procesos simultáneos; rechaza el quinto slot. Comprueba strings/formato/calendario, 2500 operaciones de heap, alineación, calloc cero, realloc/OOM sin pérdida de datos, errno privado a través de espera, entrada no bloqueante con EAGAIN, buffers inválidos y constructor/atexit/destructor/flush.
 
 Cada terminación debe restaurar exactamente frames físicos y estado del heap kernel. También prueba reloj real en 2050, ausencia de entropía, el mapa de enlace upstream, syscalls legacy con buffers inválidos y rollback ELF/OOM. La división signed/unsigned de 64 bits tiene pruebas nativas de límites y 100000 comparaciones; el reloj verifica carry al envolver los 32 bits bajos. Las regresiones completas y la red se describen en `TESTING.md`.
+
+## Adaptadores y runtime para curl
+
+select valida los rangos de conjuntos/timeval antes de leerlos, filtra eventos
+por los intereses originales y devuelve EBADF para POLLNVAL sin cambiar salida.
+Los timeouts inválidos se rechazan; los de 64 bits saturan en INT_MAX ms sin
+overflow. Los conjuntos se limpian en timeout. No modifica timeval; exceptfds
+solicita POLLPRI, evento urgente que la pila no produce. No hay pselect/señales.
+
+mkdir devuelve ENOTSUP para cualquier ruta: el VFS plano no crea directorios ni
+simula éxito. Las pruebas del ELF de libc cubren estas operaciones.
+
+Los helpers binary64 propios se comparan bajo ASAN/UBSAN con un millón de pares
+contra el hardware del host: conversiones, comparaciones, suma/resta y producto/
+división, incluidos subnormales. make test ejecuta esta unidad. No se habilita
+FPU/SSE ni se enlaza libgcc; stdio sigue usando formatos enteros.

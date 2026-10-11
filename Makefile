@@ -81,7 +81,8 @@ build/utc-unit: tests/utc_unit.c kernel/utc.c kernel/platform_tls.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/utc_unit.c kernel/utc.c -o $@
 build/certificate-unit: tests/certificate_unit.c kernel/certificate_policy.c kernel/certificate_policy.h build/tls-fixtures.ready | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/certificate_unit.c kernel/certificate_policy.c -o $@
-test: build/poll-unit build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+test: build/float-unit build/poll-unit build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+	./build/float-unit
 	./build/poll-unit
 	python3 tests/lognames_unit.py
 	./build/vfs-unit
@@ -185,7 +186,7 @@ build/libc-crt.o: user/libc/crt0.S | build
 	$(CC) -m32 -c $< -o $@
 build/user-integer-runtime.o: kernel/integer_runtime.c kernel/base.h | build
 	$(CC) $(CFLAGS) -c $< -o $@
-build/libc-demo.elf: build/libc-demo.o build/libc-port.o build/libc-start.o build/libc-crt.o build/user-integer-runtime.o user/elf_link.ld
+build/libc-demo.elf: build/libc-select.o build/libc-poll.o build/libc-mkdir.o build/libc-demo.o build/libc-port.o build/libc-start.o build/libc-crt.o build/user-integer-runtime.o user/elf_link.ld
 	$(LD) -m elf_i386 --gc-sections -z noexecstack -z max-page-size=16 -T user/elf_link.ld --Map=build/libc-demo.map $(filter %.o,$^) build/sysroot/lib/notos/libc.a -o $@
 
 build/libc-demo-blob.o: build/libc-demo.elf
@@ -238,7 +239,7 @@ build/curl.ready: tools/fetch_curl.py | build
 build/libcurl.a build/libcurltool.a &: build/curl.ready tools/build_curl.py user/curl_port/curl_config.h build/picolibc-built.ready
 	CC="$(CC)" python3 tools/build_curl.py
 
-build/libc-select.o: user/libc/select.c user/include/poll.h kernel/poll_abi.h build/picolibc-built.ready
+build/libc-select.o: user/libc/select.c user/libc/os.h kernel/file_abi.h kernel/platform_abi.h kernel/syscall_numbers.h user/include/poll.h kernel/poll_abi.h build/picolibc-built.ready
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
 
 build/libc-mkdir.o: user/libc/mkdir.c build/picolibc-built.ready
@@ -264,3 +265,6 @@ build/curl-blob.o: build/curl.elf
 	  --add-section .note.GNU-stack=/dev/null \
 	  --set-section-flags .note.GNU-stack=noload,readonly \
 	  build/curl-app.elf $@
+
+build/float-unit: tests/float_unit.c user/float_runtime.c | build
+	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -no-pie -DNOTOS_HOST_TEST -DFLOAT_TEST_PREFIX tests/float_unit.c user/float_runtime.c -o $@

@@ -69,4 +69,8 @@ socket-run poll-web 80
 
 ## Alcance pendiente
 
-No hay select/ppoll/pselect, señales/EINTR, threads/SMP/kernel preemptivo, sockets server ni UDP público. La multiplexación necesaria para un cliente curl configurado con poll tiene una base comprobada, **pero curl upstream aún no está portado**. El siguiente gate es completar los hooks/configuración que demande su compilación y ejecutar el binario HTTP-only. TLS userspace para curl sigue siendo un gate independiente; el TLS kernel 1.2/1.3 se conserva. Solo QEMU y hardware emulado especificado, no equipos reales ni auditoría de seguridad.
+No hay ppoll/pselect, señales/EINTR, threads/SMP/kernel preemptivo, sockets server ni UDP público. La multiplexación necesaria para un cliente curl configurado con poll tiene una base comprobada, **pero curl upstream aún no está portado**. El siguiente gate es completar los hooks/configuración que demande su compilación y ejecutar el binario HTTP-only. TLS userspace para curl sigue siendo un gate independiente; el TLS kernel 1.2/1.3 se conserva. Solo QEMU y hardware emulado especificado, no equipos reales ni auditoría de seguridad.
+
+select está disponible como adaptador libc sobre poll, hasta 64 FDs. Filtra
+conjuntos y devuelve EBADF para NVAL; exceptfds pide POLLPRI, evento urgente no
+implementado. Contrato y pruebas descritos en LIBC.md.

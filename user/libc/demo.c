@@ -11,6 +11,7 @@
 #include <limits.h>
 #include <time.h>
 #include <sys/time.h>
+#include <sys/select.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 static int constructed;
@@ -49,6 +50,32 @@ static void core(void) {
     CHECK(!unsetenv("NOTOS_TEST") && !getenv("NOTOS_TEST"));
     char *copy=strdup("heap string");CHECK(copy && !strcmp(copy,"heap string"));free(copy);
     puts("LIBC: strings/format/strtol/qsort/env PASS");
+}
+static void multiplexing(void) {
+    fd_set readers,writers,exceptions;
+    struct timeval timeout={0,0};
+    FD_ZERO(&readers);FD_ZERO(&writers);FD_ZERO(&exceptions);
+    FD_SET(0,&readers);FD_SET(1,&writers);FD_SET(1,&exceptions);
+    CHECK(select(2,&readers,&writers,&exceptions,&timeout)==1);
+    CHECK(!FD_ISSET(0,&readers) && FD_ISSET(1,&writers) && !FD_ISSET(1,&exceptions));
+    int file=open("/dev/null",O_RDWR);CHECK(file==3);
+    FD_SET(file,&readers);FD_SET(file,&writers);
+    CHECK(select(file+1,&readers,&writers,0,&timeout)==3);
+    CHECK(FD_ISSET(file,&readers) && FD_ISSET(file,&writers));
+    CHECK(!close(file));
+    CHECK(select(file+1,&readers,&writers,0,&timeout)==-1 && errno==EBADF);
+    CHECK(FD_ISSET(file,&readers) && FD_ISSET(file,&writers));
+    FD_ZERO(&readers);FD_SET(0,&readers);timeout.tv_usec=1000;
+    CHECK(!select(1,&readers,0,0,&timeout) && !FD_ISSET(0,&readers));
+    timeout.tv_sec=-1;CHECK(select(0,0,0,0,&timeout)==-1 && errno==EINVAL);
+    timeout.tv_sec=INT64_MAX;timeout.tv_usec=999999;
+    FD_ZERO(&writers);FD_SET(1,&writers);CHECK(select(2,0,&writers,0,&timeout)==1);
+    CHECK(select(65,0,0,0,0)==-1 && errno==EINVAL);
+    CHECK(select(2,(fd_set *)0x08000000,0,0,0)==-1 && errno==EFAULT);
+    CHECK(select(0,0,0,0,(struct timeval *)0x10000)==-1 && errno==EFAULT);
+    CHECK(mkdir("/tmp",0700)==-1 && errno==ENOTSUP);
+    CHECK(mkdir("/tmp/nested",0700)==-1 && errno==ENOTSUP);
+    puts("LIBC: select readiness/timeout/errors and mkdir rejection PASS");
 }
 static void allocations(void) {
     unsigned char *slots[32]={0};size_t sizes[32]={0};uint32_t seed=3;
@@ -202,7 +229,7 @@ int main(int argc,char **argv) {
     if (!strcmp(argv[1],"stdin")) {input_test();return 0;}
     if (!strcmp(argv[1],"disk")) {disk_test();return 0;}
     if (!strcmp(argv[1],"hold") || !strcmp(argv[1],"fault")) {held_file(!strcmp(argv[1],"fault"));return 0;}
-    core();allocations();platform();
+    core();allocations();platform();multiplexing();
     errno=1000+(int)getpid();int marker=errno;struct timespec delay={0,200000000};
     CHECK(!nanosleep(&delay,0) && errno==marker);
     CHECK(write(2,"LIBC: stderr PASS\n",18)==18);

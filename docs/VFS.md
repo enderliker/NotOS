@@ -13,7 +13,7 @@ La libc ahora opera sobre **archivos reales del invitado**, no sobre archivos/so
 | `/dev/console` | consola/cola de ese proceso | acceso según flags de open |
 | `/dev/null` | dispositivo nulo | lectura EOF real y escritura descartada |
 
-Solo rutas absolutas y nombres planos de 1..23 caracteres alfanuméricos, punto, guion o underscore. Se rechazan componentes `.`, `..`, subdirectorios y rutas demasiado largas. La ruta wire permite hasta 63 caracteres + terminador. No hay cwd, mkdir, symlinks, rename ni montaje configurable.
+Solo rutas absolutas y nombres planos de 1..23 caracteres alfanuméricos, punto, guion o underscore. Se rechazan componentes `.`, `..`, subdirectorios y rutas demasiado largas. La ruta wire permite hasta 63 caracteres + terminador. No hay cwd, creación de directorios, symlinks, rename ni montaje configurable. El adaptador libc mkdir devuelve ENOTSUP para cualquier ruta, incluso /tmp.
 
 NotFS no se formatea automáticamente ni escribe el boot drive. Para `/disk`, debe existir el disco dedicado y haberse montado/formateado mediante los comandos existentes. `open` para escribir y `unlink` en ese montaje fallan EROFS. No se presenta escritura POSIX persistente como implementada. Un handle abierto conserva una copia inmutable incluso si la shell modifica/formatea NotFS; es una política explícita de snapshot, no semántica POSIX de modificación compartida del archivo en disco.
 

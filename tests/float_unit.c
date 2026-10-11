@@ -155,8 +155,9 @@ static void test_differential_fuzzing(void) {
             assert(eq_soft == eq_host);
         }
 
-        /* Arithmetic fuzzing on normal/finite floats */
-        if (isnormal(a) && isnormal(b)) {
+        if (isfinite(a) && isfinite(b)) {
+            assert(check_eq(test_adddf3(a, b), a + b));
+            assert(check_eq(test_subdf3(a, b), a - b));
             /* Multiplication */
             double mul_host = a * b;
             double mul_soft = test_muldf3(a, b);
