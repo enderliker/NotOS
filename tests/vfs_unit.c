@@ -24,7 +24,56 @@ int fs_read_file(const char *name,void *buffer,u32 size) {assert(!strcmp(name,"s
 void console_putc(char c) {(void)c;}
 void console_puts(const char *s) {(void)s;}
 void console_uint(u32 n) {(void)n;}
-static void empty(void) {struct vfs_counts c=vfs_counts();assert(!c.nodes&&!c.pages&&!c.files&&!c.references&&!fd_description_count());}
+static void empty(void) {struct vfs_counts c=vfs_counts();assert(!c.nodes&&!c.pages&&!c.files&&!c.references&&!fd_description_count()&&!fd_pipe_count());}
+static void test_pipes_and_spawn_fds(struct fd_table *a, struct fd_table *b) {
+    int pfd[2];
+    fail_after=0;
+    assert(fd_pipe(a,pfd,0)==-ERROR_MEMORY && !fd_pipe_count());
+    fail_after=-1;
+    assert(fd_pipe(a,pfd,0)==0 && pfd[0]==3 && pfd[1]==4 && fd_pipe_count()==1);
+    struct notos_file_info info;
+    assert(fd_stat(a,pfd[0],&info)==0 && info.kind==NOTOS_FILE_FIFO && info.permissions==0600);
+    assert(fd_seek(a,pfd[0],0,NOTOS_SEEK_SET)==-ERROR_ILLEGAL_SEEK);
+    char scratch[4096],verify[4096];
+    for (unsigned i=0;i<sizeof(scratch);i++) scratch[i]=(char)(i*13u+7u);
+    assert(fd_read(a,pfd[0],verify,1)==-ERROR_AGAIN);
+    assert(fd_blocking_input(a,pfd[0])==1 && fd_blocking_output(a,pfd[1])==1);
+    assert(fd_blocking_input(a,pfd[1])==0 && fd_blocking_output(a,pfd[0])==0);
+    struct notos_pollfd pev[2]={{pfd[0],NOTOS_POLLIN,0},{pfd[1],NOTOS_POLLOUT,0}};
+    assert(fd_poll(a,pev,2)==1 && !pev[0].revents && pev[1].revents==NOTOS_POLLOUT);
+    assert(fd_write(a,pfd[1],scratch,3000)==3000);
+    assert(fd_write(a,pfd[1],scratch+3000,2000)==1096);
+    assert(fd_write(a,pfd[1],"x",1)==-ERROR_AGAIN);
+    assert(fd_read(a,pfd[0],verify,2000)==2000 && !memcmp(verify,scratch,2000));
+    /* Wrap around the 4096-byte ring buffer and verify all bytes. */
+    assert(fd_write(a,pfd[1],scratch,2000)==2000);
+    assert(fd_read(a,pfd[0],verify,2096)==2096 && !memcmp(verify,scratch+2000,2096));
+    assert(fd_read(a,pfd[0],verify,2000)==2000 && !memcmp(verify,scratch,2000));
+    assert(fd_close(a,pfd[1])==0);
+    assert(fd_read(a,pfd[0],verify,1)==0);
+    assert(fd_poll(a,pev,1)==1 && pev[0].revents==NOTOS_POLLHUP);
+    assert(fd_close(a,pfd[0])==0 && !fd_pipe_count());
+    assert(fd_pipe(a,pfd,NOTOS_O_NONBLOCK)==0 && !fd_blocking_input(a,pfd[0]) && !fd_blocking_output(a,pfd[1]));
+    assert(fd_close(a,pfd[0])==0);
+    assert(fd_write(a,pfd[1],"x",1)==-ERROR_BROKEN_PIPE);
+    pev[1].revents=0;
+    assert(fd_poll(a,&pev[1],1)==1 && pev[1].revents==NOTOS_POLLERR);
+    assert(fd_close(a,pfd[1])==0 && !fd_pipe_count());
+    /* Exercise fd_table_spawn with CLOEXEC, explicit redirection, swap, and close. */
+    assert(fd_pipe(a,pfd,NOTOS_O_CLOEXEC)==0 && pfd[0]==3 && pfd[1]==4);
+    int dev=fd_open(a,"/dev/null",NOTOS_O_RDWR,0);assert(dev==5);
+    struct notos_fd_map bad_map={0,9};
+    struct fd_table child;
+    assert(fd_table_spawn(&child,a,&bad_map,1)==-ERROR_BAD_FD);
+    struct notos_fd_map map[4]={{0,pfd[0]},{3,pfd[1]},{4,3},{5,NOTOS_FD_MAP_CLOSE}};
+    assert(fd_table_spawn(&child,a,map,4)==0);
+    assert(fd_control(&child,0,NOTOS_F_GETFD,0)==0 && fd_control(&child,3,NOTOS_F_GETFD,0)==0);
+    assert(fd_control(&child,5,NOTOS_F_GETFD,0)==-ERROR_BAD_FD);
+    assert(fd_write(&child,3,"pipe-ok",7)==7 && fd_read(&child,4,verify,7)==7 && !memcmp(verify,"pipe-ok",7));
+    fd_table_destroy(&child);
+    assert(fd_close(a,pfd[0])==0 && fd_close(a,pfd[1])==0 && fd_close(a,dev)==0 && !fd_pipe_count());
+    (void)b;
+}
 int main(void) {
     assert(vfs_mkdir("/tmp",0700)==-ERROR_EXISTS);
     assert(vfs_mkdir("/tmp/tree",0700)==0);
@@ -111,8 +160,9 @@ int main(void) {
         assert(vfs_unlink("/tmp/transient")==0 && fd_close(&a,transient)==0);
     }
     fd_close(&a,pinned);
+    test_pipes_and_spawn_fds(&a,&b);
     fd_table_destroy(&a);fd_table_destroy(&b);empty();
-    puts("PASS: tmpfs holes/truncate/unlink/quotas/OOM rollback, NotFS snapshots, private FDs/shared dup offsets and stdin queues");
+    puts("PASS: tmpfs holes/truncate/unlink/quotas/OOM rollback, NotFS snapshots, private FDs/shared dup offsets, pipes, spawn FDs and stdin queues");
 }
 
 /* This native unit isolates descriptor/VFS logic, not network correctness. */

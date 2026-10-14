@@ -1,18 +1,23 @@
 /* No CPU, syscall or scheduling policy here; buffers and paths are trusted. */
 #include "fd.h"
+#include "physical.h"
 #include "socket_stack.h"
 #include "vfs.h"
 #include "syscall_numbers.h"
 #define DESCRIPTION_COUNT 64u
-enum file_kind { FILE_REGULAR,FILE_INPUT,FILE_OUTPUT,FILE_CONSOLE,FILE_NULL,FILE_SOCKET };
+#define PIPE_CAPACITY 16u
+#define PIPE_BUFFER_BYTES 4096u
+enum file_kind { FILE_REGULAR,FILE_INPUT,FILE_OUTPUT,FILE_CONSOLE,FILE_NULL,FILE_SOCKET,FILE_PIPE };
+struct pipe_state { u32 page,head,count,readers,writers; };
 struct open_file {
     u32 references,flags,offset;
     enum file_kind kind;
     struct vfs_node *node;
     int socket;
-    struct fd_table *terminal;
 };
 static struct open_file descriptions[DESCRIPTION_COUNT];
+static struct pipe_state pipes[PIPE_CAPACITY];
+static u8 *pipe_bytes(const struct pipe_state *pipe) {return (u8 *)(unsigned long)pipe->page;}
 static struct open_file *get(struct fd_table *table,int fd) {
     if (fd<0 || (u32)fd>=NOTOS_FD_COUNT || !table->slots[fd]) return 0;
     return &descriptions[table->slots[fd]-1];
@@ -38,7 +43,7 @@ int fd_open(struct fd_table *table,const char *path,u32 flags,u32 mode) {
     if (slot<0) return -ERROR_TOO_MANY_FILES;
     for (u32 i=0;i<DESCRIPTION_COUNT;i++) if (!descriptions[i].references) {index=(int)i;break;}
     if (index<0) return -ERROR_TOO_MANY_FILES;
-    struct open_file file={.references=1,.flags=flags&(NOTOS_O_ACCMODE|NOTOS_O_APPEND|NOTOS_O_NONBLOCK),.terminal=table};
+    struct open_file file={.references=1,.flags=flags&(NOTOS_O_ACCMODE|NOTOS_O_APPEND|NOTOS_O_NONBLOCK)};
     u32 inode;
     if (device(path,&file.kind,&inode)) {
         if (flags&(NOTOS_O_CREAT|NOTOS_O_EXCL|NOTOS_O_TRUNC)) return -ERROR_INVALID_ARGUMENT;
@@ -65,13 +70,69 @@ int fd_table_init(struct fd_table *table) {
 int fd_close(struct fd_table *table,int fd) {
     struct open_file *file=get(table,fd);if (!file) return -ERROR_BAD_FD;
     table->slots[fd]=0;table->descriptor_flags[fd]=0;
-    if (!--file->references) {if (file->kind==FILE_SOCKET) socket_release(file->socket);else vfs_release(file->node);*file=(struct open_file){0};}
+    if (!--file->references) {
+        if (file->kind==FILE_SOCKET) socket_release(file->socket);
+        else if (file->kind==FILE_PIPE) {
+            struct pipe_state *pipe=&pipes[file->offset];
+            if ((file->flags&NOTOS_O_ACCMODE)==NOTOS_O_RDONLY) pipe->readers--;
+            else pipe->writers--;
+            if (!pipe->readers && !pipe->writers) {physical_free(pipe->page);*pipe=(struct pipe_state){0};}
+        } else vfs_release(file->node);
+        *file=(struct open_file){0};
+    }
     return 0;
 }
 void fd_table_destroy(struct fd_table *table) {
     socket_resolve_cancel(table);
     for (u32 i=0;i<NOTOS_FD_COUNT;i++) if (table->slots[i]) fd_close(table,(int)i);
     *table=(struct fd_table){0};
+}
+int fd_pipe(struct fd_table *table,int fds[2],u32 flags) {
+    if (!table || !fds || (flags&~(NOTOS_O_NONBLOCK|NOTOS_O_CLOEXEC))) return -ERROR_INVALID_ARGUMENT;
+    int r_slot=-1,w_slot=-1,r_desc=-1,w_desc=-1,p_idx=-1;
+    for (u32 i=0;i<NOTOS_FD_COUNT;i++) if (!table->slots[i]) {
+        if (r_slot<0) r_slot=(int)i; else {w_slot=(int)i;break;}
+    }
+    for (u32 i=0;i<DESCRIPTION_COUNT;i++) if (!descriptions[i].references) {
+        if (r_desc<0) r_desc=(int)i; else {w_desc=(int)i;break;}
+    }
+    for (u32 i=0;i<PIPE_CAPACITY;i++) if (!pipes[i].page) {p_idx=(int)i;break;}
+    if (w_slot<0 || w_desc<0 || p_idx<0) return -ERROR_TOO_MANY_FILES;
+    u32 page=physical_alloc();
+    if (!page) return -ERROR_MEMORY;
+    pipes[p_idx]=(struct pipe_state){.page=page,.readers=1,.writers=1};
+    for (u32 i=0;i<PIPE_BUFFER_BYTES;i++) pipe_bytes(&pipes[p_idx])[i]=0;
+    u32 nonblock=flags&NOTOS_O_NONBLOCK;
+    u8 cloexec=(flags&NOTOS_O_CLOEXEC)?NOTOS_FD_CLOEXEC:0;
+    descriptions[r_desc]=(struct open_file){.references=1,.kind=FILE_PIPE,.flags=NOTOS_O_RDONLY|nonblock,.offset=(u32)p_idx};
+    descriptions[w_desc]=(struct open_file){.references=1,.kind=FILE_PIPE,.flags=NOTOS_O_WRONLY|nonblock,.offset=(u32)p_idx};
+    table->slots[r_slot]=(u16)(r_desc+1);table->descriptor_flags[r_slot]=cloexec;
+    table->slots[w_slot]=(u16)(w_desc+1);table->descriptor_flags[w_slot]=cloexec;
+    fds[0]=r_slot;fds[1]=w_slot;
+    return 0;
+}
+u32 fd_pipe_count(void) {
+    u32 count=0;
+    for (u32 i=0;i<PIPE_CAPACITY;i++) if (pipes[i].page) count++;
+    return count;
+}
+int fd_table_spawn(struct fd_table *child,struct fd_table *parent,const struct notos_fd_map *map,u32 map_count) {
+    if (!child || !parent || (map_count && !map) || map_count>NOTOS_FD_MAP_MAX) return -ERROR_INVALID_ARGUMENT;
+    for (u32 i=0;i<map_count;i++) {
+        if (map[i].child_fd<0 || (u32)map[i].child_fd>=NOTOS_FD_COUNT) return -ERROR_BAD_FD;
+        if (map[i].parent_fd!=NOTOS_FD_MAP_CLOSE && !get(parent,map[i].parent_fd)) return -ERROR_BAD_FD;
+    }
+    u16 next_slots[NOTOS_FD_COUNT]={0};
+    for (u32 fd=0;fd<NOTOS_FD_COUNT;fd++)
+        if (parent->slots[fd] && !(parent->descriptor_flags[fd]&NOTOS_FD_CLOEXEC)) next_slots[fd]=parent->slots[fd];
+    for (u32 i=0;i<map_count;i++) {
+        int cfd=map[i].child_fd,pfd=map[i].parent_fd;
+        next_slots[cfd]=pfd==NOTOS_FD_MAP_CLOSE?0:parent->slots[pfd];
+    }
+    for (u32 fd=0;fd<NOTOS_FD_COUNT;fd++) if (next_slots[fd]) descriptions[next_slots[fd]-1].references++;
+    fd_table_destroy(child);
+    for (u32 fd=0;fd<NOTOS_FD_COUNT;fd++) child->slots[fd]=next_slots[fd];
+    return 0;
 }
 int fd_read(struct fd_table *table,int fd,void *buffer,u32 bytes) {
     struct open_file *file=get(table,fd);
@@ -82,16 +143,26 @@ int fd_read(struct fd_table *table,int fd,void *buffer,u32 bytes) {
         if (result>0) file->offset+=(u32)result;
         return result;
     }
+    if (file->kind==FILE_PIPE) {
+        struct pipe_state *pipe=&pipes[file->offset];
+        if (!pipe->count) return pipe->writers?-ERROR_AGAIN:0;
+        if (bytes>pipe->count) bytes=pipe->count;
+        const u8 *ring=pipe_bytes(pipe);
+        for (u32 i=0;i<bytes;i++) {
+            ((u8 *)buffer)[i]=ring[pipe->head];
+            pipe->head=(pipe->head+1)%PIPE_BUFFER_BYTES;
+        }
+        pipe->count-=bytes;return (int)bytes;
+    }
     if (file->kind==FILE_SOCKET) return socket_read(file->socket,buffer,bytes,0);
     if (file->kind==FILE_NULL) return 0;
-    struct fd_table *terminal=file->terminal;
-    if (!terminal->input_count) return terminal->input_eof?0:-ERROR_AGAIN;
-    if (bytes>terminal->input_count) bytes=terminal->input_count;
+    if (!table->input_count) return table->input_eof?0:-ERROR_AGAIN;
+    if (bytes>table->input_count) bytes=table->input_count;
     for (u32 i=0;i<bytes;i++) {
-        ((u8 *)buffer)[i]=terminal->input[terminal->input_head];
-        terminal->input_head=(terminal->input_head+1)%NOTOS_INPUT_BYTES;
+        ((u8 *)buffer)[i]=table->input[table->input_head];
+        table->input_head=(table->input_head+1)%NOTOS_INPUT_BYTES;
     }
-    terminal->input_count-=bytes;return (int)bytes;
+    table->input_count-=bytes;return (int)bytes;
 }
 int fd_write(struct fd_table *table,int fd,const void *buffer,u32 bytes) {
     struct open_file *file=get(table,fd);
@@ -102,6 +173,17 @@ int fd_write(struct fd_table *table,int fd,const void *buffer,u32 bytes) {
         int result=vfs_write(file->node,offset,buffer,bytes);
         if (result>0) file->offset=offset+(u32)result;
         return result;
+    }
+    if (file->kind==FILE_PIPE) {
+        struct pipe_state *pipe=&pipes[file->offset];
+        if (!pipe->readers) return -ERROR_BROKEN_PIPE;
+        if (!bytes) return 0;
+        u32 available=PIPE_BUFFER_BYTES-pipe->count;
+        if (!available) return -ERROR_AGAIN;
+        if (bytes>available) bytes=available;
+        u8 *ring=pipe_bytes(pipe);
+        for (u32 i=0;i<bytes;i++) ring[(pipe->head+pipe->count+i)%PIPE_BUFFER_BYTES]=((const u8 *)buffer)[i];
+        pipe->count+=bytes;return (int)bytes;
     }
     if (file->kind==FILE_SOCKET) return socket_write(file->socket,buffer,bytes);
     if (file->kind!=FILE_NULL) for (u32 i=0;i<bytes;i++) console_putc(((const char *)buffer)[i]);
@@ -129,6 +211,7 @@ int fd_truncate(struct fd_table *table,int fd,u32 bytes) {
 int fd_stat(struct fd_table *table,int fd,struct notos_file_info *result) {
     struct open_file *file=get(table,fd);if (!file) return -ERROR_BAD_FD;
     if (file->kind==FILE_REGULAR) vfs_node_info(file->node,result);
+    else if (file->kind==FILE_PIPE) *result=(struct notos_file_info){file->offset+8,pipes[file->offset].count,NOTOS_FILE_FIFO,1,0600};
     else if (file->kind==FILE_SOCKET) *result=(struct notos_file_info){0,0,NOTOS_FILE_SOCKET,1,0600};
     else *result=(struct notos_file_info){file->offset,0,NOTOS_FILE_CHARACTER,1,0666};
     return 0;
@@ -167,7 +250,14 @@ int fd_is_tty(struct fd_table *table,int fd) {
 }
 int fd_blocking_input(struct fd_table *table,int fd) {
     struct open_file *file=get(table,fd);
-    return file && (file->kind==FILE_INPUT || file->kind==FILE_CONSOLE) && !(file->flags&NOTOS_O_NONBLOCK);
+    return file && (file->kind==FILE_INPUT || file->kind==FILE_CONSOLE
+        || (file->kind==FILE_PIPE && (file->flags&NOTOS_O_ACCMODE)==NOTOS_O_RDONLY))
+        && !(file->flags&NOTOS_O_NONBLOCK);
+}
+int fd_blocking_output(struct fd_table *table,int fd) {
+    struct open_file *file=get(table,fd);
+    return file && file->kind==FILE_PIPE && (file->flags&NOTOS_O_ACCMODE)==NOTOS_O_WRONLY
+        && !(file->flags&NOTOS_O_NONBLOCK);
 }
 int fd_feed(struct fd_table *table,const void *buffer,u32 bytes,int eof) {
     if ((bytes && table->input_eof) || bytes>NOTOS_INPUT_BYTES-table->input_count) return -ERROR_NO_SPACE;
@@ -200,21 +290,27 @@ int fd_nonblocking(struct fd_table *table,int fd) {
     struct open_file *file=get(table,fd);return file && (file->flags&NOTOS_O_NONBLOCK);
 }
 
-static u16 ready(struct open_file *file) {
+static u16 ready(struct fd_table *table,struct open_file *file) {
     if (!file) return NOTOS_POLLNVAL;
     if (file->kind==FILE_SOCKET) return socket_ready(file->socket);
+    if (file->kind==FILE_PIPE) {
+        const struct pipe_state *pipe=&pipes[file->offset];
+        if ((file->flags&NOTOS_O_ACCMODE)==NOTOS_O_RDONLY)
+            return (pipe->count?NOTOS_POLLIN:0)|(pipe->writers?0:NOTOS_POLLHUP);
+        return pipe->readers?(pipe->count<PIPE_BUFFER_BYTES?NOTOS_POLLOUT:0):NOTOS_POLLERR;
+    }
     if (file->kind==FILE_REGULAR || file->kind==FILE_NULL) return NOTOS_POLLIN|NOTOS_POLLOUT;
     u16 events=file->kind==FILE_OUTPUT || file->kind==FILE_CONSOLE?NOTOS_POLLOUT:0;
     if (file->kind==FILE_INPUT || file->kind==FILE_CONSOLE) {
-        if (file->terminal->input_count || file->terminal->input_eof) events|=NOTOS_POLLIN;
-        if (file->terminal->input_eof) events|=NOTOS_POLLHUP;
+        if (table->input_count || table->input_eof) events|=NOTOS_POLLIN;
+        if (table->input_eof) events|=NOTOS_POLLHUP;
     }
     return events;
 }
 int fd_poll(struct fd_table *table,struct notos_pollfd *fds,u32 count) {
     int result=0;
     for (u32 i=0;i<count;i++) {
-        u16 events=fds[i].fd<0?0:ready(get(table,fds[i].fd));
+        u16 events=fds[i].fd<0?0:ready(table,get(table,fds[i].fd));
         fds[i].revents=events&(fds[i].events|NOTOS_POLL_ALWAYS);
         if (fds[i].revents) result++;
     }
@@ -233,3 +329,4 @@ int fd_readdir(struct fd_table *table, int fd, struct notos_directory_entry *ent
     if (result > 0) file->offset++;
     return result;
 }
+

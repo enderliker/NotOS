@@ -4,7 +4,7 @@
 extern const u8 _binary_build_libc_app_elf_start[],_binary_build_libc_app_elf_end[];
 void libc_command(const char *mode) {
     if (!equal(mode,"concurrent") && !equal(mode,"test") && !equal(mode,"exit") && !equal(mode,"noentropy") && !equal(mode,"files") && !equal(mode,"stdin")
-        && !equal(mode,"curl-file") && !equal(mode,"disk") && !equal(mode,"hold") && !equal(mode,"fault")) {
+        && !equal(mode,"curl-file") && !equal(mode,"disk") && !equal(mode,"hold") && !equal(mode,"fault") && !equal(mode,"pipeline")) {
         console_puts("LIBC ERROR: choose test/exit/noentropy/files/stdin/disk/hold/fault/curl-file\n");return;
     }
     u32 bytes=(u32)(_binary_build_libc_app_elf_end-_binary_build_libc_app_elf_start);

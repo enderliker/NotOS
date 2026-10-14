@@ -60,11 +60,18 @@ shell:
    - `poll` and `select` store a bounded snapshot of up to 64 `(fd, events)`
      pairs and a relative or infinite deadline. Ready events take priority if a
      deadline expires on the same iteration. See [POLL.md](POLL.md).
+5. **Pipe Output Backpressure (`TASK_WAIT_OUTPUT`)**:
+   - Blocking `write` on a full kernel pipe ring buffer (`4096` bytes) suspends
+     the writer until a reader consumes bytes or all read ends close (`-EPIPE`).
+6. **Child Termination Wait (`TASK_WAIT_CHILD`)**:
+   - `wait` and `waitpid` (`SYS_WAIT = 44`) suspend the calling parent until a
+     matching child exits/faults/is killed, or return immediately with `0` when
+     `WNOHANG` (`NOTOS_WNOHANG = 1`) is set and a matching child is still running.
 
 When resuming a managed process, the scheduler sanitizes `EFLAGS` (clearing
 `NT`, `IOPL`, and `VM` while enforcing `IF=1`).
 
-## ELF Spawning, `SYS_EXEC`, and Diagnostics
+## Process Composition (`SYS_SPAWN`, `SYS_WAIT`, `SYS_GETPPID`, `SYS_KILL`) and `SYS_EXEC`
 
 - `process_spawn_elf_args` passes a program name and a single unsplit argument;
   `process_spawn_elf_split` splits space-delimited argument text (up to 256
@@ -72,14 +79,35 @@ When resuming a managed process, the scheduler sanitizes `EFLAGS` (clearing
   aligned user stack with `argc`, `argv`, empty `envp`, and `AT_NULL`, rolling
   back all resources on error before incrementing the PID counter.
 - `spawn-elf PATH [ARGS]` loads an ELF binary from `/system`, `/tmp`, or `/disk`.
+- **`SYS_SPAWN` (`43`)**: Spawns a new child process without `fork` (`EBX=path`,
+  `ECX=argv`, `EDX=envp`, `ESI=fd_map`, `EDI=map_count | (flags << 16)`).
+  Accepts up to 16 `argv` strings, 16 `envp` strings, and 512 total string bytes
+  (`kernel/process_abi.h`), plus up to 16 `struct notos_fd_map { int child_fd;
+  int parent_fd; }` operations applied in order after inheriting non-`FD_CLOEXEC`
+  parent descriptors (`NOTOS_FD_MAP_CLOSE = -1` closes `child_fd`). Inherits the
+  parent's `cwd`, records `parent_id`, and returns `-EAGAIN` when all 4 process
+  slots are occupied (including unreaped zombies).
+- **`SYS_WAIT` (`44`) & Zombie/Orphan Lifecycle**: When a process with a live
+  parent exits, faults, or is killed, its address space, frames, FDs, pipes, and
+  sockets are freed immediately while its slot retains `(zombie_id,
+  zombie_status)` until the parent reaps it via `SYS_WAIT(pid_or_any, &status,
+  flags)`. If a parent exits first, its live children are orphaned
+  (`getppid() == 0` via `SYS_GETPPID = 45`) and any unreaped zombie children are
+  freed immediately so slots never leak.
+- **`SYS_KILL` (`47`)**: Terminates target process `pid` with signal `1..31`
+  (exit status `128 + sig`, reported as `WIFSIGNALED(status)` /
+  `WTERMSIG(status) == sig`), waking or reaping tasks blocked on pipes, sleep,
+  `poll`, sockets, or children. Signal `0` validates target existence without
+  terminating.
 - `notos_exec` (`SYS_EXEC = 37`) replaces the calling process's ELF image and
-  address space in place while preserving its PID, `cwd`, and open file
-  descriptors (closing only `FD_CLOEXEC` slots) and canceling any pending async
-  DNS tokens owned by the previous image.
+  address space in place while preserving its PID, `parent_id`, `cwd`, and open
+  file descriptors (closing only `FD_CLOEXEC` slots) and canceling any pending
+  async DNS tokens owned by the previous image.
 - Standard tasks have a 250-tick CPL3 budget; `/system/curl.elf` receives a
   2,500-tick budget for TLS handshakes and X.509 parsing. `SYS_EXEC` does not
   reset consumed ticks.
-- By default, `curl` suppresses kernel `PROCESS SPAWN` / `PROCESS EXIT` banners
-  so command output stays clean; `process-trace on` and `process-trace off`
-  toggle those banners globally while user faults and cleanup errors are always
-  reported.
+- By default, `curl` and `SYS_SPAWN` children suppress kernel `PROCESS:` exit
+  banners so pipeline output stays clean; `process-trace on` and
+  `process-trace off` toggle those banners globally while user faults and
+  cleanup errors are always reported.
+

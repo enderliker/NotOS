@@ -5,7 +5,7 @@
 | Command | Coverage |
 | --- | --- |
 | `make` | Builds `build/notos.img` and test fixture images with pinned dependencies |
-| `make test` | Runs all 23 native C unit tests and 25 full-system QEMU integration suites |
+| `make test` | Runs all 23 native C unit tests and 26 full-system QEMU integration suites |
 | `make clean test` | Full clean rebuild and complete test suite (used by GitHub Actions CI) |
 | `make test-online` | Optional live internet tests against public DNS, HTTP, and HTTPS (`example.com`) |
 
@@ -225,3 +225,21 @@ QEMU 10.2.1/TCG) and on GitHub Actions CI (`make clean test`):
 - `tests/curl_online.py` (`make test-online`): Verifies live public HTTP and
   HTTPS downloads from `example.com` into `/tmp` with complete resource
   restoration.
+
+### Milestone 1: Process Composition & Anonymous Pipes
+
+Verified locally (`make` and `make test` with GCC 15.2.0, binutils 2.46, and
+QEMU 10.2.1/TCG):
+- `tests/vfs_unit.c` (ASAN/UBSAN): Verifies anonymous 4 KiB kernel pipe ring
+  buffer wraparound, partial read/write (`ERROR_AGAIN`), writer close (`EOF` /
+  `POLLHUP`), reader close (`ERROR_PIPE` / `POLLERR`), `fd_map` child descriptor
+  placement (`NOTOS_SPAWN_FD_CLOSE`, `NOTOS_SPAWN_FD_CLOEXEC`, `dup` sharing),
+  and pool exhaustion rollback.
+- `tests/pipeline.py` (16 MiB and 64 MiB RAM): Verifies 2-stage ring 3 pipeline
+  (`SYS_SPAWN`, `SYS_PIPE`, `SYS_WAIT`) streaming 16,384 bytes (4× the 4 KiB
+  pipe buffer) with FNV-1a checksum verification, `envp` inheritance (`getenv` /
+  `setenv` / `unsetenv`), `WNOHANG` and zombie reaping, orphan auto-reaping on
+  parent exit, `SYS_KILL` (`128 + sig` exit status) waking processes blocked on
+  a pipe read, `sleep`, or socket read, 4-slot exhaustion returning `EAGAIN`,
+  and exact physical frame, kernel heap, FD, pipe, and socket recovery.
+

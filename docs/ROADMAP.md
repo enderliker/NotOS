@@ -2,6 +2,13 @@
 
 ## Recently Completed Milestones
 
+- **Process Composition & Anonymous Pipes (M1)**: Added `SYS_SPAWN` (`43`, with
+  `argv`, `envp`, and explicit child `fd_map`), `SYS_WAIT` (`44`, blocking and
+  `WNOHANG` with zombie reaping and orphan auto-reaping), `SYS_GETPPID` (`45`),
+  `SYS_PIPE` (`46`, 4 KiB kernel ring buffer with blocking read/write, EOF,
+  `EPIPE`, and `poll()` integration), `SYS_KILL` (`47`, terminate-only with
+  `128 + sig` exit status), and Picolibc wrappers (`notos_spawn`, `posix_spawn`,
+  `waitpid`, `pipe`, `pipe2`, `kill`, `getppid`, `environ`/`getenv`/`setenv`).
 - **Ring 3 `curl` HTTP/HTTPS**: Upstream `curl` 8.11.1 running in ring 3 with a
   dedicated Picolibc-linked build of MbedTLS 3.6.5, default trust store
   `/system/cacert.pem`, `--cacert` override, and TLS 1.2 / 1.3 verification.
@@ -20,7 +27,7 @@
   IRQ context.
 - **Comprehensive Verification**: Native ASAN/UBSAN unit suites (`fs-unit`,
   `line-unit`, `vfs-unit`, `poll-unit`, `elf-unit`, `cert-unit`, `float-unit`)
-  and 25 full-system QEMU test suites (see [TESTING.md](TESTING.md)).
+  and 26 full-system QEMU test suites (see [TESTING.md](TESTING.md)).
 
 ## Next Planned Milestones
 

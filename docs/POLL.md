@@ -66,6 +66,8 @@ on error:
 | `tmpfs` / `NotFS v2` / `/system` / `/dev/null` | `POLLIN` and `POLLOUT` whenever requested (including at EOF) |
 | `stdout` / `stderr` | `POLLOUT` |
 | `stdin` / `/dev/console` | `POLLIN` when input bytes or EOF are queued (`POLLOUT` also on `/dev/console`); `POLLHUP` on permanent EOF |
+| Pipe read end | `POLLIN` when `count > 0`; `POLLHUP` when `writers == 0` (both `POLLIN \| POLLHUP` if buffered bytes remain after writers close) |
+| Pipe write end | `POLLOUT` when `readers > 0` and `count < 4096`; `POLLERR` when `readers == 0` |
 | TCP connecting | None until handshake completes or fails |
 | TCP connected | `POLLIN` on queued RX bytes, remote FIN/EOF, or `SHUT_RD`; `POLLOUT` when TX buffer/queue space is available or `SHUT_WR` is set |
 | TCP remote FIN | `POLLIN` (and `POLLRDHUP` if requested); `POLLHUP` when both directions are closed |

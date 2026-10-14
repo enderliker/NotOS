@@ -1,10 +1,21 @@
 #ifndef NOTOS_PROCESS_H
 #define NOTOS_PROCESS_H
 #include "base.h"
+#include "process_abi.h"
+struct task;
 u32 process_spawn_elf_args(const char *name,const u8 *image,u32 bytes,const char *argument);
 /* Return a managed PID, or zero after rolling back failed creation. */
 u32 process_spawn_elf_split(const char *name,const u8 *image,u32 bytes,const char *arguments);
 u32 process_spawn_elf(const char *name,const u8 *image,u32 bytes);
+/* Spawn a child from a ring-3 parent with explicit argv, envp, and fd_map. */
+int process_spawn_user(struct task *parent,const char *path,const char *const *argv,u32 argc,
+    const char *const *envp,u32 envc,const struct notos_fd_map *maps,u32 map_count);
+/* Reap a matching zombie child, return 0 for WNOHANG, or -ERROR_AGAIN to block. */
+int process_wait_try(u32 parent_id,int target_pid,u32 flags,u32 *status_out);
+/* Return live parent PID, or 0 if kernel-spawned or orphaned. */
+u32 process_getppid(u32 pid);
+/* Terminate a live non-running process with status 128+sig, or probe with sig=0. */
+int process_kill(u32 pid,u32 sig);
 /* Suppress routine completion output; faults and cleanup errors remain visible. */
 void process_quiet(u32 pid);
 /* Update the visible slot name when SYS_EXEC replaces a running task image. */

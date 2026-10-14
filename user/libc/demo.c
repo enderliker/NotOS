@@ -13,7 +13,11 @@
 #include <sys/time.h>
 #include <sys/select.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
+#include <spawn.h>
 static int constructed;
 static void before_main(void) __attribute__((constructor));
 static void before_main(void) {constructed=1;}
@@ -261,9 +265,261 @@ static void exec_target(void) {
     CHECK(!unlink("state") && !unlink("drop") && !close(3) && !chdir("/") && !rmdir("/tmp/execdir"));
     puts("EXEC: same PID, inherited offset/cwd, CLOEXEC and replacement PASS");
 }
+static uint32_t stream_checksum(unsigned total) {
+    uint32_t hash = 2166136261u;
+    for (unsigned i = 0; i < total; i++) {
+        uint8_t byte = (uint8_t)(i * 73u + 19u);
+        hash = (hash ^ byte) * 16777619u;
+    }
+    return hash;
+}
+static void pipe_produce(void) {
+    unsigned char chunk[701];
+    unsigned offset = 0, total = 16384;
+    while (offset < total) {
+        unsigned n = total - offset;
+        if (n > sizeof(chunk)) n = sizeof(chunk);
+        for (unsigned i = 0; i < n; i++) chunk[i] = (unsigned char)((offset + i) * 73u + 19u);
+        ssize_t written = write(1, chunk, n);
+        CHECK(written == (ssize_t)n);
+        offset += n;
+    }
+    _exit(17);
+}
+static void pipe_consume(void) {
+    unsigned char chunk[503];
+    unsigned offset = 0;
+    uint32_t hash = 2166136261u;
+    for (;;) {
+        ssize_t got = read(0, chunk, sizeof(chunk));
+        CHECK(got >= 0);
+        if (!got) break;
+        for (ssize_t i = 0; i < got; i++) {
+            uint8_t expected = (uint8_t)((offset + (unsigned)i) * 73u + 19u);
+            CHECK(chunk[i] == expected);
+            hash = (hash ^ chunk[i]) * 16777619u;
+        }
+        offset += (unsigned)got;
+    }
+    CHECK(offset == 16384);
+    uint32_t summary[2] = {offset, hash};
+    CHECK(write(1, summary, sizeof(summary)) == (ssize_t)sizeof(summary));
+    _exit(42);
+}
+static void child_env(int argc, char **argv) {
+    CHECK(argc == 4 && getppid() == (pid_t)atoi(argv[2]));
+    CHECK(getenv("CUSTOM_ENV") && !strcmp(getenv("CUSTOM_ENV"), argv[3]));
+    CHECK(getenv("SECOND") && !strcmp(getenv("SECOND"), "2") && !getenv("PIPELINE_KEY"));
+    CHECK(!setenv("LOCAL_ONLY", "yes", 1) && !strcmp(getenv("LOCAL_ONLY"), "yes"));
+    char cwd[64];
+    CHECK(getcwd(cwd, sizeof(cwd)) && !strcmp(cwd, "/tmp/spawndir"));
+    CHECK(fcntl(3, F_GETFD) == -1 && errno == EBADF);
+    _exit(55);
+}
+static void child_orphan_maker(void) {
+    char *q_argv[] = {"/system/libc.elf", "child-exit-quick", 0};
+    char *l_argv[] = {"/system/libc.elf", "child-orphan-live", 0};
+    struct notos_fd_map close3 = {3, NOTOS_FD_MAP_CLOSE};
+    int q_pid = notos_spawn("/system/libc.elf", q_argv, 0, &close3, 1, 0);
+    int l_pid = notos_spawn("/system/libc.elf", l_argv, 0, 0, 0, 0);
+    CHECK(q_pid > 0 && l_pid > 0);
+    struct timespec ts = {0, 40000000};
+    CHECK(!nanosleep(&ts, 0));
+    _exit(29);
+}
+static void pipeline_test(void) {
+    char *bad_argv[] = {"/system/libc.elf", "child-exit-quick", 0};
+    int p1[2], p2[2], status = 0;
+    CHECK(notos_spawn((const char *)0x10000, bad_argv, 0, 0, 0, 0) == -1 && errno == EFAULT);
+    CHECK(notos_spawn("/tmp/no-such-binary", bad_argv, 0, 0, 0, 0) == -1 && errno == ENOENT);
+    CHECK(pipe((int *)0x10000) == -1 && errno == EFAULT);
+    CHECK(pipe2(p1, 0x1234) == -1 && errno == EINVAL);
+    CHECK(waitpid(0, &status, 0) == -1 && errno == EINVAL);
+    CHECK(waitpid(-1, &status, 0x99) == -1 && errno == EINVAL);
+    CHECK(kill(9999, SIGTERM) == -1 && errno == ESRCH);
+    CHECK(kill(0, SIGTERM) == -1 && errno == ESRCH);
+    CHECK(kill(getpid(), 99) == -1 && errno == EINVAL);
+    CHECK(kill(getpid(), 0) == 0);
+    /* 1. Two-stage 16 KiB checksummed pipeline (> 4096 B pipe ring buffer). */
+    CHECK(!pipe2(p1, O_CLOEXEC) && !pipe2(p2, O_CLOEXEC));
+    struct stat st;
+    CHECK(!fstat(p1[0], &st) && S_ISFIFO(st.st_mode));
+    char *prod_argv[] = {"/system/libc.elf", "pipe-produce", 0};
+    struct notos_fd_map prod_map = {1, p1[1]};
+    int prod_pid = notos_spawn("/system/libc.elf", prod_argv, 0, &prod_map, 1, 0);
+    CHECK(prod_pid > 0);
+    posix_spawn_file_actions_t actions;
+    CHECK(!posix_spawn_file_actions_init(&actions));
+    CHECK(!posix_spawn_file_actions_adddup2(&actions, p1[0], 0));
+    CHECK(!posix_spawn_file_actions_adddup2(&actions, p2[1], 1));
+    char *cons_argv[] = {"/system/libc.elf", "pipe-consume", 0};
+    pid_t cons_pid = 0;
+    CHECK(!posix_spawn(&cons_pid, "/system/libc.elf", &actions, 0, cons_argv, 0) && cons_pid > 0);
+    CHECK(!posix_spawn_file_actions_destroy(&actions));
+    CHECK(!close(p1[0]) && !close(p1[1]) && !close(p2[1]));
+    uint32_t summary[2] = {0, 0};
+    CHECK(read(p2[0], summary, sizeof(summary)) == (ssize_t)sizeof(summary));
+    CHECK(summary[0] == 16384 && summary[1] == stream_checksum(16384));
+    char eof_byte = 0;
+    CHECK(read(p2[0], &eof_byte, 1) == 0 && !close(p2[0]));
+    int st1 = 0, st2 = 0;
+    CHECK(waitpid(prod_pid, &st1, 0) == prod_pid && WIFEXITED(st1) && WEXITSTATUS(st1) == 17);
+    CHECK(waitpid(cons_pid, &st2, 0) == cons_pid && WIFEXITED(st2) && WEXITSTATUS(st2) == 42);
+    CHECK(waitpid(-1, &st1, 0) == -1 && errno == ECHILD);
+    /* 2. envp inheritance, custom envp, getppid, cwd inheritance, and O_CLOEXEC. */
+    CHECK(!mkdir("/tmp/spawndir", 0755) && !chdir("/tmp/spawndir"));
+    int clo = open("/dev/null", O_RDWR | O_CLOEXEC);
+    CHECK(clo == 3);
+    CHECK(!setenv("PIPELINE_KEY", "alpha_value", 1));
+    char *inh_argv[] = {"/system/libc.elf", "child-inherit-env", 0};
+    int inh_pid = notos_spawn("/system/libc.elf", inh_argv, 0, 0, 0, 0);
+    CHECK(inh_pid > 0 && waitpid(inh_pid, &status, 0) == inh_pid && WIFEXITED(status) && WEXITSTATUS(status) == 66);
+    char ppid_str[16];
+    CHECK(snprintf(ppid_str, sizeof(ppid_str), "%d", (int)getpid()) > 0);
+    char *env_argv[] = {"/system/libc.elf", "child-env", ppid_str, "bravo_99", 0};
+    char *custom_env[] = {"CUSTOM_ENV=bravo_99", "SECOND=2", 0};
+    int env_pid = notos_spawn("/system/libc.elf", env_argv, custom_env, 0, 0, 0);
+    CHECK(env_pid > 0 && waitpid(env_pid, &status, 0) == env_pid && WIFEXITED(status) && WEXITSTATUS(status) == 55);
+    CHECK(!getenv("LOCAL_ONLY") && !unsetenv("PIPELINE_KEY"));
+    CHECK(!close(clo) && !chdir("/") && !rmdir("/tmp/spawndir"));
+    /* 3. Pipe poll(), O_NONBLOCK, EPIPE, and blocking poll wakeup. */
+    CHECK(!pipe2(p1, O_NONBLOCK | O_CLOEXEC));
+    CHECK(read(p1[0], &eof_byte, 1) == -1 && errno == EAGAIN);
+    struct pollfd pfds[2] = {{p1[0], POLLIN, 0}, {p1[1], POLLOUT, 0}};
+    CHECK(poll(pfds, 2, 0) == 1 && !pfds[0].revents && pfds[1].revents == POLLOUT);
+    CHECK(write(p1[1], "xyz", 3) == 3 && !close(p1[1]));
+    CHECK(poll(&pfds[0], 1, 0) == 1 && (pfds[0].revents & (POLLIN | POLLHUP)) == (POLLIN | POLLHUP));
+    char buf[16] = {0};
+    CHECK(read(p1[0], buf, 3) == 3 && !memcmp(buf, "xyz", 3));
+    CHECK(poll(&pfds[0], 1, 0) == 1 && pfds[0].revents == POLLHUP && !close(p1[0]));
+    CHECK(!pipe2(p1, O_CLOEXEC) && !close(p1[0]));
+    CHECK(write(p1[1], "x", 1) == -1 && errno == EPIPE);
+    pfds[1].fd = p1[1]; pfds[1].events = POLLOUT; pfds[1].revents = 0;
+    CHECK(poll(&pfds[1], 1, 0) == 1 && pfds[1].revents == POLLERR && !close(p1[1]));
+    CHECK(!pipe2(p1, O_CLOEXEC));
+    char *wake_argv[] = {"/system/libc.elf", "child-delayed-write", 0};
+    struct notos_fd_map wake_map = {1, p1[1]};
+    int wake_pid = notos_spawn("/system/libc.elf", wake_argv, 0, &wake_map, 1, 0);
+    CHECK(wake_pid > 0 && !close(p1[1]));
+    pfds[0].fd = p1[0]; pfds[0].events = POLLIN; pfds[0].revents = 0;
+    CHECK(poll(&pfds[0], 1, 2000) == 1 && (pfds[0].revents & POLLIN));
+    CHECK(read(p1[0], buf, 4) == 4 && !memcmp(buf, "wake", 4) && !close(p1[0]));
+    CHECK(waitpid(wake_pid, &status, 0) == wake_pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    /* 4. Zombie & orphan cleanup across parent exit. */
+    CHECK(!pipe2(p1, O_CLOEXEC));
+    struct notos_fd_map orphan_map = {3, p1[1]};
+    char *maker_argv[] = {"/system/libc.elf", "child-orphan-maker", 0};
+    int maker_pid = notos_spawn("/system/libc.elf", maker_argv, 0, &orphan_map, 1, 0);
+    CHECK(maker_pid > 0 && !close(p1[1]));
+    CHECK(waitpid(maker_pid, &status, 0) == maker_pid && WIFEXITED(status) && WEXITSTATUS(status) == 29);
+    CHECK(read(p1[0], buf, 9) == 9 && !memcmp(buf, "orphan-ok", 9));
+    CHECK(read(p1[0], buf, 1) == 0 && !close(p1[0]));
+    /* 5. Kill of processes blocked on pipe read, pipe write, nanosleep, and poll. */
+    CHECK(!pipe2(p1, O_CLOEXEC));
+    struct notos_fd_map read_map = {0, p1[0]};
+    char *blk_read_argv[] = {"/system/libc.elf", "child-block-read", 0};
+    int kpid = notos_spawn("/system/libc.elf", blk_read_argv, 0, &read_map, 1, 0);
+    CHECK(kpid > 0 && waitpid(kpid, &status, WNOHANG) == 0);
+    struct timespec brief = {0, 30000000};
+    CHECK(!nanosleep(&brief, 0) && !kill(kpid, SIGTERM));
+    CHECK(waitpid(kpid, &status, 0) == kpid && WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM);
+    CHECK(!close(p1[0]) && !close(p1[1]));
+
+    CHECK(!pipe2(p1, O_CLOEXEC));
+    unsigned char fill[512] = {0};
+    for (unsigned i = 0; i < 8; i++) CHECK(write(p1[1], fill, sizeof(fill)) == (ssize_t)sizeof(fill));
+    struct notos_fd_map write_map = {1, p1[1]};
+    char *blk_write_argv[] = {"/system/libc.elf", "child-block-write", 0};
+    kpid = notos_spawn("/system/libc.elf", blk_write_argv, 0, &write_map, 1, 0);
+    CHECK(kpid > 0 && !nanosleep(&brief, 0) && !kill(kpid, SIGKILL));
+    CHECK(waitpid(kpid, &status, 0) == kpid && WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
+    CHECK(!close(p1[0]) && !close(p1[1]));
+
+    char *blk_sleep_argv[] = {"/system/libc.elf", "child-block-sleep", 0};
+    kpid = notos_spawn("/system/libc.elf", blk_sleep_argv, 0, 0, 0, 0);
+    CHECK(kpid > 0 && !nanosleep(&brief, 0) && !kill(kpid, SIGINT));
+    CHECK(waitpid(kpid, &status, 0) == kpid && WIFSIGNALED(status) && WTERMSIG(status) == SIGINT);
+
+    CHECK(!pipe2(p1, O_CLOEXEC));
+    read_map.parent_fd = p1[0];
+    char *blk_poll_argv[] = {"/system/libc.elf", "child-block-poll", 0};
+    kpid = notos_spawn("/system/libc.elf", blk_poll_argv, 0, &read_map, 1, 0);
+    CHECK(kpid > 0 && !nanosleep(&brief, 0) && !kill(kpid, SIGHUP));
+    CHECK(waitpid(kpid, &status, 0) == kpid && WIFSIGNALED(status) && WTERMSIG(status) == SIGHUP);
+    CHECK(!close(p1[0]) && !close(p1[1]));
+
+    char *blk_sock_argv[] = {"/system/libc.elf", "child-block-socket", 0};
+    kpid = notos_spawn("/system/libc.elf", blk_sock_argv, 0, 0, 0, 0);
+    CHECK(kpid > 0 && !nanosleep(&brief, 0) && !kill(kpid, SIGQUIT));
+    CHECK(waitpid(kpid, &status, 0) == kpid && WIFSIGNALED(status) && WTERMSIG(status) == SIGQUIT);
+    /* 6. Four-slot exhaustion returns EAGAIN and recovers cleanly. */
+    CHECK(!pipe2(p1, O_CLOEXEC));
+    read_map.parent_fd = p1[0];
+    int slots[3];
+    for (unsigned i = 0; i < 3; i++) {
+        slots[i] = notos_spawn("/system/libc.elf", blk_read_argv, 0, &read_map, 1, 0);
+        CHECK(slots[i] > 0);
+    }
+    CHECK(notos_spawn("/system/libc.elf", blk_read_argv, 0, &read_map, 1, 0) == -1 && errno == EAGAIN);
+    CHECK(!close(p1[0]) && !close(p1[1]));
+    for (unsigned i = 0; i < 3; i++) {
+        pid_t reaped = wait(&status);
+        CHECK(reaped > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    }
+    CHECK(wait(&status) == -1 && errno == ECHILD);
+    puts("PIPELINE: spawn/wait/pipe/kill/env/orphan/slots PASS");
+}
 int main(int argc,char **argv) {
-    CHECK(constructed && argc==2 && argv && (!strcmp(argv[0],"libc") || !strcmp(argv[0],"libc.elf")) && argv[2]==0);
+    CHECK(constructed && argc>=2 && argv && (!strcmp(argv[0],"libc") || !strcmp(argv[0],"libc.elf") || !strcmp(argv[0],"/system/libc.elf")) && !argv[argc]);
+    if (!strcmp(argv[1],"pipe-produce")) pipe_produce();
+    if (!strcmp(argv[1],"pipe-consume")) pipe_consume();
+    if (!strcmp(argv[1],"child-env")) child_env(argc, argv);
+    if (!strcmp(argv[1],"child-inherit-env")) {
+        CHECK(getenv("PIPELINE_KEY") && !strcmp(getenv("PIPELINE_KEY"), "alpha_value"));
+        _exit(66);
+    }
+    if (!strcmp(argv[1],"child-exit-quick")) _exit(33);
+    if (!strcmp(argv[1],"child-orphan-live")) {
+        struct timespec ts = {0, 120000000};
+        CHECK(!nanosleep(&ts, 0) && getppid() == 0);
+        CHECK(write(3, "orphan-ok", 9) == 9);
+        _exit(0);
+    }
+    if (!strcmp(argv[1],"child-orphan-maker")) child_orphan_maker();
+    if (!strcmp(argv[1],"child-delayed-write")) {
+        struct timespec ts = {0, 50000000};
+        CHECK(!nanosleep(&ts, 0) && write(1, "wake", 4) == 4);
+        _exit(0);
+    }
+    if (!strcmp(argv[1],"child-block-read")) {
+        char c;
+        ssize_t n = read(0, &c, 1);
+        _exit(n == 0 ? 0 : 99);
+    }
+    if (!strcmp(argv[1],"child-block-write")) {
+        ssize_t n = write(1, "x", 1);
+        _exit(n == 1 ? 0 : 99);
+    }
+    if (!strcmp(argv[1],"child-block-sleep")) {
+        struct timespec ts = {60, 0};
+        nanosleep(&ts, 0);
+        _exit(99);
+    }
+    if (!strcmp(argv[1],"child-block-poll")) {
+        struct pollfd pfd = {0, POLLIN, 0};
+        poll(&pfd, 1, 60000);
+        _exit(99);
+    }
+    if (!strcmp(argv[1],"child-block-socket")) {
+        int s = notos_raw_call(SYS_SOCKET, 2u, 1u, 0);
+        CHECK(s >= 0);
+        struct { uint8_t ip[4]; uint32_t port; } ep = {{10, 0, 2, 99}, 6543};
+        notos_raw_call(SYS_CONNECT, (uint32_t)s, (uint32_t)&ep, sizeof(ep));
+        _exit(99);
+    }
+    CHECK(argc==2);
     CHECK(!atexit(finishing));
+    if (!strcmp(argv[1],"pipeline")) {pipeline_test();return 0;}
     if (!strcmp(argv[1],"exec-source")) {exec_source();return 0;}
     if (!strcmp(argv[1],"exec-target")) {exec_target();return 0;}
     if (!strcmp(argv[1],"noentropy")) {

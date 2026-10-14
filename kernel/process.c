@@ -1,5 +1,7 @@
 /* Persistent process slots are owned by the event loop, never by an IRQ. */
 #include "process.h"
+#include "executable.h"
+#include "elf.h"
 #include "system_file.h"
 #include "poll_wait.h"
 #include "socket_stack.h"
@@ -10,22 +12,33 @@
 #include "wait_policy.h"
 #include "syscall_numbers.h"
 #define PROCESS_NAME_BYTES 24u
-struct process_slot { struct task task; char name[PROCESS_NAME_BYTES]; int quiet; };
+struct process_slot {
+    struct task task;
+    char name[PROCESS_NAME_BYTES];
+    int quiet;
+    u32 parent_id;
+    u32 zombie_id;
+    u32 zombie_status;
+};
 static struct process_slot slots[SCHEDULER_CAPACITY];
 static unsigned cursor;
 static int trace_enabled;
 static u32 next_pid = 1;
 extern const u8 user_blob_start[], user_blob_end[];
 
+static int slot_unused(const struct process_slot *slot) {
+    return slot->task.state == TASK_UNUSED && !slot->zombie_id;
+}
 u32 process_spawn_image(const char *name, const u8 *code, u32 bytes,
     const u8 *data, u32 data_bytes) {
     if (!name || !*name || length(name) >= PROCESS_NAME_BYTES || data_bytes > 4096
         || (data_bytes && !data)) return 0;
     unsigned index = 0;
-    while (index < SCHEDULER_CAPACITY && slots[index].task.state != TASK_UNUSED) index++;
+    while (index < SCHEDULER_CAPACITY && !slot_unused(&slots[index])) index++;
     if (index == SCHEDULER_CAPACITY || !next_pid || next_pid>0x7fffffffu) return 0;
     struct process_slot *slot = &slots[index];
     slot->quiet = 0;
+    slot->parent_id = slot->zombie_id = slot->zombie_status = 0;
     if (!task_create(&slot->task, next_pid, code, bytes)) return 0;
     for (unsigned i = 0; (slot->name[i] = name[i]); ++i) {}
     for (unsigned i = 0; i < data_bytes; ++i) ((u8 *)slot->task.space.data)[i] = data[i];
@@ -35,9 +48,10 @@ static u32 process_spawn_elf_arguments(const char *name,const u8 *image,u32 byte
     const char *argument,int split) {
     if (!name || length(name)>=PROCESS_NAME_BYTES || !next_pid || next_pid>0x7fffffffu) return 0;
     unsigned index=0;
-    while (index<SCHEDULER_CAPACITY && slots[index].task.state!=TASK_UNUSED) index++;
+    while (index<SCHEDULER_CAPACITY && !slot_unused(&slots[index])) index++;
     if (index==SCHEDULER_CAPACITY || !task_create_elf(&slots[index].task,next_pid,image,bytes)) return 0;
     slots[index].quiet = 0;
+    slots[index].parent_id = slots[index].zombie_id = slots[index].zombie_status = 0;
     slots[index].task.execution_budget = system_file_execution_budget(image);
     struct user_space *space=&slots[index].task.space;
     int prepared=split?space_arguments_split(space,name,argument):space_arguments(space,name,argument);
@@ -58,6 +72,74 @@ u32 process_spawn_elf_split(const char *name,const u8 *image,u32 bytes,const cha
 }
 u32 process_spawn_elf(const char *name,const u8 *image,u32 bytes) {
     return process_spawn_elf_args(name,image,bytes,0);
+}
+int process_spawn_user(struct task *parent,const char *path,const char *const *argv,u32 argc,
+    const char *const *envp,u32 envc,const struct notos_fd_map *maps,u32 map_count) {
+    if (!parent || !path || !*path || !argv || !argc) return -ERROR_INVALID_ARGUMENT;
+    const char *name=path;
+    for (const char *p=path;*p;p++) if (*p=='/') name=p+1;
+    if (!*name || length(name)>=PROCESS_NAME_BYTES) return -ERROR_NAME_TOO_LONG;
+    struct executable_image image;
+    int error=executable_open(path,&image);
+    if (error) return error;
+    struct elf_plan plan;
+    if (!elf_validate(image.bytes,image.size,&plan)) {
+        executable_close(&image);return -ERROR_BAD_EXECUTABLE;
+    }
+    unsigned index=0;
+    while (index<SCHEDULER_CAPACITY && !slot_unused(&slots[index])) index++;
+    if (index==SCHEDULER_CAPACITY || !next_pid || next_pid>0x7fffffffu) {
+        executable_close(&image);return -ERROR_AGAIN;
+    }
+    struct process_slot *slot=&slots[index];
+    if (!task_create_elf(&slot->task,next_pid,image.bytes,image.size)) {
+        executable_close(&image);return -ERROR_MEMORY;
+    }
+    slot->task.execution_budget=system_file_execution_budget(image.bytes);
+    executable_close(&image);
+    error=fd_table_spawn(&slot->task.files,&parent->files,maps,map_count);
+    if (!error && !space_stack_build(&slot->task.space,argv,argc,envp,envc)) error=-ERROR_INVALID_ARGUMENT;
+    if (error) {
+        task_destroy(&slot->task);return error;
+    }
+    struct user_interrupt_tail *tail=(struct user_interrupt_tail *)(slot->task.context+1);
+    tail->esp=slot->task.space.initial_stack;
+    for (unsigned i=0;(slot->task.cwd[i]=parent->cwd[i]);i++) {}
+    for (unsigned i=0;(slot->name[i]=name[i]);i++) {}
+    slot->quiet=1;
+    slot->parent_id=parent->id;
+    slot->zombie_id=0;
+    slot->zombie_status=0;
+    return (int)next_pid++;
+}
+int process_wait_try(u32 parent_id,int target_pid,u32 flags,u32 *status_out) {
+    if ((flags&~NOTOS_WNOHANG) || target_pid==0 || target_pid<-1) return -ERROR_INVALID_ARGUMENT;
+    int live_match=0;
+    for (unsigned i=0;i<SCHEDULER_CAPACITY;i++) {
+        if (slots[i].parent_id!=parent_id) continue;
+        if (slots[i].zombie_id && (target_pid==-1 || slots[i].zombie_id==(u32)target_pid)) {
+            u32 reaped=slots[i].zombie_id;
+            if (status_out) *status_out=slots[i].zombie_status;
+            slots[i].parent_id=slots[i].zombie_id=slots[i].zombie_status=0;
+            return (int)reaped;
+        }
+        if (slots[i].task.state!=TASK_UNUSED && (target_pid==-1 || slots[i].task.id==(u32)target_pid))
+            live_match=1;
+    }
+    if (!live_match) return -ERROR_CHILD;
+    return (flags&NOTOS_WNOHANG)?0:-ERROR_AGAIN;
+}
+u32 process_getppid(u32 pid) {
+    for (unsigned i=0;i<SCHEDULER_CAPACITY;i++) {
+        if (slots[i].task.state!=TASK_UNUSED && slots[i].task.id==pid) {
+            u32 parent=slots[i].parent_id;
+            if (!parent) return 0;
+            for (unsigned j=0;j<SCHEDULER_CAPACITY;j++)
+                if (slots[j].task.state!=TASK_UNUSED && slots[j].task.id==parent) return parent;
+            return 0;
+        }
+    }
+    return 0;
 }
 void process_quiet(u32 pid) {
     for (unsigned i = 0; i < SCHEDULER_CAPACITY; i++) {
@@ -80,9 +162,10 @@ int process_trace_enabled(void) {
     return trace_enabled;
 }
 static void collect(struct process_slot *slot) {
+    u32 id = slot->task.id, status = slot->task.result.status, parent = slot->parent_id;
     if (!slot->quiet || trace_enabled) {
-        console_puts("PROCESS: pid="); console_uint(slot->task.id);
-        console_puts(" exit="); console_uint(slot->task.result.status);
+        console_puts("PROCESS: pid="); console_uint(id);
+        console_puts(" exit="); console_uint(status);
         console_puts(" ticks="); console_uint(slot->task.statistics.cpu_ticks);
         console_putc('\n');
     }
@@ -93,9 +176,47 @@ static void collect(struct process_slot *slot) {
     }
     if (!task_destroy(&slot->task)) console_puts("PROCESS ERROR: resource cleanup failed\n");
     slot->name[0] = 0;
+    /* Orphan live children and immediately reap any uncollected zombie children. */
+    for (unsigned i = 0; i < SCHEDULER_CAPACITY; i++) {
+        if (slots[i].parent_id == id) {
+            slots[i].parent_id = 0;
+            slots[i].zombie_id = 0;
+            slots[i].zombie_status = 0;
+        }
+    }
+    int parent_alive = 0;
+    if (parent) {
+        for (unsigned i = 0; i < SCHEDULER_CAPACITY; i++)
+            if (slots[i].task.state != TASK_UNUSED && slots[i].task.id == parent) parent_alive = 1;
+    }
+    if (parent_alive) {
+        slot->zombie_id = id;
+        slot->zombie_status = status;
+    } else {
+        slot->parent_id = 0;
+        slot->zombie_id = 0;
+        slot->zombie_status = 0;
+    }
+}
+int process_kill(u32 pid,u32 sig) {
+    if (sig>NOTOS_SIG_MAX) return -ERROR_INVALID_ARGUMENT;
+    if (!pid) return -ERROR_NO_PROCESS;
+    for (unsigned i=0;i<SCHEDULER_CAPACITY;i++) {
+        if (slots[i].task.state!=TASK_UNUSED && slots[i].task.id==pid) {
+            if (!sig) return 0;
+            if (&slots[i].task==task_current()) return -ERROR_INVALID_ARGUMENT;
+            slots[i].task.result.status=128u+sig;
+            slots[i].task.result.reason=TASK_EXIT_NORMAL;
+            slots[i].task.state=TASK_FINISHED;
+            collect(&slots[i]);
+            return 0;
+        }
+    }
+    return -ERROR_NO_PROCESS;
 }
 void process_poll(void) {
     u32 now=clock_ms();
+    u8 buffer[NOTOS_IO_LIMIT];
     for (unsigned i=0;i<SCHEDULER_CAPACITY;i++) {
         struct task *task=&slots[i].task;
         if (task->state!=TASK_BLOCKED) continue;
@@ -105,10 +226,27 @@ void process_poll(void) {
             }
         } else if (task->wait_kind==TASK_WAIT_POLL) {
             poll_wait_resume(task,now);
+        } else if (task->wait_kind==TASK_WAIT_CHILD) {
+            u32 status=0;
+            int result=process_wait_try(task->id,task->pending_fd,task->pending_flags,&status);
+            if (result==-ERROR_AGAIN) continue;
+            if (result>0 && task->pending_buffer
+                && !space_copy_to_user(&task->space,task->pending_buffer,&status,sizeof(status)))
+                result=-ERROR_BAD_ADDRESS;
+            task->context->eax=(u32)result;task->state=TASK_READY;
+            task->pending_buffer=task->pending_flags=0;task->pending_fd=0;
+        } else if (task->wait_kind==TASK_WAIT_OUTPUT) {
+            u32 bytes=task->pending_bytes;
+            if (bytes>sizeof(buffer)) bytes=sizeof(buffer);
+            int result=space_copy_from_user(&task->space,task->pending_buffer,buffer,bytes)?
+                fd_write(&task->files,task->pending_fd,buffer,bytes):-ERROR_BAD_ADDRESS;
+            if (result==-ERROR_AGAIN) continue;
+            task->context->eax=(u32)result;task->state=TASK_READY;
+            task->pending_buffer=task->pending_bytes=0;
         } else if (task->wait_kind!=TASK_WAIT_INPUT) {
             int handle=fd_socket_handle(&task->files,task->pending_fd),result;
             int expired=task->wait_duration && wait_due(task->wait_started,task->wait_duration,now);
-            u8 buffer[NOTOS_IO_LIMIT];u32 bytes=task->pending_bytes;
+            u32 bytes=task->pending_bytes;
             if (bytes>sizeof(buffer)) bytes=sizeof(buffer);
             if (handle<0) result=handle;
             else if (expired) {
@@ -127,7 +265,6 @@ void process_poll(void) {
             task->context->eax=(u32)result;task->state=TASK_READY;
             task->pending_buffer=task->pending_bytes=task->pending_flags=0;
         } else {
-            u8 buffer[NOTOS_INPUT_BYTES];
             u32 bytes=task->pending_bytes;
             if (bytes>sizeof(buffer)) bytes=sizeof(buffer);
             int result=fd_read(&task->files,task->pending_fd,buffer,bytes);
@@ -167,6 +304,8 @@ void process_command(const char *command, const char *argument) {
             if (slots[i].task.state==TASK_BLOCKED) {
                 console_puts("PROCESS WAIT: pid=");console_uint(slots[i].task.id);
                 if (slots[i].task.wait_kind==TASK_WAIT_INPUT) console_puts(" stdin=1");
+                else if (slots[i].task.wait_kind==TASK_WAIT_OUTPUT) console_puts(" pipe=1");
+                else if (slots[i].task.wait_kind==TASK_WAIT_CHILD) console_puts(" child=1");
                 else if (slots[i].task.wait_kind==TASK_WAIT_POLL) console_puts(" poll=1");
                 else if (slots[i].task.wait_kind!=TASK_WAIT_TIMER) console_puts(" socket=1");
                 else {console_puts(" timeout_ms=");console_uint(slots[i].task.wait_duration);}console_putc('\n');
@@ -183,12 +322,7 @@ void process_command(const char *command, const char *argument) {
             }
             pid = pid * 10 + (u32)(*p-'0');
         }
-        for (unsigned i = 0; i < SCHEDULER_CAPACITY; ++i) {
-            if (slots[i].task.state != TASK_UNUSED && slots[i].task.id == pid) {
-                slots[i].task.result.status = 143; slots[i].task.state = TASK_FINISHED;
-                collect(&slots[i]); return;
-            }
-        }
+        if (!process_kill(pid, 15)) return;
         console_puts("PROCESS ERROR: pid not found\n"); return;
     }
     unsigned mode = equal(argument, "worker") ? TEST_MODE_WORKER

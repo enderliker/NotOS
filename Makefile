@@ -120,6 +120,7 @@ test: build/fs-unit build/line-unit build/path-unit build/argument-unit build/fl
 	python3 tests/sockets.py
 	python3 tests/vfs.py
 	python3 tests/libc.py
+	python3 tests/pipeline.py
 	python3 tests/curl.py
 	python3 tests/curl_https.py
 	python3 tests/elf.py
@@ -190,9 +191,9 @@ build/picolibc-built.ready: build/picolibc.ready tools/build_picolibc.py Makefil
 	CC="$(CC)" NOTOS_CFLAGS="$(CFLAGS)" python3 tools/build_picolibc.py
 LIBC_INCLUDES := -Iuser/include -nostdinc -isystem build/sysroot/include/notos -isystem $(shell $(CC) -print-file-name=include)
 LIBC_FLAGS := $(CFLAGS) $(LIBC_INCLUDES) -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -D_POSIX_MONOTONIC_CLOCK=200809L -U__linux__ -U__unix__ -D__NOTOS__
-build/libc-demo.o: user/libc/demo.c user/libc/os.h kernel/platform_abi.h kernel/file_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
+build/libc-demo.o: user/libc/demo.c user/libc/os.h user/include/sys/_wait.h kernel/platform_abi.h kernel/file_abi.h kernel/process_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
-build/libc-port.o: user/libc/port.c user/libc/os.h kernel/platform_abi.h kernel/file_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
+build/libc-port.o: user/libc/port.c user/libc/os.h user/include/sys/_wait.h kernel/platform_abi.h kernel/file_abi.h kernel/process_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
 build/libc-start.o: user/libc/start.c build/picolibc-built.ready
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
@@ -207,7 +208,7 @@ build/libc-demo-blob.o: build/libc-demo.elf
 	objcopy --strip-all $< build/libc-app.elf
 	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.libcimage,alloc,load,readonly,data,contents --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=noload,readonly build/libc-app.elf $@
 
-build/vfs-unit: tests/vfs_unit.c kernel/vfs.c kernel/fd.c kernel/vfs.h kernel/fd.h kernel/file_abi.h kernel/syscall_numbers.h kernel/system_file.h kernel/fs.h kernel/physical.h kernel/base.h | build
+build/vfs-unit: tests/vfs_unit.c kernel/vfs.c kernel/fd.c kernel/vfs.h kernel/fd.h kernel/file_abi.h kernel/process_abi.h kernel/syscall_numbers.h kernel/system_file.h kernel/fs.h kernel/physical.h kernel/base.h | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -no-pie tests/vfs_unit.c kernel/vfs.c kernel/fd.c -o $@
 
 # lwIP's raw core and the separately linked Picolibc socket client.

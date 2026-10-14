@@ -81,4 +81,12 @@
 #define ERROR_CONNECTION_REFUSED 111
 #define ERROR_ALREADY 114
 #define ERROR_IN_PROGRESS 115
+#define ERROR_NO_PROCESS 3
+#define ERROR_CHILD 10
+#define SYS_SPAWN 43
+#define SYS_WAIT 44
+#define SYS_GETPPID 45
+#define SYS_PIPE 46
+#define SYS_KILL 47
 #endif
+

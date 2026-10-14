@@ -4,7 +4,16 @@
 #include "space.h"
 #include "scheduler_policy.h"
 #include "fd.h"
-enum task_wait_kind {TASK_WAIT_TIMER,TASK_WAIT_INPUT,TASK_WAIT_CONNECT,TASK_WAIT_RECEIVE,TASK_WAIT_SEND,TASK_WAIT_POLL};
+enum task_wait_kind {
+    TASK_WAIT_TIMER,
+    TASK_WAIT_INPUT,
+    TASK_WAIT_OUTPUT,
+    TASK_WAIT_CHILD,
+    TASK_WAIT_CONNECT,
+    TASK_WAIT_RECEIVE,
+    TASK_WAIT_SEND,
+    TASK_WAIT_POLL
+};
 
 /* Count IRQ0 samples delivered at CPL3, not exact CPU or wall time. */
 #define TASK_EXECUTION_BUDGET 250u

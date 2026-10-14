@@ -2,6 +2,7 @@
 #define NOTOS_FD_H
 #include "file_abi.h"
 #include "poll_abi.h"
+#include "process_abi.h"
 /* Descriptor slots own references to shared open-file descriptions. */
 struct fd_table {
     u16 slots[NOTOS_FD_COUNT];
@@ -12,6 +13,9 @@ struct fd_table {
 int fd_table_init(struct fd_table *table);
 void fd_table_destroy(struct fd_table *table);
 void fd_close_exec(struct fd_table *table);
+int fd_table_spawn(struct fd_table *child,struct fd_table *parent,const struct notos_fd_map *map,u32 map_count);
+int fd_pipe(struct fd_table *table,int fds[2],u32 flags);
+u32 fd_pipe_count(void);
 int fd_readdir(struct fd_table *table, int fd, struct notos_directory_entry *entry);
 int fd_open(struct fd_table *table,const char *path,u32 flags,u32 mode);
 int fd_close(struct fd_table *table,int fd);
@@ -25,6 +29,7 @@ int fd_dup(struct fd_table *table,int fd,int destination);
 int fd_control(struct fd_table *table,int fd,u32 command,u32 argument);
 int fd_is_tty(struct fd_table *table,int fd);
 int fd_blocking_input(struct fd_table *table,int fd);
+int fd_blocking_output(struct fd_table *table,int fd);
 int fd_feed(struct fd_table *table,const void *buffer,u32 bytes,int eof);
 u32 fd_description_count(void);
 int fd_socket_open(struct fd_table *,u32 flags);
@@ -33,3 +38,4 @@ int fd_nonblocking(struct fd_table *,int fd);
 /* Trusted vectors only. Invalid fds report NVAL, negative entries are ignored. */
 int fd_poll(struct fd_table *,struct notos_pollfd *,u32 count);
 #endif
+

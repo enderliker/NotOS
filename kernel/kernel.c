@@ -138,7 +138,8 @@ static void command(const char *s) {
     else if(starts(s,"multitask-run ")) multitask_command(s+14);
     else if(equal(s,"mouse")) mouse_status();
     else if(equal(s,"vfs")) {
-        vfs_status();console_puts("VFS: descriptions=");console_uint(fd_description_count());console_putc('\n');
+        vfs_status();console_puts("VFS: descriptions=");console_uint(fd_description_count());
+        console_puts(" pipes=");console_uint(fd_pipe_count());console_putc('\n');
     }
     else if(starts(s,"feed-eof ")) process_input_command(s+9,1);
     else if(starts(s,"feed ")) process_input_command(s+5,0);

@@ -1,7 +1,19 @@
-# Handoff: Ring 3 HTTPS, VFS Execution, and Shell QoL
+# Handoff: Process Composition, Ring 3 HTTPS, VFS Execution, and Shell QoL
 
 ## Current State & Recent Implementation
 
+- **Process Composition & Anonymous Pipes (M1)**: Added `SYS_SPAWN` (`43`,
+  launching ELF binaries from `/system`, `/tmp`, or `/disk` with `argv`, `envp`,
+  and an up to 16-entry `fd_map`), `SYS_WAIT` (`44`, blocking and `WNOHANG` wait
+  for a specific child or `-1` any child, zombie reaping, and orphan auto-reaping),
+  `SYS_GETPPID` (`45`), `SYS_PIPE` (`46`, 16 global 4 KiB kernel ring buffers
+  with blocking read/write, EOF, `EPIPE`, and `poll()` integration), and
+  `SYS_KILL` (`47`, terminate-only signals `1..31` exiting with `128 + sig`).
+  Added Picolibc wrappers (`notos_spawn`, `posix_spawn`, `wait`/`waitpid`,
+  `pipe`/`pipe2`, `kill`, `getppid`, and dynamic `environ`/`getenv`/`setenv`
+  initialised from the initial ring 3 stack). See
+  [docs/PROCESSES.md](docs/PROCESSES.md), [docs/VFS.md](docs/VFS.md), and
+  [docs/LIBC.md](docs/LIBC.md).
 - **User-space `curl` 8.11.1 (HTTP/HTTPS)**: Runs in ring 3 linked against
   Picolibc 1.8.11 and a dedicated user-space build of MbedTLS 3.6.5 (separate
   from the kernel TLS backend). Default trust store is the immutable
@@ -42,14 +54,16 @@
 
 ## Architectural Limits
 
-- Four process slots, eight TCP endpoints, 16 FDs per task, 64 global open file
-  descriptions, 64 KiB per `tmpfs` file (256 KiB global RAM quota), and 60 KiB
-  `NotFS v2` payload.
+- Four process slots (including unreaped `PROCESS_ZOMBIE` slots), eight TCP
+  endpoints, 16 FDs per task, 64 global open file descriptions, 16 anonymous
+  4 KiB kernel pipes, 64 KiB per `tmpfs` file (256 KiB global RAM quota), and
+  60 KiB `NotFS v2` payload.
 - Default CPU budget is 250 CPL3 IRQ0 ticks per task (5-tick quantum); `/system/curl.elf`
   receives 2,500 ticks for TLS handshakes and X.509 parsing, and `SYS_EXEC` does
   not reset consumed ticks.
-- No full POSIX compliance, threads/SMP, FPU/SSE, verified physical hardware,
-  preemptive kernel, or signals.
+- No `fork`, full POSIX compliance, threads/SMP, FPU/SSE, verified physical
+  hardware, preemptive kernel, or user-space signal handlers (`SYS_KILL` is
+  terminate-only).
 - Strict TLS verification: `-k` / `--insecure` never bypasses certificate checks;
   no client certificates, `CApath`, or OCSP/CRL revocation.
 
@@ -59,7 +73,8 @@
   a full clean rebuild matching CI.
 - All 23 native host unit test binaries (including `fs-unit`, `line-unit`,
   `vfs-unit`, `poll-unit`, `elf-unit`, `cert-unit`, and `float-unit` under
-  ASAN/UBSAN) and all 25 QEMU system test suites pass (`make` and `make test`).
+  ASAN/UBSAN) and all 26 QEMU system test suites (including `tests/pipeline.py`)
+  pass (`make` and `make test`).
 - Upstream compiler warnings remain explicitly documented per policy: GCC warns
   on enum/bool conversions in curl's `transfer.c`, an unused function in curl's
   `url.c`, and `_set_tls` in Picolibc's `tls.c`. First-party code compiles

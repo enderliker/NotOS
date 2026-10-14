@@ -34,10 +34,10 @@ and are not part of the guest runtime.
 | ELF32 & User VM | `PT_LOAD` `W^X` segments, zeroed BSS, 64 KiB user stack, `brk`, private anonymous `mmap`, and `SYS_EXEC` | Sanitizer-fuzzed parser (50,000 mutations), ring 3 execution, PAE table crossings, NX faults, 4-way concurrency, and OOM rollback |
 | User-space Libc | Static Picolibc 1.8.11, custom CRT, `sbrk` heap, integer `stdio`, private `errno`, 64-bit time, and `getentropy` | Ring 3 ELF suite, 4 concurrent processes, OOM preservation, `atexit`/stdio flush, and exact frame/heap recovery |
 | Ring 3 Isolation | Custom GDT/TSS, per-task private `CR3`, `INT 0x80` syscall gate, and validated user buffers | Real CPL3 execution, isolated virtual addresses, recoverable user faults, and CPU tick budget enforcement |
-| Process Waiting | `SYS_SLEEP`, `TASK_BLOCKED`, and deadline-driven wakeups | Concurrent shell/workers, cancellation cleanup, all-blocked slots, and 32-bit clock wrap |
-| VFS & File Descriptors | Writable `tmpfs` and `NotFS v2`, immutable `/system`, per-process FDs/cwd, directories, `dup`/`lseek`, and blocking `stdin` | Ring 3 binary stdio, quotas/OOM rollback, 4 concurrent writers/readers, `mkfs`/v1->v2 migration, and leak-free `kill`/fault cleanup |
+| Process Waiting & Composition | `SYS_SLEEP`, `SYS_SPAWN` (`fd_map`/`envp`), `SYS_WAIT` (`WNOHANG`/zombies), `SYS_GETPPID`, `SYS_KILL`, and `TASK_BLOCKED` | 2-stage 16 KiB pipe pipelines, zombie/orphan reaping, kill of pipe/sleep/socket waiters, slot exhaustion (`EAGAIN`), and 32-bit clock wrap |
+| VFS, Pipes & File Descriptors | Writable `tmpfs` and `NotFS v2`, immutable `/system`, 4 KiB kernel pipes (`SYS_PIPE`), per-process FDs/cwd, directories, `dup`/`lseek`, and blocking `stdin` | Ring 3 binary stdio, pipe wrap/EOF/`EPIPE`/`poll`, quotas/OOM rollback, 4 concurrent writers/readers, `mkfs`/v1->v2 migration, and leak-free `kill`/fault cleanup |
 | User-space Sockets | lwIP TCP/IPv4, partial BSD socket API, async DNS (`getaddrinfo`), and per-process blocking | 32 KiB binary streams, HTTP-to-tmpfs downloads, 4 concurrent clients, packet drops, `TIME_WAIT` recycling, and cancellation |
-| I/O Multiplexing | `poll` (up to 64 entries) and `select` adapter over sockets, files, and `stdin` | Multi-peer TCP/stdin readiness, relative/infinite timeouts, TX backpressure, 4 blocked waiters, and cancellation |
+| I/O Multiplexing | `poll` (up to 64 entries) and `select` adapter over sockets, pipes, files, and `stdin` | Multi-peer TCP/pipe/stdin readiness, relative/infinite timeouts, TX backpressure, 4 blocked waiters, and cancellation |
 | User-space `curl` | Upstream curl 8.11.1 HTTP/HTTPS in ring 3 linked with user-space MbedTLS 3.6.5 and Picolibc | Binary HTTP/HTTPS downloads & POST uploads, X.509/SAN/EKU checks, `--cacert`, DNS, timeouts, and VFS ELF download + `exec` |
 | Persistent Storage | 28-bit ATA PIO driver and dual-bank transactional `NotFS v2` on a dedicated data disk | Reboots, CRC corruption fallback, v1-to-v2 migration, mid-commit fault injection, and persistent directory/file CRUD |
 | Preemptive Multitasking | IRQ0 round-robin scheduler, four task slots, 16 KiB private kernel stacks, and `SYS_YIELD` | Register/flag preservation, mixed batches, 250-tick CPL3 budget, `#NM` FPU rejection, and OOM rollback |
@@ -118,6 +118,7 @@ libc-test
 libc-run exit
 libc-run files
 libc-run stdin
+libc-run pipeline
 vfs
 sockets
 socket-run web 80
@@ -188,17 +189,18 @@ emulated RTL8139 NIC.
 - **Platform**: PC BIOS / 32-bit x86 in QEMU only; no UEFI or verified physical
   hardware support.
 - **Processes & Memory**: Up to four concurrent tasks/processes (both for
-  synchronous diagnostic batches and background managed processes), private PAE
-  address spaces and 16 KiB kernel stacks, a fixed 1 MiB kernel heap, and a
-  64 MiB physical memory cap. No swap, ASLR, SMP, threads, or kernel preemption.
-  FPU/MMX/SSE instructions are disabled (`CR0.TS=1`).
+  synchronous diagnostic batches and background managed processes, including
+  unreaped `PROCESS_ZOMBIE` slots), private PAE address spaces and 16 KiB kernel
+  stacks, a fixed 1 MiB kernel heap, and a 64 MiB physical memory cap. No `fork`,
+  swap, ASLR, SMP, threads, or kernel preemption. FPU/MMX/SSE instructions are
+  disabled (`CR0.TS=1`).
 - **Fault Handling**: User-space exceptions terminate only the faulting process
   and return cleanly to the shell; kernel-mode exceptions halt the CPU with a
   diagnostic panic screen. No separate TSS for double faults.
-- **VFS & Storage**: 16 FDs per process, 64 global open file descriptions,
-  `tmpfs` (up to 64 KiB per file, 256 KiB total RAM quota), and dual-bank
-  transactional `NotFS v2` on the secondary IDE disk (up to 24 nodes and 60 KiB
-  total payload).
+- **VFS & Storage**: 16 FDs per process, 64 global open file descriptions, 16
+  anonymous 4 KiB kernel pipes, `tmpfs` (up to 64 KiB per file, 256 KiB total
+  RAM quota), and dual-bank transactional `NotFS v2` on the secondary IDE disk
+  (up to 24 nodes and 60 KiB total payload).
 - **Networking & TLS**: Static `/24` IPv4 configuration, one active request at a
   time on the legacy kernel client, and up to eight user-space TCP endpoints and
   four concurrent DNS queries via lwIP. Strict TLS 1.2/1.3 and X.509 validation
@@ -206,7 +208,9 @@ emulated RTL8139 NIC.
   not bypass certificate validation).
 - **User-space Libc & `curl`**: Single-threaded static Picolibc 1.8.11 port with
   integer `stdio`, `sbrk` heap (up to 4 MiB per process), software `binary64`
-  helpers, `poll`/`select`, directory syscalls, and `notos_exec` (`SYS_EXEC`).
+  helpers, `poll`/`select`, directory syscalls, `notos_exec` (`SYS_EXEC`),
+  `notos_spawn`/`posix_spawn` (`SYS_SPAWN`), `wait`/`waitpid` (`SYS_WAIT`),
+  `pipe`/`pipe2` (`SYS_PIPE`), `kill` (`SYS_KILL`), and `environ`/`getenv`/`setenv`.
   Upstream `curl` 8.11.1 supports HTTP and HTTPS in ring 3 with default trust
   bundle `/system/cacert.pem`.
 

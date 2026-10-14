@@ -73,6 +73,12 @@ static struct interrupt_frame *write_fd(struct task *task,struct interrupt_frame
     int result=fd_write(&task->files,(int)frame->ebx,(const void *)address,bytes);
     if (result==-ERROR_AGAIN && handle>=0 && !fd_nonblocking(&task->files,(int)frame->ebx) && !(flags&NOTOS_MSG_DONTWAIT))
         return wait_network(task,frame,TASK_WAIT_SEND,handle,flags);
+    if (result==-ERROR_AGAIN && fd_blocking_output(&task->files,(int)frame->ebx)) {
+        if (!scheduler_can_block()) {frame->eax=(u32)-ERROR_UNSUPPORTED;return frame;}
+        task->wait_kind=TASK_WAIT_OUTPUT;task->pending_fd=(int)frame->ebx;
+        task->pending_buffer=address;task->pending_bytes=bytes;
+        return scheduler_block(frame);
+    }
     frame->eax=(u32)result;return frame;
 }
 static struct interrupt_frame *read_fd(struct task *task,struct interrupt_frame *frame) {
@@ -258,6 +264,85 @@ static void directory_call(struct task *task, struct interrupt_frame *frame) {
         frame->eax = (u32)result;
     }
 }
+struct spawn_strings {
+    char storage[NOTOS_SPAWN_STR_BYTES];
+    u32 used;
+    const char *argv[NOTOS_SPAWN_ARG_MAX];
+    const char *envp[NOTOS_SPAWN_ENV_MAX];
+    u32 argc;
+    u32 envc;
+};
+static int copy_spawn_vector(struct task *task,u32 address,u32 limit,
+    struct spawn_strings *strings,const char **out,u32 *count) {
+    *count=0;
+    for (u32 i=0;i<=limit;i++) {
+        u32 slot_addr=address+i*sizeof(u32),ptr=0;
+        if (slot_addr<address || !space_copy_from_user(&task->space,slot_addr,&ptr,sizeof(ptr)))
+            return -ERROR_BAD_ADDRESS;
+        if (!ptr) return 0;
+        if (i==limit || strings->used>=sizeof(strings->storage)) return -ERROR_INVALID_ARGUMENT;
+        int error=copy_string(task,ptr,strings->storage+strings->used,sizeof(strings->storage)-strings->used);
+        if (error) return error==-ERROR_NAME_TOO_LONG?-ERROR_INVALID_ARGUMENT:error;
+        out[i]=strings->storage+strings->used;
+        strings->used+=length(out[i])+1;
+        (*count)++;
+    }
+    return -ERROR_INVALID_ARGUMENT;
+}
+static void spawn_call(struct task *task,struct interrupt_frame *frame) {
+    u32 map_count=frame->edi&0xffffu,flags=frame->edi>>16;
+    if (flags || map_count>NOTOS_FD_MAP_MAX) {frame->eax=(u32)-ERROR_INVALID_ARGUMENT;return;}
+    struct notos_fd_map maps[NOTOS_FD_MAP_MAX];
+    if (map_count && !space_copy_from_user(&task->space,frame->esi,maps,map_count*sizeof(maps[0]))) {
+        frame->eax=(u32)-ERROR_BAD_ADDRESS;return;
+    }
+    char path[NOTOS_PATH_BYTES];
+    int error=copy_path(task,frame->ebx,path);
+    if (error) {frame->eax=(u32)error;return;}
+    if (!frame->ecx) {frame->eax=(u32)-ERROR_BAD_ADDRESS;return;}
+    struct spawn_strings strings={0};
+    error=copy_spawn_vector(task,frame->ecx,NOTOS_SPAWN_ARG_MAX,&strings,strings.argv,&strings.argc);
+    if (!error && !strings.argc) error=-ERROR_INVALID_ARGUMENT;
+    if (!error && frame->edx)
+        error=copy_spawn_vector(task,frame->edx,NOTOS_SPAWN_ENV_MAX,&strings,strings.envp,&strings.envc);
+    if (error) {frame->eax=(u32)error;return;}
+    frame->eax=(u32)process_spawn_user(task,path,strings.argv,strings.argc,
+        strings.envp,strings.envc,maps,map_count);
+}
+static struct interrupt_frame *wait_call(struct task *task,struct interrupt_frame *frame) {
+    int target_pid=(int)frame->ebx;
+    u32 status_addr=frame->ecx,flags=frame->edx,status=0;
+    if (status_addr && !space_range(&task->space,status_addr,sizeof(status),1)) {
+        frame->eax=(u32)-ERROR_BAD_ADDRESS;return frame;
+    }
+    int result=process_wait_try(task->id,target_pid,flags,&status);
+    if (result==-ERROR_AGAIN) {
+        if (!scheduler_can_block()) {frame->eax=(u32)-ERROR_UNSUPPORTED;return frame;}
+        task->wait_kind=TASK_WAIT_CHILD;task->pending_fd=target_pid;
+        task->pending_buffer=status_addr;task->pending_flags=flags;
+        return scheduler_block(frame);
+    }
+    if (result>0 && status_addr) space_copy_to_user(&task->space,status_addr,&status,sizeof(status));
+    frame->eax=(u32)result;return frame;
+}
+static void pipe_call(struct task *task,struct interrupt_frame *frame) {
+    int fds[2];
+    if (!space_range(&task->space,frame->ebx,sizeof(fds),1)) {frame->eax=(u32)-ERROR_BAD_ADDRESS;return;}
+    int error=fd_pipe(&task->files,fds,frame->ecx);
+    if (!error) space_copy_to_user(&task->space,frame->ebx,fds,sizeof(fds));
+    frame->eax=(u32)error;
+}
+static struct interrupt_frame *kill_call(struct task *task,struct interrupt_frame *frame) {
+    int pid=(int)frame->ebx,sig=(int)frame->ecx;
+    if (sig<0 || sig>NOTOS_SIG_MAX) {frame->eax=(u32)-ERROR_INVALID_ARGUMENT;return frame;}
+    if (pid<=0) {frame->eax=(u32)-ERROR_NO_PROCESS;return frame;}
+    if ((u32)pid==task->id) {
+        if (!sig) {frame->eax=0;return frame;}
+        return task_finish(frame,128u+(u32)sig,TASK_EXIT_NORMAL);
+    }
+    frame->eax=(u32)process_kill((u32)pid,(u32)sig);
+    return frame;
+}
 
 struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     struct task *task = task_current();
@@ -268,10 +353,15 @@ struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     task->statistics.syscalls++;
     switch (frame->eax) {
     case SYS_EXEC:return execute_image(task, frame);
+    case SYS_SPAWN:spawn_call(task, frame);break;
+    case SYS_WAIT:return wait_call(task, frame);
+    case SYS_GETPPID:frame->eax = process_getppid(task->id);break;
+    case SYS_PIPE:pipe_call(task, frame);break;
+    case SYS_KILL:return kill_call(task, frame);
     case SYS_GETCWD:case SYS_READDIR:directory_call(task, frame);break;
     case SYS_POLL:return poll_wait_start(task,frame);
     case SYS_EXIT:
-        return task_finish(frame, frame->ebx, TASK_EXIT_NORMAL);
+        return task_finish(frame, frame->ebx & 0xffu, TASK_EXIT_NORMAL);
     case SYS_YIELD:
         frame->eax = 0;
         return scheduler_yield(frame);

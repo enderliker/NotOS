@@ -18,6 +18,9 @@ int space_copy_to_user(struct user_space *space,u32 address,const void *data,u32
 int space_arguments(struct user_space *space,const char *name,const char *argument);
 /* Prepare aligned argc/argv; space-separated text has bounded length/count. */
 int space_arguments_split(struct user_space *space,const char *name,const char *arguments);
+/* Prepare aligned argc/argv/envp on the user stack (max 16 args, 16 env vars). */
+int space_stack_build(struct user_space *space,const char *const *argv,u32 argc,
+    const char *const *envp,u32 envc);
 int space_destroy(struct user_space *space);
 int space_range(const struct user_space *space,u32 address,u32 bytes,int writable);
 /* Return old break on failure. These are NotOS APIs, not a Linux syscall ABI. */

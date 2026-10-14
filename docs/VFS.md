@@ -65,6 +65,14 @@ Supported directory operations:
   reads suspend only the calling process (`TASK_WAIT_INPUT`); `O_NONBLOCK`
   returns `-EAGAIN` when empty. Process `exit`, `kill`, and user faults close
   all open descriptors and release any unlinked nodes.
+- **Unidirectional Kernel Pipes (`SYS_PIPE = 46`)**: Up to **16 active pipes**
+  globally (`FILE_PIPE_MAX = 16`), each backed by a 4 KiB physical page
+  (`FILE_PIPE_BYTES = 4096`) allocated from `physical_alloc()` and freed as soon
+  as both `readers == 0` and `writers == 0`. `read` blocks (`TASK_WAIT_INPUT`)
+  when empty while `writers > 0` and returns `0` (EOF) when empty and
+  `writers == 0`; `write` returns `-EPIPE` when `readers == 0` and blocks
+  (`TASK_WAIT_OUTPUT`) when full while `readers > 0` (or returns `-EAGAIN` with
+  `O_NONBLOCK`). `fstat` reports `NOTOS_FILE_FIFO` (`S_IFIFO`) and queued bytes.
 
 ## VFS Syscall ABI (`INT 0x80`)
 
@@ -88,6 +96,7 @@ Supported directory operations:
 | `40` | `SYS_CHDIR` | `path` |
 | `41` | `SYS_GETCWD` | `buffer`, `capacity` (returns `0` on success) |
 | `42` | `SYS_READDIR` | `fd`, `struct notos_directory_entry *out` (36 bytes; `1` entry, `0` EOF) |
+| `46` | `SYS_PIPE` | `int fds_out[2]`, `flags` (`O_NONBLOCK \| O_CLOEXEC`) |
 
 All user buffers and permissions are validated before mutating descriptor offsets
 or VFS state, and wire structures (`notos_file_info`, `notos_directory_entry`)

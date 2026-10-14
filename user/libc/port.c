@@ -13,10 +13,16 @@
 #include <time.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <spawn.h>
+#include <sys/wait.h>
 #define HEAP_BASE 0x08400000u
 #define HEAP_LIMIT 0x08800000u
 static int translated_error(int error) {
     switch (error) {
+    case ERROR_NO_PROCESS:return ESRCH;
+    case ERROR_CHILD:return ECHILD;
     case ERROR_BAD_EXECUTABLE:return ENOEXEC;
     case ERROR_NOT_DIRECTORY:return ENOTDIR;
     case ERROR_IS_DIRECTORY:return EISDIR;
@@ -128,7 +134,7 @@ off_t lseek(int fd,off_t offset,int whence) {
 static void convert_stat(struct stat *status,const struct notos_file_info *info) {
     *status=(struct stat){0};
     status->st_ino=info->inode;status->st_nlink=info->links;status->st_size=info->size;
-    status->st_mode=(info->kind==NOTOS_FILE_DIRECTORY?S_IFDIR:info->kind==NOTOS_FILE_REGULAR?S_IFREG:info->kind==NOTOS_FILE_SOCKET?S_IFSOCK:S_IFCHR)|info->permissions;
+    status->st_mode=(info->kind==NOTOS_FILE_DIRECTORY?S_IFDIR:info->kind==NOTOS_FILE_REGULAR?S_IFREG:info->kind==NOTOS_FILE_SOCKET?S_IFSOCK:info->kind==NOTOS_FILE_FIFO?S_IFIFO:S_IFCHR)|info->permissions;
     status->st_blksize=4096;status->st_blocks=((info->size+4095)/4096)*8;
 }
 static int stat_output(struct stat *status) {
@@ -236,6 +242,7 @@ int getentropy(void *buffer,size_t bytes) {
     return notos_checked(notos_raw_call(SYS_ENTROPY,(uint32_t)buffer,(uint32_t)bytes,0));
 }
 pid_t getpid(void) {return (pid_t)notos_checked(notos_raw_call(SYS_PID,0,0,0));}
+pid_t getppid(void) {return (pid_t)notos_checked(notos_raw_call(SYS_GETPPID,0,0,0));}
 
 int notos_errno(int error) {return translated_error(error);}
 
@@ -250,4 +257,70 @@ int notos_exec(const char *path, const char *arguments) {
 }
 int notos_readdir(int fd, struct notos_directory_entry *entry) {
     return notos_checked(notos_raw_call(SYS_READDIR, (uint32_t)fd, (uint32_t)entry, 0));
+}
+int pipe2(int fds[2], int flags) {
+    if (flags & ~(O_NONBLOCK | O_CLOEXEC)) {errno = EINVAL; return -1;}
+    uint32_t wire = 0;
+    if (flags & O_NONBLOCK) wire |= NOTOS_O_NONBLOCK;
+    if (flags & O_CLOEXEC) wire |= NOTOS_O_CLOEXEC;
+    return notos_checked(notos_raw_call(SYS_PIPE, (uint32_t)fds, wire, 0));
+}
+int pipe(int fds[2]) {return pipe2(fds, 0);}
+pid_t waitpid(pid_t pid, int *status, int options) {
+    if (options & ~WNOHANG) {errno = EINVAL; return -1;}
+    uint32_t wire = (options & WNOHANG) ? NOTOS_WNOHANG : 0;
+    return (pid_t)notos_checked(notos_raw_call(SYS_WAIT, (uint32_t)pid, (uint32_t)status, wire));
+}
+pid_t wait(int *status) {return waitpid(-1, status, 0);}
+int kill(pid_t pid, int sig) {
+    return notos_checked(notos_raw_call(SYS_KILL, (uint32_t)pid, (uint32_t)sig, 0));
+}
+int notos_spawn(const char *path, char *const argv[], char *const envp[],
+    const struct notos_fd_map *fd_map, uint32_t fd_map_count, uint32_t flags) {
+    if (fd_map_count > 0xffffu || flags > 0xffffu) {errno = EINVAL; return -1;}
+    char *const *effective_envp = envp ? envp : environ;
+    uint32_t packed = (flags << 16) | (fd_map_count & 0xffffu);
+    return notos_checked(notos_raw_call5(SYS_SPAWN, (uint32_t)path, (uint32_t)argv,
+        (uint32_t)effective_envp, (uint32_t)fd_map, packed));
+}
+struct __posix_spawn_file_actions {
+    uint32_t count;
+    struct notos_fd_map entries[NOTOS_FD_MAP_MAX];
+};
+int posix_spawn_file_actions_init(posix_spawn_file_actions_t *actions) {
+    if (!actions) return EINVAL;
+    struct __posix_spawn_file_actions *p = calloc(1, sizeof(*p));
+    if (!p) return ENOMEM;
+    *actions = p;
+    return 0;
+}
+int posix_spawn_file_actions_destroy(posix_spawn_file_actions_t *actions) {
+    if (!actions || !*actions) return EINVAL;
+    free(*actions);
+    *actions = 0;
+    return 0;
+}
+int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *actions, int fd) {
+    if (!actions || !*actions) return EINVAL;
+    if (fd < 0 || fd >= (int)NOTOS_FD_MAP_MAX) return EBADF;
+    if ((*actions)->count >= NOTOS_FD_MAP_MAX) return ENOMEM;
+    (*actions)->entries[(*actions)->count++] = (struct notos_fd_map){fd, NOTOS_FD_MAP_CLOSE};
+    return 0;
+}
+int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t *actions, int fd, int newfd) {
+    if (!actions || !*actions) return EINVAL;
+    if (fd < 0 || fd >= (int)NOTOS_FD_MAP_MAX || newfd < 0 || newfd >= (int)NOTOS_FD_MAP_MAX) return EBADF;
+    if ((*actions)->count >= NOTOS_FD_MAP_MAX) return ENOMEM;
+    (*actions)->entries[(*actions)->count++] = (struct notos_fd_map){newfd, fd};
+    return 0;
+}
+int posix_spawn(pid_t *pid, const char *path, const posix_spawn_file_actions_t *actions,
+    const posix_spawnattr_t *attr, char *const argv[], char *const envp[]) {
+    if (attr && *attr) return ENOTSUP;
+    const struct notos_fd_map *map = (actions && *actions) ? (*actions)->entries : 0;
+    uint32_t count = (actions && *actions) ? (*actions)->count : 0;
+    int child = notos_spawn(path, argv, envp, map, count, 0);
+    if (child < 0) return errno;
+    if (pid) *pid = (pid_t)child;
+    return 0;
 }

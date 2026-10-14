@@ -55,10 +55,10 @@ Unknown syscall numbers return `-ENOSYS` (`-38`). `SYS_WRITE` validates the full
 buffer address range and PAE PDE/PTE permissions before dereferencing any user
 byte, returning `-EFAULT` (`-14`) for kernel, unmapped, or guard addresses and
 `-EINVAL` (`-22`) for lengths above 160 bytes. Additional syscalls for ELF VM
-(`6..9`), libc platform hooks (`10..13`), VFS (`14..25`, `37..42`), sockets/DNS
-(`26..35`), and `poll` (`36`) are documented in [ELF.md](ELF.md),
-[LIBC.md](LIBC.md), [VFS.md](VFS.md), [SOCKETS.md](SOCKETS.md), and
-[POLL.md](POLL.md).
+(`6..9`), libc platform hooks (`10..13`), VFS and pipes (`14..25`, `37..42`,
+`46`), sockets/DNS (`26..35`), `poll` (`36`), and process composition (`43..45`,
+`47`) are documented in [ELF.md](ELF.md), [LIBC.md](LIBC.md), [VFS.md](VFS.md),
+[SOCKETS.md](SOCKETS.md), [POLL.md](POLL.md), and [PROCESSES.md](PROCESSES.md).
 
 ## Fault Isolation & Diagnostic Commands
 

@@ -185,24 +185,38 @@ int space_copy_to_user(struct user_space *space,u32 address,const void *data,u32
     }
     return 1;
 }
-static int space_argument_stack(struct user_space *space,const char *const *values,u32 count) {
-    if (!space || !space->root) return 0;
-    u32 words[ARGUMENT_MAX_COUNT+5]={0},cursor=space->stack_top;
-    words[0]=count;
-    for (u32 i=0;i<count;i++) {
-        u32 bytes=length(values[i])+1;
+int space_stack_build(struct user_space *space,const char *const *argv,u32 argc,
+    const char *const *envp,u32 envc) {
+    if (!space || !space->root || !argc || argc>16u || envc>16u || !argv) return 0;
+    if (envc && !envp) return 0;
+    u32 words[37]={0},cursor=space->stack_top;
+    words[0]=argc;
+    for (u32 i=0;i<argc;i++) {
+        if (!argv[i]) return 0;
+        u32 bytes=length(argv[i])+1;
         if (cursor<space->stack_low || bytes>cursor-space->stack_low) return 0;
         cursor-=bytes;
-        if (!space_copy_to_user(space,cursor,values[i],bytes)) return 0;
+        if (!space_copy_to_user(space,cursor,argv[i],bytes)) return 0;
         words[i+1]=cursor;
     }
-    /* argc, argv pointers+NULL, empty envp, AT_NULL pair. */
-    u32 bytes=(count+5)*sizeof(u32);
+    for (u32 i=0;i<envc;i++) {
+        if (!envp[i]) return 0;
+        u32 bytes=length(envp[i])+1;
+        if (cursor<space->stack_low || bytes>cursor-space->stack_low) return 0;
+        cursor-=bytes;
+        if (!space_copy_to_user(space,cursor,envp[i],bytes)) return 0;
+        words[argc+2+i]=cursor;
+    }
+    /* argc, argv pointers+NULL, envp pointers+NULL, AT_NULL pair. */
+    u32 bytes=(argc+envc+5)*sizeof(u32);
     if (cursor<space->stack_low || bytes>cursor-space->stack_low) return 0;
     u32 stack=(cursor-bytes)&~15u;
     if (!space_copy_to_user(space,stack,words,bytes)) return 0;
     space->initial_stack=stack;
     return 1;
+}
+static int space_argument_stack(struct user_space *space,const char *const *values,u32 count) {
+    return space_stack_build(space,values,count,0,0);
 }
 int space_arguments(struct user_space *space,const char *name,const char *argument) {
     if (!name || !*name || length(name)>ARGUMENT_NAME_BYTES
