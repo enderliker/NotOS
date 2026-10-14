@@ -61,13 +61,13 @@ configuration change triggers a clean sysroot rebuild.
   `strtol`, `strtoll` (with overflow detection), `qsort`, `bsearch`, `environ`,
   `getenv`, `setenv`, and `unsetenv`.
 - **Standard I/O (`printf`, `snprintf`, `puts`, `fprintf`, `fopen`, `fread`,
-  `fwrite`, `fseek`, `fclose`)**: Configured for **integer and `long long`**
+  `fwrite`, `fseek`, `fclose`, `rename`)**: Configured for **integer and `long long`**
   formatting (no floating-point format specifiers). Transfers chunk I/O into
-  calls of up to 4096 bytes over VFS file descriptors (`tmpfs`, `NotFS v2`,
+  calls of up to 4096 bytes over VFS file descriptors (`tmpfs`, `NotFS v3`,
   `/system`, `/dev`, and pipes).
 - **Per-Process `errno`**: Private per-process global variable in each ELF's
   data segment. The NotOS syscall adapter translates negative kernel error codes
-  to Picolibc `errno` constants.
+  to Picolibc `errno` constants (including `EXDEV` for cross-filesystem `rename`).
 - **64-bit Time & Sleep**: 64-bit `time_t`, `time`, `gettimeofday`,
   `clock_gettime` (`CLOCK_REALTIME` and `CLOCK_MONOTONIC`), `clock_getres`, and
   `gmtime_r`. `nanosleep` and `sleep` suspend the calling process via `SYS_SLEEP`
@@ -80,8 +80,10 @@ configuration change triggers a clean sysroot rebuild.
   `posix_spawn_file_actions_destroy`, `posix_spawn_file_actions_adddup2`, and
   `posix_spawn_file_actions_addclose`), and `getentropy` (up to 256 bytes per
   call from the `fw_cfg`-seeded HMAC-DRBG; fails closed with `EIO` if unseeded).
-- **Directories & Execution**: `mkdir`, `rmdir`, `chdir`, `getcwd`,
-  `notos_readdir`, and `notos_exec` (`SYS_EXEC=37`).
+- **Directories, Metadata & Execution**: `mkdir`, `rmdir`, `rename`, `chdir`,
+  `getcwd`, `opendir`, `fdopendir`, `readdir`, `rewinddir`, `closedir`, `dirfd`,
+  `notos_readdir`, and `notos_exec` (`SYS_EXEC=37`). `stat`/`fstat` populate
+  `st_mtime` (64-bit UTC epoch seconds), `st_mode`, `st_uid`, and `st_gid`.
 - **Networking & Multiplexing**: BSD socket subset (`socket`, `connect`, `send`,
   `recv`, `shutdown`, `getsockopt`, `setsockopt`, `getsockname`, `getpeername`,
   `inet_pton`, `inet_ntop`, `getaddrinfo`, `freeaddrinfo`, `gai_strerror`),
@@ -104,6 +106,7 @@ configuration change triggers a clean sysroot rebuild.
 | `45` | `SYS_GETPPID` | — | Live parent PID or `0` |
 | `46` | `SYS_PIPE` | `fds_out[2]`, `flags` (`O_NONBLOCK \| O_CLOEXEC`) | `0` or negative error |
 | `47` | `SYS_KILL` | `pid`, `sig` (`0..31`) | `0` or negative error |
+| `48` | `SYS_RENAME` | `old_path`, `new_path` | `0` or negative error (`-ERROR_CROSS_DEVICE` across FS) |
 
 `SYS_TIME` writes a fixed 12-byte wire structure (`u32 seconds_low`,
 `u32 seconds_high`, `u32 nanoseconds`) using bytewise copy so unaligned user

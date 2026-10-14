@@ -4,9 +4,11 @@
 #include <string.h>
 #include "../kernel/fd.h"
 #include "../kernel/vfs.h"
+#include "../kernel/platform_tls.h"
 #include "../kernel/syscall_numbers.h"
 static unsigned char pages[64][4096] __attribute__((aligned(4096)));
 static int owned[64],fail_after=-1;
+int rtc_utc(struct utc_time *out) {*out=(struct utc_time){719528u+20089u,0};return 1;}
 u32 physical_alloc(void) {
     if (!fail_after) return 0;
     if (fail_after>0) fail_after--;
@@ -113,7 +115,16 @@ int main(void) {
     assert(fd_control(&a,d,NOTOS_F_SETFD,NOTOS_FD_CLOEXEC)==0 && fd_control(&a,f,NOTOS_F_GETFD,0)==0);
     assert(fd_control(&a,d,NOTOS_F_SETFL,NOTOS_O_APPEND)==0);
     assert(fd_seek(&a,f,0,NOTOS_SEEK_SET)==0 && fd_write(&a,f,"!",1)==1);
-    struct notos_file_info info;assert(fd_stat(&a,f,&info)==0&&info.size==7&&info.links==1);
+    struct notos_file_info info;assert(fd_stat(&a,f,&info)==0&&info.size==7&&info.links==1&&info.mtime==1735689600ULL);
+    assert(vfs_rename("/tmp/test","/disk/x")==-ERROR_CROSS_DEVICE);
+    assert(vfs_rename("/disk/sample","/tmp/x")==-ERROR_CROSS_DEVICE);
+    int victim=fd_open(&b,"/tmp/victim",NOTOS_O_CREAT|NOTOS_O_RDWR,0600);
+    assert(victim>=0 && fd_write(&b,victim,"old",3)==3);
+    assert(vfs_rename("/tmp/test","/tmp/victim")==0);
+    assert(vfs_stat("/tmp/test",&info)==-ERROR_NOT_FOUND);
+    assert(fd_stat(&b,victim,&info)==0 && info.links==0 && info.size==3);
+    assert(fd_close(&b,victim)==0);
+    assert(vfs_rename("/tmp/victim","/tmp/test")==0);
     assert(vfs_unlink("/tmp/test")==0 && vfs_stat("/tmp/test",&info)==-ERROR_NOT_FOUND);
     assert(fd_stat(&a,f,&info)==0&&info.links==0);
     assert(fd_close(&a,f)==0&&fd_close(&a,f)==-ERROR_BAD_FD);
@@ -162,7 +173,7 @@ int main(void) {
     fd_close(&a,pinned);
     test_pipes_and_spawn_fds(&a,&b);
     fd_table_destroy(&a);fd_table_destroy(&b);empty();
-    puts("PASS: tmpfs holes/truncate/unlink/quotas/OOM rollback, NotFS snapshots, private FDs/shared dup offsets, pipes, spawn FDs and stdin queues");
+    puts("PASS: tmpfs holes/truncate/unlink/rename/quotas/OOM rollback, NotFS snapshots, private FDs/shared dup offsets, pipes, spawn FDs and stdin queues");
 }
 
 /* This native unit isolates descriptor/VFS logic, not network correctness. */
@@ -178,7 +189,7 @@ const u8 *system_file_lookup(const char *path,u32 *bytes) {(void)path;(void)byte
 
 int fs_info(const char *name, struct notos_file_info *info) {
     if (strcmp(name,"sample")) return -ERROR_NOT_FOUND;
-    *info=(struct notos_file_info){256,6,NOTOS_FILE_REGULAR,1,0644};return 0;
+    *info=(struct notos_file_info){256,6,NOTOS_FILE_REGULAR,1,0644,0,0,1735689600ULL};return 0;
 }
 int fs_open_file(const char *name,u32 flags,u32 mode) {(void)flags;(void)mode;return strcmp(name,"sample")?-ERROR_NOT_FOUND:0;}
 int fs_read_range(const char *name,u32 offset,void *buffer,u32 bytes) {
@@ -188,5 +199,6 @@ int fs_read_range(const char *name,u32 offset,void *buffer,u32 bytes) {
 int fs_write_range(const char *name,u32 inode,u32 offset,const void *buffer,u32 bytes) {(void)name;(void)inode;(void)offset;(void)buffer;(void)bytes;return -ERROR_UNSUPPORTED;}
 int fs_truncate_file(const char *name,u32 inode,u32 bytes) {(void)name;(void)inode;(void)bytes;return -ERROR_UNSUPPORTED;}
 int fs_remove(const char *name,int directory) {(void)name;(void)directory;return -ERROR_UNSUPPORTED;}
+int fs_rename(const char *old_name,const char *new_name) {(void)old_name;(void)new_name;return -ERROR_UNSUPPORTED;}
 int fs_mkdir(const char *name,u32 mode) {(void)name;(void)mode;return -ERROR_UNSUPPORTED;}
 int fs_entry(const char *name,u32 index,char child[24],struct notos_file_info *info) {(void)name;(void)index;(void)child;(void)info;return 0;}

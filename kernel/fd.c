@@ -198,8 +198,9 @@ int fd_seek(struct fd_table *table,int fd,int offset,u32 origin) {
     else if (origin==NOTOS_SEEK_END) {struct notos_file_info info;vfs_node_info(file->node,&info);base=info.size;}
     else return -ERROR_INVALID_ARGUMENT;
     struct notos_file_info info;vfs_node_info(file->node,&info);
+    u32 limit=vfs_max_size(file->node);
     long long position=(long long)base+offset;
-    if (position<0 || position>(info.size>VFS_FILE_BYTES?info.size:VFS_FILE_BYTES)) return -ERROR_INVALID_ARGUMENT;
+    if (position<0 || position>(info.size>limit?info.size:limit)) return -ERROR_INVALID_ARGUMENT;
     file->offset=(u32)position;return (int)position;
 }
 int fd_truncate(struct fd_table *table,int fd,u32 bytes) {
@@ -211,14 +212,14 @@ int fd_truncate(struct fd_table *table,int fd,u32 bytes) {
 int fd_stat(struct fd_table *table,int fd,struct notos_file_info *result) {
     struct open_file *file=get(table,fd);if (!file) return -ERROR_BAD_FD;
     if (file->kind==FILE_REGULAR) vfs_node_info(file->node,result);
-    else if (file->kind==FILE_PIPE) *result=(struct notos_file_info){file->offset+8,pipes[file->offset].count,NOTOS_FILE_FIFO,1,0600};
-    else if (file->kind==FILE_SOCKET) *result=(struct notos_file_info){0,0,NOTOS_FILE_SOCKET,1,0600};
-    else *result=(struct notos_file_info){file->offset,0,NOTOS_FILE_CHARACTER,1,0666};
+    else if (file->kind==FILE_PIPE) *result=(struct notos_file_info){file->offset+8,pipes[file->offset].count,NOTOS_FILE_FIFO,1,0600,0,0,0};
+    else if (file->kind==FILE_SOCKET) *result=(struct notos_file_info){0,0,NOTOS_FILE_SOCKET,1,0600,0,0,0};
+    else *result=(struct notos_file_info){file->offset,0,NOTOS_FILE_CHARACTER,1,0666,0,0,0};
     return 0;
 }
 int fd_path_stat(const char *path,struct notos_file_info *result) {
     enum file_kind kind;u32 inode;
-    if (device(path,&kind,&inode)) {*result=(struct notos_file_info){inode,0,NOTOS_FILE_CHARACTER,1,0666};return 0;}
+    if (device(path,&kind,&inode)) {*result=(struct notos_file_info){inode,0,NOTOS_FILE_CHARACTER,1,0666,0,0,0};return 0;}
     return vfs_stat(path,result);
 }
 int fd_dup(struct fd_table *table,int fd,int destination) {

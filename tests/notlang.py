@@ -11,7 +11,7 @@ def execute(m,command,pid,status,output):
     for text in output: assert text.encode() in reply,reply
 
 with tempfile.TemporaryDirectory() as directory:
-    disk=Path(directory,'data.img');disk.write_bytes(bytes(128*1024))
+    disk=Path(directory,'data.img');disk.write_bytes(bytes(256*1024))
     with Machine(data_disk=disk,logname='notlang') as m:
         before=m.command('mem','\nnotos> ')
         free=re.search(rb'free_frames=(\d+)',before)[1]

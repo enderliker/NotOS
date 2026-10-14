@@ -18,6 +18,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <spawn.h>
+#include <dirent.h>
 static int constructed;
 static void before_main(void) __attribute__((constructor));
 static void before_main(void) {constructed=1;}
@@ -154,10 +155,26 @@ static void files(void) {
     CHECK(read(file,buffer,2)==2 && buffer[0]=='c' && !buffer[1]);
     CHECK(read(file,(void *)0x08000000,1)==-1 && errno==EFAULT && lseek(alias,0,SEEK_CUR)==4);
     CHECK(fstat(file,(struct stat *)0x08000000)==-1 && errno==EFAULT);
-    struct stat status;CHECK(!fstat(file,&status) && S_ISREG(status.st_mode) && status.st_size==7);
+    struct stat status;CHECK(!fstat(file,&status) && S_ISREG(status.st_mode) && status.st_size==7 && status.st_mtime>=946684800LL);
     CHECK(!isatty(file) && errno==ENOTTY);
     CHECK(!fcntl(alias,F_SETFL,O_RDWR|O_APPEND) && !lseek(file,0,SEEK_SET));
     CHECK(write(file,"!",1)==1 && lseek(alias,0,SEEK_CUR)==8);
+    char moved[48];CHECK(snprintf(moved,sizeof(moved),"/tmp/moved-%d",(int)getpid())>0);
+    CHECK(!rename(path,moved) && stat(path,&status)==-1 && errno==ENOENT);
+    CHECK(!stat(moved,&status) && status.st_size==8);
+    CHECK(rename(moved,"/disk/cross")== -1 && errno==EXDEV);
+    CHECK(!rename(moved,path) && !stat(path,&status) && status.st_size==8);
+    char dirpath[48],dirfile[48];
+    CHECK(snprintf(dirpath,sizeof(dirpath),"/tmp/dir-%d",(int)getpid())>0);
+    CHECK(snprintf(dirfile,sizeof(dirfile),"%s/item",dirpath)>0);
+    CHECK(!mkdir(dirpath,0755));
+    int dfd=open(dirfile,O_CREAT|O_WRONLY,0600);CHECK(dfd>=0 && !close(dfd));
+    DIR *dir=opendir(dirpath);CHECK(dir && dirfd(dir)>=0);
+    struct dirent *de=readdir(dir);CHECK(de && !strcmp(de->d_name,"item") && de->d_ino>0);
+    CHECK(!readdir(dir));
+    rewinddir(dir);
+    de=readdir(dir);CHECK(de && !strcmp(de->d_name,"item"));
+    CHECK(!closedir(dir) && !unlink(dirfile) && !rmdir(dirpath));
     CHECK(!unlink(path) && stat(path,&status)==-1 && errno==ENOENT);
     CHECK(!fstat(file,&status) && status.st_nlink==0);
     int replacement=open(path,O_CREAT|O_EXCL|O_RDWR,0600);CHECK(replacement==5);
@@ -211,8 +228,11 @@ static void disk_test(void) {
     char data[16]={0};CHECK(fread(data,1,9,file)==9 && !memcmp(data,"new-data!",9) && !fclose(file));
     int fd=open("/disk/hello.txt",O_RDONLY);CHECK(fd==3);
     CHECK(read(fd,data,9)==9 && !memcmp(data,"new-data!",9));
-    struct stat a,b;CHECK(!fstat(fd,&a) && !stat("/disk/hello.txt",&b) && a.st_ino==b.st_ino);
+    struct stat a,b;CHECK(!fstat(fd,&a) && !stat("/disk/hello.txt",&b) && a.st_ino==b.st_ino && a.st_mtime>=946684800LL && b.st_mtime==a.st_mtime);
     CHECK(!close(fd));
+    CHECK(!rename("/disk/hello.txt","/disk/moved.txt") && stat("/disk/hello.txt",&b)==-1 && errno==ENOENT);
+    CHECK(!stat("/disk/moved.txt",&b) && b.st_ino==a.st_ino && b.st_size==9);
+    CHECK(!rename("/disk/moved.txt","/disk/hello.txt"));
     fd=open("/disk/hello.txt",O_WRONLY);CHECK(fd==3 && !close(fd));
     puts("VFS: NotFS coherent reads/writable open PASS");
 }

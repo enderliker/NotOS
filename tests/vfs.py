@@ -76,7 +76,7 @@ for ram in ('16M','64M'):
         assert snapshot(m)==baseline
         print('PASS',ram,': binary stdio/FD isolation/dup/append/unlink/seek, blocked stdin/EOF, kill/fault reclamation and queue limits')
 with tempfile.TemporaryDirectory() as directory:
-    disk=Path(directory,'data.img');disk.write_bytes(bytes(512*256))
+    disk=Path(directory,'data.img');disk.write_bytes(bytes(256*1024))
     original=Path('build/notos.img').read_bytes()
     with Machine(data_disk=disk,logname='vfs-notfs') as m:
         m.command('mkfs','FS: formatted dedicated data disk\nnotos> ')

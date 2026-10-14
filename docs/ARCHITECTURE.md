@@ -11,7 +11,7 @@ responsibilities are strictly separated:
 | `scheduler_policy.*` | Pure round-robin selection logic (host-tested) | Touch hardware registers, I/O, or memory allocators |
 | `scheduler.*`, `process.*` | Batch and background task rotation, quantums, blocking waits, PIDs, and reaping | Allocate or free tasks inside IRQ handlers |
 | `syscall.*` | `INT 0x80` ABI, user buffer validation, and syscall dispatch | Implement shell commands |
-| `vfs.*`, `fd.*`, `fs.*`, `disk.*` | VFS nodes, open file descriptions, transactional NotFS v2, and ATA PIO | Interpret unvalidated user pointers or schedule tasks |
+| `vfs.*`, `fd.*`, `fs.*`, `disk.*` | VFS nodes, open file descriptions, transactional NotFS v3, and ATA PIO | Interpret unvalidated user pointers or schedule tasks |
 | `net.*`, `socket_stack.*`, `poll_wait.*`, `tls.*` | RTL8139 DMA, lwIP `NO_SYS=1` integration, `poll` readiness, and kernel TLS | Run inside IRQ context or bypass user buffer checks |
 | `user.*`, `multitask.*`, `*_command.*` | Shell commands, diagnostic demos, and test harnesses | Directly handle hardware interrupts |
 | `syscall_numbers.h`, `*_abi.h` | Wire constants and layouts shared between kernel, assembly, and user space | Expose C-only types to assembly (`.S`) |
@@ -97,7 +97,7 @@ a batch finishes or a background pulse yields back to the main event loop.
 
 ### VFS, File Descriptors, Sockets, and `poll`
 
-- `vfs.*` owns `tmpfs`, writable `NotFS v2`, `/system`, and `/dev` nodes; `fd.*`
+- `vfs.*` owns `tmpfs`, writable `NotFS v3`, `/system`, and `/dev` nodes; `fd.*`
   owns open file descriptions, reference counts, offsets/flags, and per-task
   256-byte `stdin` queues.
 - `socket_stack.*` wraps raw lwIP (`NO_SYS=1`) with 8 TCP endpoints and 4

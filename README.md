@@ -35,11 +35,11 @@ and are not part of the guest runtime.
 | User-space Libc | Static Picolibc 1.8.11, custom CRT, `sbrk` heap, integer `stdio`, private `errno`, 64-bit time, and `getentropy` | Ring 3 ELF suite, 4 concurrent processes, OOM preservation, `atexit`/stdio flush, and exact frame/heap recovery |
 | Ring 3 Isolation | Custom GDT/TSS, per-task private `CR3`, `INT 0x80` syscall gate, and validated user buffers | Real CPL3 execution, isolated virtual addresses, recoverable user faults, and CPU tick budget enforcement |
 | Process Waiting & Composition | `SYS_SLEEP`, `SYS_SPAWN` (`fd_map`/`envp`), `SYS_WAIT` (`WNOHANG`/zombies), `SYS_GETPPID`, `SYS_KILL`, and `TASK_BLOCKED` | 2-stage 16 KiB pipe pipelines, zombie/orphan reaping, kill of pipe/sleep/socket waiters, slot exhaustion (`EAGAIN`), and 32-bit clock wrap |
-| VFS, Pipes & File Descriptors | Writable `tmpfs` and `NotFS v2`, immutable `/system`, 4 KiB kernel pipes (`SYS_PIPE`), per-process FDs/cwd, directories, `dup`/`lseek`, and blocking `stdin` | Ring 3 binary stdio, pipe wrap/EOF/`EPIPE`/`poll`, quotas/OOM rollback, 4 concurrent writers/readers, `mkfs`/v1->v2 migration, and leak-free `kill`/fault cleanup |
+| VFS, Pipes & File Descriptors | Writable `tmpfs` and `NotFS v3`, immutable `/system`, 4 KiB kernel pipes (`SYS_PIPE`), per-process FDs/cwd, directories, `rename`, `dup`/`lseek`, and blocking `stdin` | Ring 3 binary stdio, pipe wrap/EOF/`EPIPE`/`poll`, atomic `rename`, `dirent`, quotas/OOM rollback, 4 concurrent writers/readers, `mkfs`/v1->v2->v3 migration, and leak-free `kill`/fault cleanup |
 | User-space Sockets | lwIP TCP/IPv4, partial BSD socket API, async DNS (`getaddrinfo`), and per-process blocking | 32 KiB binary streams, HTTP-to-tmpfs downloads, 4 concurrent clients, packet drops, `TIME_WAIT` recycling, and cancellation |
 | I/O Multiplexing | `poll` (up to 64 entries) and `select` adapter over sockets, pipes, files, and `stdin` | Multi-peer TCP/pipe/stdin readiness, relative/infinite timeouts, TX backpressure, 4 blocked waiters, and cancellation |
 | User-space `curl` | Upstream curl 8.11.1 HTTP/HTTPS in ring 3 linked with user-space MbedTLS 3.6.5 and Picolibc | Binary HTTP/HTTPS downloads & POST uploads, X.509/SAN/EKU checks, `--cacert`, DNS, timeouts, and VFS ELF download + `exec` |
-| Persistent Storage | 28-bit ATA PIO driver and dual-bank transactional `NotFS v2` on a dedicated data disk | Reboots, CRC corruption fallback, v1-to-v2 migration, mid-commit fault injection, and persistent directory/file CRUD |
+| Persistent Storage | 28-bit ATA PIO driver and dual-bank transactional `NotFS v3` on a dedicated data disk | Reboots, CRC corruption fallback, v1/v2-to-v3 migration, mid-commit fault injection, bounded inode recycling, and persistent directory/file CRUD |
 | Preemptive Multitasking | IRQ0 round-robin scheduler, four task slots, 16 KiB private kernel stacks, and `SYS_YIELD` | Register/flag preservation, mixed batches, 250-tick CPL3 budget, `#NM` FPU rejection, and OOM rollback |
 
 NotOS is an educational laboratory kernel and is not a general-purpose desktop
@@ -131,8 +131,9 @@ cat /tmp/page.txt
 cd /tmp
 pwd
 touch empty.txt
-stat empty.txt
-rm empty.txt
+mv empty.txt renamed.txt
+stat renamed.txt
+rm renamed.txt
 df
 feed 1 hello-vfs
 feed-eof 1
@@ -199,8 +200,9 @@ emulated RTL8139 NIC.
   diagnostic panic screen. No separate TSS for double faults.
 - **VFS & Storage**: 16 FDs per process, 64 global open file descriptions, 16
   anonymous 4 KiB kernel pipes, `tmpfs` (up to 64 KiB per file, 256 KiB total
-  RAM quota), and dual-bank transactional `NotFS v2` on the secondary IDE disk
-  (up to 24 nodes and 60 KiB total payload).
+  RAM quota), and dual-bank transactional `NotFS v3` on the secondary IDE disk
+  (up to 48 nodes and 88 KiB total payload, single-user stored `mode`/`uid`/`gid`
+  without permission enforcement).
 - **Networking & TLS**: Static `/24` IPv4 configuration, one active request at a
   time on the legacy kernel client, and up to eight user-space TCP endpoints and
   four concurrent DNS queries via lwIP. Strict TLS 1.2/1.3 and X.509 validation
@@ -208,7 +210,8 @@ emulated RTL8139 NIC.
   not bypass certificate validation).
 - **User-space Libc & `curl`**: Single-threaded static Picolibc 1.8.11 port with
   integer `stdio`, `sbrk` heap (up to 4 MiB per process), software `binary64`
-  helpers, `poll`/`select`, directory syscalls, `notos_exec` (`SYS_EXEC`),
+  helpers, `poll`/`select`, directory syscalls and `dirent` (`opendir`/`readdir`/
+  `closedir`/`rewinddir`), `rename` (`SYS_RENAME`), `notos_exec` (`SYS_EXEC`),
   `notos_spawn`/`posix_spawn` (`SYS_SPAWN`), `wait`/`waitpid` (`SYS_WAIT`),
   `pipe`/`pipe2` (`SYS_PIPE`), `kill` (`SYS_KILL`), and `environ`/`getenv`/`setenv`.
   Upstream `curl` 8.11.1 supports HTTP and HTTPS in ring 3 with default trust
@@ -223,7 +226,7 @@ emulated RTL8139 NIC.
 - [ELF32 Loader, Private VM, and `SYS_EXEC`](docs/ELF.md)
 - [User-Space C Library (Picolibc Port)](docs/LIBC.md)
 - [VFS, File Descriptors, and Directories](docs/VFS.md)
-- [Persistent Storage and NotFS v2](docs/STORAGE.md)
+- [Persistent Storage and NotFS v3](docs/STORAGE.md)
 - [User-Space TCP/IPv4 Sockets and DNS](docs/SOCKETS.md)
 - [I/O Multiplexing (`poll` and `select`)](docs/POLL.md)
 - [Physical Memory, PAE/NX Paging, and Heap](docs/MEMORY.md)

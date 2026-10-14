@@ -2,6 +2,15 @@
 
 ## Recently Completed Milestones
 
+- **NotFS v3, Atomic `rename`, `dirent` Wrappers, and Inode Recycling (M2)**:
+  Upgraded persistent disk storage to dual-bank `NotFS v3` (48 nodes, 88 KiB
+  payload, 96 KiB banks at 256-sector stride on a 256 KiB data disk, `mtime` via
+  UTC clock, and single-user stored `mode`/`uid`/`gid` without permission
+  enforcement) while retaining `v2` and `v1` read paths and safe `v2->v3` /
+  `v1->v3` bank-1 migration. Added `SYS_RENAME` (`48`, atomic within `/tmp` or
+  `/disk`, returning `ERROR_CROSS_DEVICE` / `EXDEV` across mounts), kernel shell
+  `mv`, bounded persistent inode recycling across `[256, 65535]`, and Picolibc
+  `opendir`/`fdopendir`/`readdir`/`closedir`/`rewinddir`/`dirfd` and `rename`.
 - **Process Composition & Anonymous Pipes (M1)**: Added `SYS_SPAWN` (`43`, with
   `argv`, `envp`, and explicit child `fd_map`), `SYS_WAIT` (`44`, blocking and
   `WNOHANG` with zombie reaping and orphan auto-reaping), `SYS_GETPPID` (`45`),
@@ -17,10 +26,6 @@
   preparation before commit, preserving PID, `cwd`, and open descriptors except
   `FD_CLOEXEC`. `spawn-elf PATH [ARGS]` launches ELF binaries from `/system`,
   `/tmp`, and `/disk`.
-- **Directories & Writable `NotFS v2`**: Real directories, per-process private
-  `cwd`, wire syscalls `mkdir`, `rmdir`, `chdir`, `getcwd`, and `readdir`,
-  writable dual-bank `NotFS v2` (24 nodes, 60 KiB payload), and safe `NotFS v1`
-  to `v2` migration preserving v1 banks until v2 is verified on disk.
 - **Shell Line Editing & Completion**: 8-entry circular command history, cursor
   editing (`Left`/`Right`/`Home`/`End`/`Backspace`/`Delete`), and `Tab`
   completion for commands and VFS paths across PS/2 and serial CSI/SS3 outside
@@ -31,29 +36,29 @@
 
 ## Next Planned Milestones
 
-1. **POSIX `dirent` Wrapper, Transactional `rename`, and Inode Recycling**:
-   - Layer standard `opendir`/`readdir`/`closedir` wrappers in libc over
-     `SYS_READDIR`, add atomic `rename` across `tmpfs` and `NotFS v2`, and add
-     bounded persistent inode recycling.
-2. **Configurable CPU Budgets & Storage Latency**:
-   - Refine per-process CPU budget policies across `SYS_EXEC` chains and reduce
-     timer/network latency during multi-sector ATA PIO flushes.
-3. **Quoted Shell Argument Parser & Job Control**:
-   - Add opt-in quoting/escaping and explicit foreground/background terminal
-     control without silently breaking the existing space-split argument
-     contract.
-4. **Extended TLS & HTTP Capabilities**:
-   - Support client certificates, explicit trust-store updates, `CApath`, and
-     optional HTTP/2 framing where needed by user-space applications.
-5. **Installable Disk Packages**:
-   - Package small standalone ring 3 ELF utilities for installation and execution
-     from `/disk`.
+1. **User-Space Shell (`/system/sh.elf`) & Quoted Argument Parser**:
+   - Add raw/no-echo mode on `stdin` via `SYS_FD_CONTROL`, pure shell parser
+     (`shell_parse_core.*`) for quoting, variable expansion, pipelines,
+     redirections, and background jobs, and an interactive ring 3 shell with
+     `line_core.*` editing and `Tab` completion.
+2. **Multi-Call User-Space Utilities (`/system/box.elf`) & Power Control**:
+   - Provide standard ring 3 file, text, process (`SYS_PROCESS_LIST`), and line
+     editor (`ed`) applets in `/system/box.elf`, plus `SYS_POWER` for clean
+     reboot, poweroff, and halt after flushing storage.
+3. **DHCP Network Configuration**:
+   - Enable lwIP DHCP client with 3-second boot discovery and deterministic
+     static fallback (`10.0.2.15/24`), shared network configuration state, and
+     configurable hostname (option 12).
+4. **Configurable CPU Budgets & Extended TLS Capabilities**:
+   - Refine per-process CPU budget policies and support client certificates,
+     explicit trust-store updates, and `CApath`.
 
 ## Current Architectural Boundaries
 
 NotOS intentionally retains bounded laboratory limits: 4 concurrent process
 slots, 8 TCP endpoints, 16 FDs per task, 64 global open file descriptions,
-256 KiB global `tmpfs` RAM quota, and 60 KiB `NotFS v2` disk payload. SMP,
-threads, hardware FPU/SSE, UEFI, verified physical hardware, kernel preemption,
-and full POSIX compliance are out of scope for the current architecture. There
-are no open `TODO` placeholders for incomplete functionality in the codebase.
+256 KiB global `tmpfs` RAM quota, and 88 KiB `NotFS v3` disk payload (48 nodes).
+SMP, threads, hardware FPU/SSE, UEFI, verified physical hardware, kernel
+preemption, and full POSIX compliance are out of scope for the current
+architecture. There are no open `TODO` placeholders for incomplete functionality
+in the codebase.

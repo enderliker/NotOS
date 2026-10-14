@@ -40,7 +40,7 @@ for memory in ('16M', '64M'):
 
 with tempfile.TemporaryDirectory() as directory:
     disk = Path(directory, 'data.img')
-    disk.write_bytes(bytes(128 * 1024))
+    disk.write_bytes(bytes(256 * 1024))
     boot = Path('build/notos.img').read_bytes()
     with Machine(data_disk=disk, logname='files-disk-create') as machine:
         command(machine, 'mkfs')

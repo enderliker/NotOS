@@ -32,6 +32,7 @@
 #define NOTOS_FILE_FIFO 5u
 struct notos_directory_entry { u32 inode, kind, size; char name[24]; };
 _Static_assert(sizeof(struct notos_directory_entry) == 36, "directory wire ABI");
-struct notos_file_info { u32 inode, size, kind, links, permissions; };
-_Static_assert(sizeof(struct notos_file_info)==20,"file stat wire ABI");
+struct notos_file_info { u32 inode, size, kind, links, permissions; u16 uid, gid; u64 mtime; };
+_Static_assert(sizeof(struct notos_file_info) == 32, "file stat wire ABI");
 #endif
+

@@ -79,7 +79,12 @@ static void file_write(const char *path, const char *text, int touch) {
     if (!touch) flags |= NOTOS_O_TRUNC;
     int error = vfs_open(path, flags, 0644, &node);
     if (error) { file_error(error); return; }
-    int result = touch ? 0 : vfs_write(node, 0, text, length(text));
+    int result = 0;
+    if (touch) {
+        struct notos_file_info info;
+        vfs_node_info(node, &info);
+        result = vfs_truncate(node, info.size);
+    } else result = vfs_write(node, 0, text, length(text));
     vfs_release(node);
     if (result < 0) file_error(result);
     else console_puts("FS: file updated\n");
@@ -113,7 +118,7 @@ static void file_space(void) {
     console_puts(" (tmpfs and unlinked disk handles)\nDF: /disk sectors=");
     console_uint(disk_sectors());
     console_puts(fs_ready() ? " mounted=1" : " mounted=0");
-    console_puts(" nodes_capacity=24 payload_bytes=61440 file_bytes_max=61440\n");
+    console_puts(" nodes_capacity=48 payload_bytes=90112 file_bytes_max=90112\n");
 }
 
 int file_command(const char *line) {

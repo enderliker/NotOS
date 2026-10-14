@@ -1,7 +1,18 @@
-# Handoff: Process Composition, Ring 3 HTTPS, VFS Execution, and Shell QoL
+# Handoff: NotFS v3, Atomic Rename, Process Composition, and Ring 3 HTTPS
 
 ## Current State & Recent Implementation
 
+- **NotFS v3, Atomic `rename`, `dirent` Wrappers, and Inode Recycling (M2)**:
+  Upgraded persistent disk storage to dual-bank `NotFS v3` (48 nodes, 88 KiB
+  payload, 96 KiB banks at 256-sector stride on a 256 KiB data disk, `mtime` via
+  UTC clock, and single-user stored `mode`/`uid`/`gid` without permission
+  enforcement) while retaining `v2` and `v1` read paths and safe `v2->v3` /
+  `v1->v3` bank-1 migration. Added `SYS_RENAME` (`48`, atomic within `/tmp` or
+  `/disk`, returning `ERROR_CROSS_DEVICE` / `EXDEV` across mounts), kernel shell
+  `mv`, bounded persistent inode recycling across `[256, 65535]`, and Picolibc
+  `opendir`/`fdopendir`/`readdir`/`closedir`/`rewinddir`/`dirfd` and `rename`.
+  See [docs/STORAGE.md](docs/STORAGE.md), [docs/VFS.md](docs/VFS.md), and
+  [docs/LIBC.md](docs/LIBC.md).
 - **Process Composition & Anonymous Pipes (M1)**: Added `SYS_SPAWN` (`43`,
   launching ELF binaries from `/system`, `/tmp`, or `/disk` with `argv`, `envp`,
   and an up to 16-entry `fd_map`), `SYS_WAIT` (`44`, blocking and `WNOHANG` wait
@@ -33,19 +44,21 @@
   `/tmp`, or `/disk` with space-separated arguments (up to 256 bytes, 16 `argv`
   entries, empty `envp`). See [docs/ELF.md](docs/ELF.md) and
   [docs/PROCESSES.md](docs/PROCESSES.md).
-- **Transactional `NotFS v2`**: Two 64 KiB banks (128 sectors each), up to 24
-  nodes and 60 KiB total payload, supporting directories, persistent user-space
-  writes, CRC32 validation, and `FLUSH` + readback verification before switching
-  the active bank. Automatically migrates valid `NotFS v1` volumes into the high
-  v2 bank first while preserving v1 sectors `0..65` until v2 is verified.
-  Persistent inode IDs are monotonic (`256..65535`). See
+- **Transactional `NotFS v3`**: Two 96 KiB banks (192 sectors each at a
+  256-sector stride on a 256 KiB data disk), up to 48 nodes and 88 KiB total
+  payload, supporting directories, persistent user-space writes, atomic
+  `rename`, `mtime`, stored single-user `mode`/`uid`/`gid`, CRC32 validation,
+  and `FLUSH` + readback verification before switching the active bank.
+  Automatically migrates valid `NotFS v2` and `NotFS v1` volumes into Bank 1
+  (`LBA 256..447`) first while preserving legacy banks until v3 is verified.
+  Persistent inode IDs wrap and recycle across `[256, 65535]`. See
   [docs/STORAGE.md](docs/STORAGE.md).
-- **VFS Directories & Coherency**: Supports `tmpfs` and `NotFS v2` directories,
+- **VFS Directories & Coherency**: Supports `tmpfs` and `NotFS v3` directories,
   per-process private `cwd`, and wire syscalls `mkdir`, `rmdir`, `chdir`,
-  `getcwd`, and `readdir`. Open `/disk` descriptors share coherent live nodes;
-  `unlink` snapshots file contents into RAM for open handles before committing
-  deletion; `mkfs` invalidates stale disk handles without touching the boot
-  drive. See [docs/VFS.md](docs/VFS.md).
+  `getcwd`, `readdir`, and `rename`. Open `/disk` descriptors share coherent live
+  nodes; `unlink` and overwriting `rename` snapshot file contents into RAM for
+  open handles before committing; `mkfs` invalidates stale disk handles without
+  touching the boot drive. See [docs/VFS.md](docs/VFS.md).
 - **Shell Line Editing**: 8-entry circular command history, cursor movement
   (`Left`, `Right`, `Home`, `End`, `Backspace`, `Delete`), and `Tab` completion
   for shell commands and VFS paths across both PS/2 keyboard and serial CSI/SS3
@@ -57,7 +70,7 @@
 - Four process slots (including unreaped `PROCESS_ZOMBIE` slots), eight TCP
   endpoints, 16 FDs per task, 64 global open file descriptions, 16 anonymous
   4 KiB kernel pipes, 64 KiB per `tmpfs` file (256 KiB global RAM quota), and
-  60 KiB `NotFS v2` payload.
+  88 KiB `NotFS v3` payload (48 nodes).
 - Default CPU budget is 250 CPL3 IRQ0 ticks per task (5-tick quantum); `/system/curl.elf`
   receives 2,500 ticks for TLS handshakes and X.509 parsing, and `SYS_EXEC` does
   not reset consumed ticks.
@@ -73,8 +86,9 @@
   a full clean rebuild matching CI.
 - All 23 native host unit test binaries (including `fs-unit`, `line-unit`,
   `vfs-unit`, `poll-unit`, `elf-unit`, `cert-unit`, and `float-unit` under
-  ASAN/UBSAN) and all 26 QEMU system test suites (including `tests/pipeline.py`)
-  pass (`make` and `make test`).
+  ASAN/UBSAN) and all 26 QEMU system test suites (including `tests/pipeline.py`,
+  `tests/storage.py`, `tests/files.py`, and `tests/vfs.py`) pass (`make` and
+  `make test`).
 - Upstream compiler warnings remain explicitly documented per policy: GCC warns
   on enum/bool conversions in curl's `transfer.c`, an unused function in curl's
   `url.c`, and `_set_tls` in Picolibc's `tls.c`. First-party code compiles

@@ -343,6 +343,14 @@ static struct interrupt_frame *kill_call(struct task *task,struct interrupt_fram
     frame->eax=(u32)process_kill((u32)pid,(u32)sig);
     return frame;
 }
+static void rename_call(struct task *task, struct interrupt_frame *frame) {
+    char old_path[NOTOS_PATH_BYTES], new_path[NOTOS_PATH_BYTES];
+    int error = copy_path(task, frame->ebx, old_path);
+    if (error) {frame->eax = (u32)error; return;}
+    error = copy_path(task, frame->ecx, new_path);
+    if (error) {frame->eax = (u32)error; return;}
+    frame->eax = (u32)vfs_rename(old_path, new_path);
+}
 
 struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     struct task *task = task_current();
@@ -358,6 +366,7 @@ struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     case SYS_GETPPID:frame->eax = process_getppid(task->id);break;
     case SYS_PIPE:pipe_call(task, frame);break;
     case SYS_KILL:return kill_call(task, frame);
+    case SYS_RENAME:rename_call(task, frame);break;
     case SYS_GETCWD:case SYS_READDIR:directory_call(task, frame);break;
     case SYS_POLL:return poll_wait_start(task,frame);
     case SYS_EXIT:

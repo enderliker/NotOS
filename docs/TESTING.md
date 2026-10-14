@@ -9,7 +9,7 @@
 | `make clean test` | Full clean rebuild and complete test suite (used by GitHub Actions CI) |
 | `make test-online` | Optional live internet tests against public DNS, HTTP, and HTTPS (`example.com`) |
 
-Native host unit tests for parsers, memory allocators, VFS, NotFS v2, shell line
+Native host unit tests for parsers, memory allocators, VFS, NotFS v3, shell line
 editing, `poll`, X.509 certificate policy, and software `binary64` arithmetic
 compile with **AddressSanitizer and UndefinedBehaviorSanitizer (`ASAN/UBSAN`)**.
 In QEMU integration suites, HTTP, TCP, DNS, and TLS servers run on the host only
@@ -242,4 +242,23 @@ QEMU 10.2.1/TCG):
   parent exit, `SYS_KILL` (`128 + sig` exit status) waking processes blocked on
   a pipe read, `sleep`, or socket read, 4-slot exhaustion returning `EAGAIN`,
   and exact physical frame, kernel heap, FD, pipe, and socket recovery.
+
+### Milestone 2: NotFS v3, Atomic `rename`, `dirent` Wrappers, and Inode Recycling
+
+Verified locally (`make` and `make test` with GCC 15.2.0, binutils 2.46, and
+QEMU 10.2.1/TCG):
+- `tests/fs_unit.c` and `tests/vfs_unit.c` (ASAN/UBSAN): Verify dual-bank
+  `NotFS v3` (48 nodes, 88 KiB payload, 96 KiB banks at 256-sector stride,
+  `mtime`, `mode`/`uid`/`gid`), `NotFS v2` and `v1` read paths, `v2->v3` and
+  `v1->v3` bank-1 migration preserving old banks under injected write/flush
+  faults, atomic `rename` with mid-commit fault rollback on `/disk`, cross-mount
+  `ERROR_CROSS_DEVICE` (`EXDEV`), cycle/ancestor rejection, open-FD snapshot
+  preservation when overwriting a destination file, and bounded persistent inode
+  recycling across `[256, 65535]`.
+- `tests/storage.py`, `tests/files.py`, and `tests/vfs.py` (16 MiB and 64 MiB
+  RAM): Verify `NotFS v2` to `NotFS v3` migration across QEMU reboots, 48-node
+  capacity, `mtime` and `mode` propagation in `stat`, kernel `mv` and ring 3
+  `rename()`/`EXDEV`, and Picolibc `opendir`/`readdir`/`rewinddir`/`closedir`
+  with concurrent writers/readers and leak-free fault/kill recovery.
+
 

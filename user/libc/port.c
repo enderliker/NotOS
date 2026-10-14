@@ -14,8 +14,10 @@
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <signal.h>
 #include <spawn.h>
+#include <dirent.h>
 #include <sys/wait.h>
 #define HEAP_BASE 0x08400000u
 #define HEAP_LIMIT 0x08800000u
@@ -38,6 +40,7 @@ static int translated_error(int error) {
     case ERROR_READ_ONLY:return EROFS;
     case ERROR_NAME_TOO_LONG:return ENAMETOOLONG;
     case ERROR_PERMISSION:return EPERM;
+    case ERROR_CROSS_DEVICE:return EXDEV;
     case ERROR_IO:return EIO;
     case ERROR_BAD_FD:return EBADF;
     case ERROR_MEMORY:return ENOMEM;
@@ -134,6 +137,10 @@ off_t lseek(int fd,off_t offset,int whence) {
 static void convert_stat(struct stat *status,const struct notos_file_info *info) {
     *status=(struct stat){0};
     status->st_ino=info->inode;status->st_nlink=info->links;status->st_size=info->size;
+    status->st_uid=info->uid;status->st_gid=info->gid;
+    status->st_mtime=(time_t)info->mtime;
+    status->st_atime=(time_t)info->mtime;
+    status->st_ctime=(time_t)info->mtime;
     status->st_mode=(info->kind==NOTOS_FILE_DIRECTORY?S_IFDIR:info->kind==NOTOS_FILE_REGULAR?S_IFREG:info->kind==NOTOS_FILE_SOCKET?S_IFSOCK:info->kind==NOTOS_FILE_FIFO?S_IFIFO:S_IFCHR)|info->permissions;
     status->st_blksize=4096;status->st_blocks=((info->size+4095)/4096)*8;
 }
@@ -155,6 +162,9 @@ int stat(const char *path,struct stat *status) {
     return result;
 }
 int unlink(const char *path) {return notos_checked(notos_raw_call(SYS_PATH_UNLINK,(uint32_t)path,0,0));}
+int rename(const char *old_path,const char *new_path) {
+    return notos_checked(notos_raw_call(SYS_RENAME,(uint32_t)old_path,(uint32_t)new_path,0));
+}
 int isatty(int fd) {
     int result=notos_checked(notos_raw_call(SYS_FD_ISATTY,(uint32_t)fd,0,0));
     if (result<0) return 0;
@@ -257,6 +267,62 @@ int notos_exec(const char *path, const char *arguments) {
 }
 int notos_readdir(int fd, struct notos_directory_entry *entry) {
     return notos_checked(notos_raw_call(SYS_READDIR, (uint32_t)fd, (uint32_t)entry, 0));
+}
+struct __notos_dir {
+    int fd;
+    struct dirent entry;
+};
+DIR *fdopendir(int fd) {
+    struct stat st;
+    if (fstat(fd, &st) != 0) return 0;
+    if (!S_ISDIR(st.st_mode)) {errno = ENOTDIR; return 0;}
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC) != 0) return 0;
+    DIR *dir = calloc(1, sizeof(*dir));
+    if (!dir) {errno = ENOMEM; return 0;}
+    dir->fd = fd;
+    return dir;
+}
+DIR *opendir(const char *path) {
+    if (!path) {errno = EINVAL; return 0;}
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0;
+    struct stat st;
+    if (fstat(fd, &st) != 0) {int saved = errno; close(fd); errno = saved; return 0;}
+    if (!S_ISDIR(st.st_mode)) {close(fd); errno = ENOTDIR; return 0;}
+    DIR *dir = calloc(1, sizeof(*dir));
+    if (!dir) {close(fd); errno = ENOMEM; return 0;}
+    dir->fd = fd;
+    return dir;
+}
+struct dirent *readdir(DIR *dir) {
+    if (!dir || dir->fd < 0) {errno = EBADF; return 0;}
+    struct notos_directory_entry raw;
+    int r = notos_readdir(dir->fd, &raw);
+    if (r <= 0) return 0;
+    dir->entry.d_ino = (ino_t)raw.inode;
+    dir->entry.d_type = raw.kind == NOTOS_FILE_DIRECTORY ? DT_DIR :
+        raw.kind == NOTOS_FILE_REGULAR ? DT_REG :
+        raw.kind == NOTOS_FILE_CHARACTER ? DT_CHR :
+        raw.kind == NOTOS_FILE_FIFO ? DT_FIFO :
+        raw.kind == NOTOS_FILE_SOCKET ? DT_SOCK : DT_UNKNOWN;
+    for (unsigned i = 0; i < sizeof(dir->entry.d_name); i++) dir->entry.d_name[i] = raw.name[i];
+    dir->entry.d_name[sizeof(dir->entry.d_name) - 1] = 0;
+    return &dir->entry;
+}
+void rewinddir(DIR *dir) {
+    if (!dir || dir->fd < 0) return;
+    lseek(dir->fd, 0, SEEK_SET);
+}
+int closedir(DIR *dir) {
+    if (!dir || dir->fd < 0) {errno = EBADF; return -1;}
+    int fd = dir->fd;
+    dir->fd = -1;
+    free(dir);
+    return close(fd);
+}
+int dirfd(DIR *dir) {
+    if (!dir || dir->fd < 0) {errno = EBADF; return -1;}
+    return dir->fd;
 }
 int pipe2(int fds[2], int flags) {
     if (flags & ~(O_NONBLOCK | O_CLOEXEC)) {errno = EINVAL; return -1;}

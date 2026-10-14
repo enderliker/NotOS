@@ -14,7 +14,7 @@ def data_drive(arguments):
     disk = Path(os.environ.get('NOTOS_DATA_DISK', 'data.img'))
     try:
         with disk.open('xb') as image:
-            image.truncate(128 * 1024)
+            image.truncate(256 * 1024)
     except FileExistsError:
         pass
     return ['-drive', f'if=ide,index=1,format=raw,file={disk}']

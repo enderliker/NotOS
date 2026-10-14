@@ -50,7 +50,7 @@ class ELFHandler(socketserver.BaseRequestHandler):
         body=Path('build/libc-app.elf').read_bytes()
         self.request.sendall(b'HTTP/1.0 200 OK\r\nContent-Length: '+str(len(body)).encode()+b'\r\n\r\n'+body)
 with tempfile.TemporaryDirectory() as directory:
-    disk=Path(directory,'data.img');disk.write_bytes(bytes(128*1024))
+    disk=Path(directory,'data.img');disk.write_bytes(bytes(256*1024))
     boot=Path('build/notos.img').read_bytes()
     with socketserver.ThreadingTCPServer(('127.0.0.1',0),ELFHandler) as peer:
         thread=threading.Thread(target=peer.serve_forever,daemon=True);thread.start()

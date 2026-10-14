@@ -3,17 +3,24 @@
 #include "system_file.h"
 #include "physical.h"
 #include "fs.h"
+#include "platform_tls.h"
 #include "syscall_numbers.h"
 #define NODE_NAME_BYTES NOTOS_PATH_BYTES
-#define NODE_PAGES (VFS_FILE_BYTES/4096u)
+#define NODE_PAGES (FS_FILE_MAX/4096u)
 struct vfs_node {
     u32 used,disk,linked,references,inode,size,permissions,kind;
+    u16 uid,gid;
+    u64 mtime;
     char name[NODE_NAME_BYTES];
     const u8 *image;
     u32 pages[NODE_PAGES];
 };
 static struct vfs_node nodes[VFS_NODE_COUNT];
 static u32 page_count,next_inode=16;
+static u64 current_mtime(void) {
+    struct utc_time utc;
+    return rtc_utc(&utc) && utc.days >= 719528u ? (u64)(utc.days - 719528u) * 86400u + utc.seconds : 0;
+}
 static void copy(void *destination,const void *source,u32 bytes) {
     u8 *d=destination;const u8 *s=source;
     while (bytes--) *d++=*s++;
@@ -86,8 +93,13 @@ static u32 allocate_inode(void) {
     }
     return 0;
 }
+u32 vfs_max_size(const struct vfs_node *node) {
+    if (node && node->disk == 1 && !node->image && node->linked) return FS_FILE_MAX;
+    return VFS_FILE_BYTES;
+}
 void vfs_node_info(const struct vfs_node *node,struct notos_file_info *result) {
-    *result=(struct notos_file_info){node->inode,node->size,node->kind,node->linked,node->permissions};
+    *result=(struct notos_file_info){node->inode,node->size,node->kind,node->linked,
+        node->permissions,node->uid,node->gid,node->mtime};
     if (node->disk == 1 && !node->image && node->linked) {
         struct notos_file_info current;
         if (!fs_info(node->name, &current) && current.inode == node->inode) *result = current;
@@ -130,7 +142,7 @@ int vfs_open(const char *path,u32 flags,u32 mode,struct vfs_node **result) {
             return 0;
         }
         for (u32 i = 0; i < VFS_NODE_COUNT; i++) if (!nodes[i].used) {
-            nodes[i] = (struct vfs_node){.used=1,.disk=2,.linked=1,.references=1,.inode=directory.inode,.kind=NOTOS_FILE_DIRECTORY,.permissions=directory.permissions};
+            nodes[i] = (struct vfs_node){.used=1,.disk=2,.linked=1,.references=1,.inode=directory.inode,.kind=NOTOS_FILE_DIRECTORY,.permissions=directory.permissions,.uid=directory.uid,.gid=directory.gid,.mtime=directory.mtime};
             copy(nodes[i].name, path, length(path) + 1);
             *result = &nodes[i];
             return 0;
@@ -171,7 +183,7 @@ int vfs_open(const char *path,u32 flags,u32 mode,struct vfs_node **result) {
         u32 inode=disk?256u:allocate_inode();
         if (!inode) return -ERROR_NO_SPACE;
         *node=(struct vfs_node){.used=1,.disk=(u32)disk,.linked=1,.inode=inode,
-            .permissions=mode&0777u,.kind=NOTOS_FILE_REGULAR};
+            .permissions=mode&0777u,.kind=NOTOS_FILE_REGULAR,.mtime=current_mtime()};
         copy(node->name,name,length(name)+1);
         if (disk) {
             error = fs_open_file(name, flags, mode);
@@ -181,11 +193,19 @@ int vfs_open(const char *path,u32 flags,u32 mode,struct vfs_node **result) {
             node->inode = info.inode;
             node->size = info.size;
             node->permissions = info.permissions;
+            node->uid = info.uid;
+            node->gid = info.gid;
+            node->mtime = info.mtime;
         }
     }
     if (disk && !created) {
         error = fs_open_file(name, flags, mode);
         if (error) return error;
+        struct notos_file_info info;
+        if (!fs_info(name, &info)) {
+            node->size = info.size;
+            node->mtime = info.mtime;
+        }
     }
     if (!disk && (flags&NOTOS_O_TRUNC)) {
         error=vfs_truncate(node,0);
@@ -228,6 +248,7 @@ int vfs_write(struct vfs_node *node,u32 offset,const void *buffer,u32 bytes) {
         done+=chunk;
     }
     if (offset+bytes>node->size) node->size=offset+bytes;
+    node->mtime = current_mtime();
     return (int)bytes;
 }
 int vfs_truncate(struct vfs_node *node,u32 bytes) {
@@ -243,7 +264,9 @@ int vfs_truncate(struct vfs_node *node,u32 bytes) {
         }
         if (bytes&4095) for (u32 i=bytes&4095;i<4096;i++) page_bytes(node->pages[bytes/4096])[i]=0;
     }
-    node->size=bytes;return 0;
+    node->size=bytes;
+    node->mtime=current_mtime();
+    return 0;
 }
 int vfs_unlink(const char *path) {
     if (starts(path, "/system/") || starts(path, "/dev/")) return -ERROR_READ_ONLY;
@@ -276,6 +299,9 @@ int vfs_unlink(const char *path) {
         if (opened) {
             copy(opened->pages, snapshot.pages, sizeof(snapshot.pages));
             opened->size = info.size;
+            opened->uid = info.uid;
+            opened->gid = info.gid;
+            opened->mtime = info.mtime;
             opened->linked = 0;
         }
         return 0;
@@ -285,15 +311,143 @@ int vfs_unlink(const char *path) {
     node->linked=0;if (!node->references) dispose(node);
     return 0;
 }
+int vfs_rename(const char *old_path,const char *new_path) {
+    if (!old_path || !new_path) return -ERROR_INVALID_ARGUMENT;
+    if (equal(old_path, "/") || equal(old_path, "/tmp") || equal(old_path, "/disk")
+        || equal(new_path, "/") || equal(new_path, "/tmp") || equal(new_path, "/disk")) return -ERROR_ACCESS;
+    if (equal(old_path, "/system") || starts(old_path, "/system/") || equal(old_path, "/dev") || starts(old_path, "/dev/")
+        || equal(new_path, "/system") || starts(new_path, "/system/") || equal(new_path, "/dev") || starts(new_path, "/dev/"))
+        return -ERROR_READ_ONLY;
+    int old_disk, new_disk;
+    const char *old_name, *new_name;
+    int error = path_name(old_path, &old_disk, &old_name);
+    if (error) return error;
+    error = path_name(new_path, &new_disk, &new_name);
+    if (error) return error;
+    struct notos_file_info old_info;
+    error = vfs_stat(old_path, &old_info);
+    if (error) return error;
+    if (old_disk != new_disk) return -ERROR_CROSS_DEVICE;
+    if (equal(old_name, new_name)) return 0;
+    u32 old_len = length(old_name), new_len = length(new_name);
+    if (starts(new_name, old_name) && new_name[old_len] == '/') return -ERROR_INVALID_ARGUMENT;
+    char parent[NOTOS_PATH_BYTES];
+    copy(parent, new_path, length(new_path) + 1);
+    u32 end = length(parent);
+    while (end && parent[end - 1] != '/') end--;
+    parent[end > 1 ? end - 1 : 1] = 0;
+    struct notos_file_info parent_info;
+    error = vfs_stat(parent, &parent_info);
+    if (error) return error;
+    if (parent_info.kind != NOTOS_FILE_DIRECTORY) return -ERROR_NOT_DIRECTORY;
+    if (old_disk) {
+        u32 old_path_len = length(old_path), new_path_len = length(new_path);
+        for (u32 i = 0; i < VFS_NODE_COUNT; i++) {
+            if (!nodes[i].used || nodes[i].disk != 2 || !nodes[i].linked) continue;
+            if (equal(nodes[i].name, old_path) || (starts(nodes[i].name, old_path) && nodes[i].name[old_path_len] == '/')) {
+                u32 suffix = length(nodes[i].name) - old_path_len;
+                if (new_path_len + suffix >= NODE_NAME_BYTES) return -ERROR_NAME_TOO_LONG;
+            }
+        }
+        struct notos_file_info new_info = {0};
+        int has_dst = (fs_info(new_name, &new_info) == 0);
+        struct vfs_node *opened_dst = 0;
+        if (has_dst && new_info.kind != NOTOS_FILE_DIRECTORY && new_info.inode != old_info.inode) {
+            for (u32 i = 0; i < VFS_NODE_COUNT; i++) if (nodes[i].used && nodes[i].disk == 1
+                && !nodes[i].image && nodes[i].linked && nodes[i].inode == new_info.inode) opened_dst = &nodes[i];
+        }
+        struct vfs_node snapshot = {0};
+        if (opened_dst) {
+            error = reserve(&snapshot, new_info.size);
+            if (error) return error;
+            for (u32 offset = 0; offset < new_info.size; offset += 4096) {
+                u32 bytes = new_info.size - offset;
+                if (bytes > 4096) bytes = 4096;
+                if (fs_read_range(new_name, offset, page_bytes(snapshot.pages[offset / 4096]), bytes) != (int)bytes) {
+                    dispose(&snapshot); return -ERROR_IO;
+                }
+            }
+        }
+        error = fs_rename(old_name, new_name);
+        if (error) {dispose(&snapshot); return error;}
+        if (opened_dst) {
+            copy(opened_dst->pages, snapshot.pages, sizeof(snapshot.pages));
+            opened_dst->size = new_info.size;
+            opened_dst->uid = new_info.uid;
+            opened_dst->gid = new_info.gid;
+            opened_dst->mtime = new_info.mtime;
+            opened_dst->linked = 0;
+        }
+        if (has_dst && new_info.inode != old_info.inode) {
+            for (u32 i = 0; i < VFS_NODE_COUNT; i++)
+                if (nodes[i].used && nodes[i].disk == 2 && nodes[i].linked && nodes[i].inode == new_info.inode) nodes[i].linked = 0;
+        }
+        for (u32 i = 0; i < VFS_NODE_COUNT; i++) {
+            if (!nodes[i].used || !nodes[i].linked) continue;
+            if (nodes[i].disk == 1 && !nodes[i].image) {
+                if (equal(nodes[i].name, old_name) || (starts(nodes[i].name, old_name) && nodes[i].name[old_len] == '/')) {
+                    char updated[NODE_NAME_BYTES];
+                    u32 suffix = length(nodes[i].name) - old_len;
+                    copy(updated, new_name, new_len);
+                    copy(updated + new_len, nodes[i].name + old_len, suffix + 1);
+                    copy(nodes[i].name, updated, new_len + suffix + 1);
+                }
+            } else if (nodes[i].disk == 2) {
+                if (equal(nodes[i].name, old_path) || (starts(nodes[i].name, old_path) && nodes[i].name[old_path_len] == '/')) {
+                    char updated[NODE_NAME_BYTES];
+                    u32 suffix = length(nodes[i].name) - old_path_len;
+                    copy(updated, new_path, new_path_len);
+                    copy(updated + new_path_len, nodes[i].name + old_path_len, suffix + 1);
+                    copy(nodes[i].name, updated, new_path_len + suffix + 1);
+                }
+            }
+        }
+        return 0;
+    }
+    struct vfs_node *src = find(old_name);
+    if (!src) return -ERROR_NOT_FOUND;
+    for (u32 i = 0; i < VFS_NODE_COUNT; i++) {
+        if (!nodes[i].used || nodes[i].disk || !nodes[i].linked) continue;
+        if (equal(nodes[i].name, old_name) || (starts(nodes[i].name, old_name) && nodes[i].name[old_len] == '/')) {
+            u32 suffix = length(nodes[i].name) - old_len;
+            if (new_len + suffix >= NODE_NAME_BYTES) return -ERROR_NAME_TOO_LONG;
+        }
+    }
+    struct vfs_node *dst = find(new_name);
+    if (dst) {
+        if (src->kind == NOTOS_FILE_DIRECTORY && dst->kind != NOTOS_FILE_DIRECTORY) return -ERROR_NOT_DIRECTORY;
+        if (src->kind != NOTOS_FILE_DIRECTORY && dst->kind == NOTOS_FILE_DIRECTORY) return -ERROR_IS_DIRECTORY;
+        if (dst->kind == NOTOS_FILE_DIRECTORY) {
+            for (u32 i = 0; i < VFS_NODE_COUNT; i++) {
+                if (!nodes[i].used || nodes[i].disk || !nodes[i].linked) continue;
+                if (starts(nodes[i].name, new_name) && nodes[i].name[new_len] == '/') return -ERROR_NOT_EMPTY;
+            }
+        }
+        dst->linked = 0;
+        if (!dst->references) dispose(dst);
+    }
+    for (u32 i = 0; i < VFS_NODE_COUNT; i++) {
+        if (!nodes[i].used || nodes[i].disk || !nodes[i].linked) continue;
+        if (equal(nodes[i].name, old_name) || (starts(nodes[i].name, old_name) && nodes[i].name[old_len] == '/')) {
+            char updated[NODE_NAME_BYTES];
+            u32 suffix = length(nodes[i].name) - old_len;
+            copy(updated, new_name, new_len);
+            copy(updated + new_len, nodes[i].name + old_len, suffix + 1);
+            copy(nodes[i].name, updated, new_len + suffix + 1);
+        }
+    }
+    src->mtime = current_mtime();
+    return 0;
+}
 int vfs_stat(const char *path,struct notos_file_info *result) {
     const char *roots[] = {"/", "/tmp", "/disk", "/dev", "/system"};
     for (u32 i = 0; i < 5; i++) if (equal(path, roots[i])) {
-        *result = (struct notos_file_info){8 + i,0,NOTOS_FILE_DIRECTORY,1,0755};
+        *result = (struct notos_file_info){8 + i,0,NOTOS_FILE_DIRECTORY,1,0755,0,0,0};
         return 0;
     }
     u32 image_bytes;
     if (system_file_lookup(path, &image_bytes)) {
-        *result = (struct notos_file_info){equal(path,"/system/cacert.pem")?6u:equal(path,"/system/libc.elf")?13u:14u,image_bytes,NOTOS_FILE_REGULAR,1,0444};
+        *result = (struct notos_file_info){equal(path,"/system/cacert.pem")?6u:equal(path,"/system/libc.elf")?13u:14u,image_bytes,NOTOS_FILE_REGULAR,1,0444,0,0,0};
         return 0;
     }
     int disk;const char *name;int error=path_name(path,&disk,&name);
@@ -349,7 +503,7 @@ int vfs_mkdir(const char *path, u32 mode) {
     for (u32 i = 0; i < VFS_NODE_COUNT; i++) if (!nodes[i].used) {
         u32 inode = allocate_inode();
         if (!inode) return -ERROR_NO_SPACE;
-        nodes[i] = (struct vfs_node){.used=1,.linked=1,.inode=inode,.kind=NOTOS_FILE_DIRECTORY,.permissions=mode & 0777};
+        nodes[i] = (struct vfs_node){.used=1,.linked=1,.inode=inode,.kind=NOTOS_FILE_DIRECTORY,.permissions=mode & 0777,.mtime=current_mtime()};
         copy(nodes[i].name, name, length(name) + 1);
         return 0;
     }

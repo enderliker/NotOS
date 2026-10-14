@@ -13,8 +13,10 @@ int vfs_read(struct vfs_node *node,u32 offset,void *buffer,u32 bytes);
 int vfs_write(struct vfs_node *node,u32 offset,const void *buffer,u32 bytes);
 int vfs_truncate(struct vfs_node *node,u32 bytes);
 int vfs_unlink(const char *path);
+int vfs_rename(const char *old_path,const char *new_path);
 int vfs_stat(const char *path,struct notos_file_info *result);
 void vfs_node_info(const struct vfs_node *node,struct notos_file_info *result);
+u32 vfs_max_size(const struct vfs_node *node);
 /* Copy a linked tmpfs entry by slot; return 1 for present, 0 for absent. */
 int vfs_entry(u32 index, char name[24], u32 *bytes);
 int vfs_mkdir(const char *path, u32 mode);
