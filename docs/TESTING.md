@@ -5,7 +5,7 @@
 | Command | Coverage |
 | --- | --- |
 | `make` | Builds `build/notos.img` and test fixture images with pinned dependencies |
-| `make test` | Runs all 24 native C unit tests and 27 full-system QEMU integration suites |
+| `make test` | Runs all 24 native C unit tests and 28 full-system QEMU integration suites |
 | `make clean test` | Full clean rebuild and complete test suite (used by GitHub Actions CI) |
 | `make test-online` | Optional live internet tests against public DNS, HTTP, and HTTPS (`example.com`) |
 
@@ -279,3 +279,16 @@ Verified locally (`make clean test` with GCC 15.2.0, binutils 2.46, and QEMU
   closure (`NOTOS_SPAWN_FD_CLOSE`), 4-slot exhaustion recovery, and interactive
   raw-mode `line_core` editing (`Tab` completion, cursor movement, and `Up`
   history recall) with exact frame/heap/VFS/FD restoration.
+
+### Milestone 4: Multi-Call User Utilities (`/system/box.elf`), `ed`, and `SYS_PROCESS_LIST`
+
+Verified locally (`make clean test` with GCC 15.2.0, binutils 2.46, and QEMU
+10.2.1/TCG):
+- `tests/utilities.py`: Exercises `/system/box.elf` invoked directly and via
+  `/system/sh.elf` applet resolution across all 24 applets (`echo`, `cat`, `ls`,
+  `cp`, `mv`, `rm`, `mkdir`, `rmdir`, `touch`, `head`, `tail`, `wc`, `grep` with
+  `-v`/`-n`/`-i`, `env`, `kill`, `ps` over `SYS_PROCESS_LIST = 49`, `sleep`,
+  `date`, `uptime`, `true`, `false`, `reboot`, `poweroff`, and the `ed` line
+  editor with `a`, `i`, `c`, `d`, `p`, `n`, `=`, `w`, `q`, and line addresses),
+  verifying byte-exact `cp` and `mv` (including cross-filesystem `/tmp` <->
+  `/disk` fallback) and exact kernel resource restoration.

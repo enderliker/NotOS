@@ -546,12 +546,12 @@ int vfs_directory_entry(const char *path, u32 index, struct notos_directory_entr
     *entry = (struct notos_directory_entry){0};
     const char *root[] = {"tmp", "disk", "dev", "system"};
     const char *devices[] = {"stdin", "stdout", "stderr", "console", "null"};
-    const char *images[] = {"cacert.pem", "libc.elf", "curl.elf", "sh.elf"};
+    const char *images[] = {"cacert.pem", "libc.elf", "curl.elf", "sh.elf", "box.elf"};
     const char **names = 0;
     u32 count = 0;
     if (equal(path, "/")) {names = root; count = 4;}
     else if (equal(path, "/dev")) {names = devices; count = 5;}
-    else if (equal(path, "/system")) {names = images; count = 4;}
+    else if (equal(path, "/system")) {names = images; count = 5;}
     if (names) {
         if (index >= count) return 0;
         copy(entry->name, names[index], length(names[index]) + 1);

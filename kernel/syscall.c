@@ -351,6 +351,29 @@ static void rename_call(struct task *task, struct interrupt_frame *frame) {
     if (error) {frame->eax = (u32)error; return;}
     frame->eax = (u32)vfs_rename(old_path, new_path);
 }
+static void list_processes(struct task *task, struct interrupt_frame *frame) {
+    u32 address = frame->ebx, capacity = frame->ecx;
+    if (capacity > 64u) {frame->eax = (u32)-ERROR_INVALID_ARGUMENT; return;}
+    if (!capacity) {
+        if (address) {frame->eax = (u32)-ERROR_INVALID_ARGUMENT; return;}
+        frame->eax = process_list(0, 0);
+        return;
+    }
+    u32 bytes = capacity * (u32)sizeof(struct notos_process_info);
+    if (!address || !space_range(&task->space, address, bytes, 1)) {
+        frame->eax = (u32)-ERROR_BAD_ADDRESS;
+        return;
+    }
+    struct notos_process_info entries[SCHEDULER_CAPACITY] = {0};
+    u32 limit = capacity < SCHEDULER_CAPACITY ? capacity : SCHEDULER_CAPACITY;
+    u32 total = process_list(entries, limit);
+    u32 copied = total < limit ? total : limit;
+    if (copied && !space_copy_to_user(&task->space, address, entries, copied * (u32)sizeof(entries[0]))) {
+        frame->eax = (u32)-ERROR_BAD_ADDRESS;
+        return;
+    }
+    frame->eax = copied;
+}
 
 struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     struct task *task = task_current();
@@ -367,6 +390,7 @@ struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     case SYS_PIPE:pipe_call(task, frame);break;
     case SYS_KILL:return kill_call(task, frame);
     case SYS_RENAME:rename_call(task, frame);break;
+    case SYS_PROCESS_LIST:list_processes(task, frame);break;
     case SYS_GETCWD:case SYS_READDIR:directory_call(task, frame);break;
     case SYS_POLL:return poll_wait_start(task,frame);
     case SYS_EXIT:

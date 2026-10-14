@@ -81,6 +81,11 @@ int process_spawn_user(struct task *parent,const char *path,const char *const *a
     const char *name=path;
     for (const char *p=path;*p;p++) if (*p=='/') name=p+1;
     if (!*name || length(name)>=PROCESS_NAME_BYTES) return -ERROR_NAME_TOO_LONG;
+    if (argv[0]) {
+        const char *arg0=argv[0];
+        for (const char *p=argv[0];*p;p++) if (*p=='/') arg0=p+1;
+        if (*arg0 && length(arg0)<PROCESS_NAME_BYTES) name=arg0;
+    }
     struct executable_image image;
     int error=executable_open(path,&image);
     if (error) return error;
@@ -122,6 +127,7 @@ int process_wait_try(u32 parent_id,int target_pid,u32 flags,u32 *status_out) {
         if (slots[i].zombie_id && (target_pid==-1 || slots[i].zombie_id==(u32)target_pid)) {
             u32 reaped=slots[i].zombie_id;
             if (status_out) *status_out=slots[i].zombie_status;
+            slots[i].name[0]=0;
             slots[i].parent_id=slots[i].zombie_id=slots[i].zombie_status=0;
             return (int)reaped;
         }
@@ -203,10 +209,10 @@ static void collect(struct process_slot *slot) {
         console_puts(" cr2=");console_uint(slot->task.result.fault_address);console_putc('\n');
     }
     if (!task_destroy(&slot->task)) console_puts("PROCESS ERROR: resource cleanup failed\n");
-    slot->name[0] = 0;
     /* Orphan live children and immediately reap any uncollected zombie children. */
     for (unsigned i = 0; i < SCHEDULER_CAPACITY; i++) {
         if (slots[i].parent_id == id) {
+            if (slots[i].zombie_id) slots[i].name[0] = 0;
             slots[i].parent_id = 0;
             slots[i].zombie_id = 0;
             slots[i].zombie_status = 0;
@@ -221,6 +227,7 @@ static void collect(struct process_slot *slot) {
         slot->zombie_id = id;
         slot->zombie_status = status;
     } else {
+        slot->name[0] = 0;
         slot->parent_id = 0;
         slot->zombie_id = 0;
         slot->zombie_status = 0;
@@ -242,6 +249,38 @@ int process_kill(u32 pid,u32 sig) {
         }
     }
     return -ERROR_NO_PROCESS;
+}
+u32 process_list(struct notos_process_info *entries,u32 capacity) {
+    u32 count=0;
+    for (unsigned i=0;i<SCHEDULER_CAPACITY;i++) {
+        const struct process_slot *slot=&slots[i];
+        if (slot_unused(slot)) continue;
+        if (entries && count<capacity) {
+            struct notos_process_info info={0};
+            if (slot->task.state==TASK_UNUSED) {
+                info.pid=slot->zombie_id;
+                info.ppid=slot->parent_id;
+                info.state=NOTOS_PROCESS_STATE_ZOMBIE;
+            } else {
+                info.pid=slot->task.id;
+                info.ppid=process_getppid(slot->task.id);
+                info.state=(&slot->task==task_current())?NOTOS_PROCESS_STATE_RUNNING:
+                    slot->task.state==TASK_BLOCKED?NOTOS_PROCESS_STATE_BLOCKED:NOTOS_PROCESS_STATE_READY;
+                if (slot->task.state==TASK_BLOCKED) {
+                    info.wait_kind=slot->task.wait_kind==TASK_WAIT_INPUT?NOTOS_PROCESS_WAIT_INPUT:
+                        slot->task.wait_kind==TASK_WAIT_OUTPUT?NOTOS_PROCESS_WAIT_OUTPUT:
+                        slot->task.wait_kind==TASK_WAIT_CHILD?NOTOS_PROCESS_WAIT_CHILD:
+                        slot->task.wait_kind==TASK_WAIT_POLL?NOTOS_PROCESS_WAIT_POLL:
+                        slot->task.wait_kind==TASK_WAIT_TIMER?NOTOS_PROCESS_WAIT_TIMER:NOTOS_PROCESS_WAIT_SOCKET;
+                }
+                info.cpu_ticks=slot->task.statistics.cpu_ticks;
+            }
+            for (unsigned j=0;j<NOTOS_PROCESS_NAME_BYTES && slot->name[j];j++) info.name[j]=slot->name[j];
+            entries[count]=info;
+        }
+        count++;
+    }
+    return count;
 }
 void process_poll(void) {
     u32 now=clock_ms();

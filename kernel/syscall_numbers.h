@@ -90,5 +90,6 @@
 #define SYS_PIPE 46
 #define SYS_KILL 47
 #define SYS_RENAME 48
+#define SYS_PROCESS_LIST 49
 #endif
 

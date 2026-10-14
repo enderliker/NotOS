@@ -346,6 +346,9 @@ pid_t wait(int *status) {return waitpid(-1, status, 0);}
 int kill(pid_t pid, int sig) {
     return notos_checked(notos_raw_call(SYS_KILL, (uint32_t)pid, (uint32_t)sig, 0));
 }
+int notos_process_list(struct notos_process_info *entries, uint32_t capacity) {
+    return notos_checked(notos_raw_call(SYS_PROCESS_LIST, (uint32_t)entries, capacity, 0));
+}
 int notos_spawn(const char *path, char *const argv[], char *const envp[],
     const struct notos_fd_map *fd_map, uint32_t fd_map_count, uint32_t flags) {
     if (fd_map_count > 0xffffu || flags > 0xffffu) {errno = EINVAL; return -1;}

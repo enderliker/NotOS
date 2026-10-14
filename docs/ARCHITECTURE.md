@@ -79,8 +79,9 @@ a batch finishes or a background pulse yields back to the main event loop.
   anonymous `mmap` (`0x08800000..0x08c00000`). Buffer validation walks 2 MiB PAE
   PDE boundaries, and teardown reclaims user frames by walking page tables.
 - `system_file.*` exposes immutable embedded images (`/system/curl.elf`,
-  `/system/libc.elf`, `/system/sh.elf`, `/system/cacert.pem`), and `executable.*`
-  loads VFS binaries without duplicating `/system` blobs on the kernel heap.
+  `/system/libc.elf`, `/system/sh.elf`, `/system/box.elf`,
+  `/system/cacert.pem`), and `executable.*` loads VFS binaries without
+  duplicating `/system` blobs on the kernel heap.
 - `SYS_EXEC` (`37`) prepares and validates the new ELF image, address space, and
   argument stack before committing, switches `CR3` before destroying the old
   address space, closes `FD_CLOEXEC` descriptors via `fd.*`, and preserves PID,

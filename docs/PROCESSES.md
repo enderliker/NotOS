@@ -71,7 +71,7 @@ shell:
 When resuming a managed process, the scheduler sanitizes `EFLAGS` (clearing
 `NT`, `IOPL`, and `VM` while enforcing `IF=1`).
 
-## Process Composition (`SYS_SPAWN`, `SYS_WAIT`, `SYS_GETPPID`, `SYS_KILL`) and `SYS_EXEC`
+## Process Composition (`SYS_SPAWN`, `SYS_WAIT`, `SYS_GETPPID`, `SYS_KILL`, `SYS_PROCESS_LIST`) and `SYS_EXEC`
 
 - `process_spawn_elf_args` passes a program name and a single unsplit argument;
   `process_spawn_elf_split` splits space-delimited argument text (up to 256
@@ -85,8 +85,10 @@ When resuming a managed process, the scheduler sanitizes `EFLAGS` (clearing
   (`kernel/process_abi.h`), plus up to 16 `struct notos_fd_map { int child_fd;
   int parent_fd; }` operations applied in order after inheriting non-`FD_CLOEXEC`
   parent descriptors (`NOTOS_FD_MAP_CLOSE = -1` closes `child_fd`). Inherits the
-  parent's `cwd`, records `parent_id`, and returns `-EAGAIN` when all 4 process
-  slots are occupied (including unreaped zombies).
+  parent's `cwd`, records `parent_id`, sets the slot name from the `argv[0]`
+  basename (so multi-call applets in `/system/box.elf` appear under their applet
+  name), and returns `-EAGAIN` when all 4 process slots are occupied (including
+  unreaped zombies).
 - **`SYS_WAIT` (`44`) & Zombie/Orphan Lifecycle**: When a process with a live
   parent exits, faults, or is killed, its address space, frames, FDs, pipes, and
   sockets are freed immediately while its slot retains `(zombie_id,
@@ -99,6 +101,11 @@ When resuming a managed process, the scheduler sanitizes `EFLAGS` (clearing
   `WTERMSIG(status) == sig`), waking or reaping tasks blocked on pipes, sleep,
   `poll`, sockets, or children. Signal `0` validates target existence without
   terminating.
+- **`SYS_PROCESS_LIST` (`49`)**: Read-only snapshot (`EBX=entries`,
+  `ECX=max_entries`, up to 16 entries) of active and zombie process slots via
+  44-byte `struct notos_process_info` records (`pid`, `ppid`, `state`,
+  `wait_reason`, `cpu_ticks`, `exit_status`, `name[24]`), used by user-space
+  `ps` (`/system/box.elf`).
 - `notos_exec` (`SYS_EXEC = 37`) replaces the calling process's ELF image and
   address space in place while preserving its PID, `parent_id`, `cwd`, and open
   file descriptors (closing only `FD_CLOEXEC` slots) and canceling any pending

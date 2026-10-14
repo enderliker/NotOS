@@ -39,6 +39,7 @@ and are not part of the guest runtime.
 | User-space Sockets | lwIP TCP/IPv4, partial BSD socket API, async DNS (`getaddrinfo`), and per-process blocking | 32 KiB binary streams, HTTP-to-tmpfs downloads, 4 concurrent clients, packet drops, `TIME_WAIT` recycling, and cancellation |
 | I/O Multiplexing | `poll` (up to 64 entries) and `select` adapter over sockets, pipes, files, and `stdin` | Multi-peer TCP/pipe/stdin readiness, relative/infinite timeouts, TX backpressure, 4 blocked waiters, and cancellation |
 | User-space `curl` | Upstream curl 8.11.1 HTTP/HTTPS in ring 3 linked with user-space MbedTLS 3.6.5 and Picolibc | Binary HTTP/HTTPS downloads & POST uploads, X.509/SAN/EKU checks, `--cacert`, DNS, timeouts, and VFS ELF download + `exec` |
+| User-space Utilities | Multi-call `/system/box.elf` (24 applets including `cp`, `mv`, `grep`, `wc`, `ps` over `SYS_PROCESS_LIST`, and `ed` line editor) | Byte-exact `cp`/`mv` across `tmpfs` and `NotFS v3`, `ed` line addressing/editing, `ps`/`kill`/`sleep`, and full resource recovery |
 | Persistent Storage | 28-bit ATA PIO driver and dual-bank transactional `NotFS v3` on a dedicated data disk | Reboots, CRC corruption fallback, v1/v2-to-v3 migration, mid-commit fault injection, bounded inode recycling, and persistent directory/file CRUD |
 | Preemptive Multitasking | IRQ0 round-robin scheduler, four task slots, 16 KiB private kernel stacks, and `SYS_YIELD` | Register/flag preservation, mixed batches, 250-tick CPL3 budget, `#NM` FPU rejection, and OOM rollback |
 

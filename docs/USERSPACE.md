@@ -57,7 +57,7 @@ byte, returning `-EFAULT` (`-14`) for kernel, unmapped, or guard addresses and
 `-EINVAL` (`-22`) for lengths above 160 bytes. Additional syscalls for ELF VM
 (`6..9`), libc platform hooks (`10..13`), VFS and pipes (`14..25`, `37..42`,
 `46`, `48`), sockets/DNS (`26..35`), `poll` (`36`), and process composition
-(`43..45`, `47`) are documented in [ELF.md](ELF.md), [LIBC.md](LIBC.md),
+(`43..45`, `47`, `49`) are documented in [ELF.md](ELF.md), [LIBC.md](LIBC.md),
 [VFS.md](VFS.md), [SOCKETS.md](SOCKETS.md), [POLL.md](POLL.md), and
 [PROCESSES.md](PROCESSES.md).
 

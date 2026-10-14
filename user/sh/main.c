@@ -75,232 +75,6 @@ static const char *cmd_basename(const char *path) {
     return base;
 }
 
-/* Builtin fallback applets so pipelines/redirections work standalone before and with box.elf. */
-static int applet_echo(int argc, char **argv) {
-    int newline = 1;
-    int i = 1;
-    if (i < argc && strcmp(argv[i], "-n") == 0) {
-        newline = 0;
-        i++;
-    }
-    for (; i < argc; i++) {
-        if (i > (newline ? 1 : 2)) write_str(STDOUT_FILENO, " ");
-        write_str(STDOUT_FILENO, argv[i]);
-    }
-    if (newline) write_str(STDOUT_FILENO, "\n");
-    return 0;
-}
-
-static int copy_fd_out(int fd) {
-    char buf[512];
-    for (;;) {
-        ssize_t n = read(fd, buf, sizeof(buf));
-        if (n < 0) return 1;
-        if (n == 0) return 0;
-        ssize_t off = 0;
-        while (off < n) {
-            ssize_t w = write(STDOUT_FILENO, buf + off, (size_t)(n - off));
-            if (w <= 0) return 1;
-            off += w;
-        }
-    }
-}
-
-static int applet_cat(int argc, char **argv) {
-    if (argc <= 1) return copy_fd_out(STDIN_FILENO);
-    int rc = 0;
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-") == 0) {
-            if (copy_fd_out(STDIN_FILENO) != 0) rc = 1;
-            continue;
-        }
-        int fd = open(argv[i], O_RDONLY);
-        if (fd < 0) {
-            write_err("cat", argv[i]);
-            rc = 1;
-            continue;
-        }
-        if (copy_fd_out(fd) != 0) rc = 1;
-        close(fd);
-    }
-    return rc;
-}
-
-static int applet_env(void) {
-    if (!environ) return 0;
-    for (char **e = environ; *e; e++) {
-        write_str(STDOUT_FILENO, *e);
-        write_str(STDOUT_FILENO, "\n");
-    }
-    return 0;
-}
-
-static int applet_sleep(int argc, char **argv) {
-    if (argc < 2) return 1;
-    uint32_t ticks = 0;
-    if (argc >= 3 && strcmp(argv[1], "-m") == 0) {
-        uint32_t ms = (uint32_t)strtoul(argv[2], NULL, 10);
-        ticks = (ms + 9u) / 10u;
-    } else {
-        uint32_t val = (uint32_t)strtoul(argv[1], NULL, 10);
-        ticks = val <= 10u ? val * 100u : val;
-    }
-    if (ticks > 0u) (void)notos_raw_call(SYS_SLEEP, ticks, 0, 0);
-    return 0;
-}
-
-static int applet_wc(int argc, char **argv) {
-    int mode_c = 0, mode_l = 0, mode_w = 0;
-    int i = 1;
-    while (i < argc && argv[i][0] == '-' && argv[i][1] != '\0') {
-        for (const char *f = argv[i] + 1; *f; f++) {
-            if (*f == 'c') mode_c = 1;
-            else if (*f == 'l') mode_l = 1;
-            else if (*f == 'w') mode_w = 1;
-        }
-        i++;
-    }
-    if (!mode_c && !mode_l && !mode_w) {
-        mode_l = 1;
-        mode_w = 1;
-        mode_c = 1;
-    }
-    int fd = STDIN_FILENO;
-    if (i < argc) {
-        fd = open(argv[i], O_RDONLY);
-        if (fd < 0) {
-            write_err("wc", argv[i]);
-            return 1;
-        }
-    }
-    uint32_t lines = 0, words = 0, bytes = 0;
-    int in_word = 0;
-    char buf[512];
-    for (;;) {
-        ssize_t n = read(fd, buf, sizeof(buf));
-        if (n <= 0) break;
-        bytes += (uint32_t)n;
-        for (ssize_t k = 0; k < n; k++) {
-            char c = buf[k];
-            if (c == '\n') lines++;
-            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-                in_word = 0;
-            } else if (!in_word) {
-                in_word = 1;
-                words++;
-            }
-        }
-    }
-    if (fd != STDIN_FILENO) close(fd);
-    int first = 1;
-    if (mode_l) {
-        write_u32(STDOUT_FILENO, lines);
-        first = 0;
-    }
-    if (mode_w) {
-        if (!first) write_str(STDOUT_FILENO, " ");
-        write_u32(STDOUT_FILENO, words);
-        first = 0;
-    }
-    if (mode_c) {
-        if (!first) write_str(STDOUT_FILENO, " ");
-        write_u32(STDOUT_FILENO, bytes);
-    }
-    write_str(STDOUT_FILENO, "\n");
-    return 0;
-}
-
-static char to_lower_ascii(char c) {
-    if (c >= 'A' && c <= 'Z') return (char)(c + ('a' - 'A'));
-    return c;
-}
-
-static int contains_pattern(const char *line, const char *pat, int ignore_case) {
-    size_t plen = strlen(pat);
-    if (plen == 0) return 1;
-    size_t llen = strlen(line);
-    if (llen < plen) return 0;
-    for (size_t i = 0; i + plen <= llen; i++) {
-        size_t j = 0;
-        for (; j < plen; j++) {
-            char a = line[i + j];
-            char b = pat[j];
-            if (ignore_case) {
-                a = to_lower_ascii(a);
-                b = to_lower_ascii(b);
-            }
-            if (a != b) break;
-        }
-        if (j == plen) return 1;
-    }
-    return 0;
-}
-
-static int applet_grep(int argc, char **argv) {
-    int invert = 0, line_num = 0, ignore_case = 0;
-    int i = 1;
-    while (i < argc && argv[i][0] == '-' && argv[i][1] != '\0') {
-        for (const char *f = argv[i] + 1; *f; f++) {
-            if (*f == 'v') invert = 1;
-            else if (*f == 'n') line_num = 1;
-            else if (*f == 'i') ignore_case = 1;
-        }
-        i++;
-    }
-    if (i >= argc) return 2;
-    const char *pattern = argv[i++];
-    int fd = STDIN_FILENO;
-    if (i < argc) {
-        fd = open(argv[i], O_RDONLY);
-        if (fd < 0) {
-            write_err("grep", argv[i]);
-            return 2;
-        }
-    }
-    char line[512];
-    size_t len = 0;
-    uint32_t lineno = 0;
-    int matched_any = 0;
-    char ch;
-    for (;;) {
-        ssize_t n = read(fd, &ch, 1);
-        if (n <= 0 && len == 0) break;
-        if (n > 0 && ch != '\n' && len + 1 < sizeof(line)) {
-            if (ch != '\r') line[len++] = ch;
-            continue;
-        }
-        line[len] = '\0';
-        lineno++;
-        int match = contains_pattern(line, pattern, ignore_case);
-        if (invert) match = !match;
-        if (match) {
-            matched_any = 1;
-            if (line_num) {
-                write_u32(STDOUT_FILENO, lineno);
-                write_str(STDOUT_FILENO, ":");
-            }
-            write_str(STDOUT_FILENO, line);
-            write_str(STDOUT_FILENO, "\n");
-        }
-        len = 0;
-        if (n <= 0) break;
-    }
-    if (fd != STDIN_FILENO) close(fd);
-    return matched_any ? 0 : 1;
-}
-
-static int run_embedded_applet(const char *name, int argc, char **argv) {
-    if (strcmp(name, "echo") == 0) return applet_echo(argc, argv);
-    if (strcmp(name, "cat") == 0) return applet_cat(argc, argv);
-    if (strcmp(name, "true") == 0) return 0;
-    if (strcmp(name, "false") == 0) return 1;
-    if (strcmp(name, "env") == 0) return applet_env();
-    if (strcmp(name, "sleep") == 0) return applet_sleep(argc, argv);
-    if (strcmp(name, "wc") == 0) return applet_wc(argc, argv);
-    if (strcmp(name, "grep") == 0) return applet_grep(argc, argv);
-    return -1;
-}
-
 static int is_valid_var_name(const char *s, size_t len) {
     if (len == 0) return 0;
     char c0 = s[0];
@@ -503,13 +277,6 @@ static int is_box_applet(const char *cmd) {
     return 0;
 }
 
-static int is_embedded_applet(const char *cmd) {
-    return strcmp(cmd, "echo") == 0 || strcmp(cmd, "cat") == 0
-        || strcmp(cmd, "true") == 0 || strcmp(cmd, "false") == 0
-        || strcmp(cmd, "env") == 0 || strcmp(cmd, "sleep") == 0
-        || strcmp(cmd, "wc") == 0 || strcmp(cmd, "grep") == 0;
-}
-
 static int resolve_command(const char *cmd, char *out_path, size_t out_size) {
     struct stat st;
     if (strchr(cmd, '/')) {
@@ -536,7 +303,7 @@ static int resolve_command(const char *cmd, char *out_path, size_t out_size) {
         strcpy(out_path, "/system/box.elf");
         return 0;
     }
-    if (is_embedded_applet(cmd) || is_builtin_name(cmd)) {
+    if (is_builtin_name(cmd)) {
         strcpy(out_path, "/system/sh.elf");
         return 0;
     }
@@ -1046,8 +813,6 @@ int main(int argc, char **argv) {
     if (argc > 0 && argv[0]) {
         const char *base = cmd_basename(argv[0]);
         if (strcmp(base, "sh") != 0 && strcmp(base, "sh.elf") != 0) {
-            int applet_rc = run_embedded_applet(base, argc, argv);
-            if (applet_rc >= 0) return applet_rc;
             if (is_builtin_name(base)) return run_builtin(argc, (const char *const *)argv, STDOUT_FILENO);
         }
     }

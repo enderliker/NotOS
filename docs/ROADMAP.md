@@ -2,6 +2,14 @@
 
 ## Recently Completed Milestones
 
+- **Multi-Call User Utilities (`/system/box.elf`), `ed`, and `SYS_PROCESS_LIST` (M4)**:
+  Added `/system/box.elf` providing 24 user-space applets (`echo`, `cat`, `ls`,
+  `cp`, `mv`, `rm`, `mkdir`, `rmdir`, `touch`, `head`, `tail`, `wc`, `grep` with
+  `-v`/`-n`/`-i`, `env`, `kill`, `ps`, `sleep`, `date`, `uptime`, `true`,
+  `false`, `reboot`, `poweroff`, and the `ed` line editor supporting `a`, `i`,
+  `c`, `d`, `p`, `n`, `=`, `w`, `e`, `q`, and line addresses), plus
+  `SYS_PROCESS_LIST` (`49`) for read-only process inspection and cross-filesystem
+  `mv` copy+unlink fallback.
 - **User-Space Shell (`/system/sh.elf`), Raw TTY Mode, and Shell Parser (M3)**:
   Added raw/no-echo mode on `stdin` via `SYS_FCNTL` (`NOTOS_F_GETTTY` /
   `NOTOS_F_SETTTY`), pure shell command/pipeline parser (`shell_parse_core.*`,
@@ -40,15 +48,15 @@
   IRQ context.
 - **Comprehensive Verification**: Native ASAN/UBSAN unit suites (`fs-unit`,
   `line-unit`, `shell-parse-unit`, `vfs-unit`, `poll-unit`, `elf-unit`,
-  `cert-unit`, `float-unit`) and 27 full-system QEMU test suites (see
+  `cert-unit`, `float-unit`) and 28 full-system QEMU test suites (see
   [TESTING.md](TESTING.md)).
 
 ## Next Planned Milestones
 
-1. **Multi-Call User-Space Utilities (`/system/box.elf`) & Power Control**:
-   - Provide standard ring 3 file, text, process (`SYS_PROCESS_LIST`), and line
-     editor (`ed`) applets in `/system/box.elf`, plus `SYS_POWER` for clean
-     reboot, poweroff, and halt after flushing storage.
+1. **System Power Control (`SYS_POWER`)**:
+   - Add `SYS_POWER` (`50`) and kernel commands (`reboot`, `poweroff`, `halt`)
+     for clean reboot, ACPI poweroff, and halt after waiting for any in-flight
+     NotFS commit.
 2. **DHCP Network Configuration**:
    - Enable lwIP DHCP client with 3-second boot discovery and deterministic
      static fallback (`10.0.2.15/24`), shared network configuration state, and

@@ -15,7 +15,7 @@ build/entry.o: kernel/entry.S | build
 ELF_DEMOS := demo nx-heap nx-stack stack-guard readonly sleep
 ELF_DEMO_OBJS := $(addprefix build/elf-,$(addsuffix -blob.o,$(ELF_DEMOS)))
 USER_SHELL_DEFAULT ?= 0
-KERNEL_OBJS := build/system-ca.o build/curl-blob.o build/socket-demo-blob.o build/libc-demo-blob.o build/sh-blob.o $(ELF_DEMO_OBJS) build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
+KERNEL_OBJS := build/system-ca.o build/curl-blob.o build/socket-demo-blob.o build/libc-demo-blob.o build/sh-blob.o build/box-blob.o $(ELF_DEMO_OBJS) build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
 build/notlang_vm.o: user/notlang_vm.c kernel/notlang_bytecode.h kernel/syscall_numbers.h kernel/base.h | build
 	$(CC) $(CFLAGS) -ffunction-sections -c $< -o $@
 build/notlang_vm.elf: build/notlang_vm.o user/link.ld
@@ -124,6 +124,7 @@ test: build/fs-unit build/line-unit build/shell-parse-unit build/path-unit build
 	python3 tests/libc.py
 	python3 tests/pipeline.py
 	python3 tests/shell.py
+	python3 tests/utilities.py
 	python3 tests/curl.py
 	python3 tests/curl_https.py
 	python3 tests/elf.py
@@ -323,4 +324,13 @@ build/sh.elf: build/sh-main.o build/user-line-core.o build/user-shell-parse.o bu
 build/sh-blob.o: build/sh.elf
 	objcopy --strip-all $< build/sh-app.elf
 	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.shimage,alloc,load,readonly,data,contents --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=noload,readonly build/sh-app.elf $@
+
+build/box-main.o: user/box/main.c user/libc/os.h user/include/sys/_wait.h user/include/sys/dirent.h kernel/platform_abi.h kernel/file_abi.h kernel/process_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
+	$(CC) $(LIBC_FLAGS) -c $< -o $@
+build/box.elf: build/box-main.o build/libc-mkdir.o build/libc-port.o build/libc-start.o build/libc-crt.o build/user-integer-runtime.o user/elf_link.ld
+	$(LD) -m elf_i386 --gc-sections -z noexecstack -z max-page-size=16 -T user/elf_link.ld --Map=build/box.map $(filter %.o,$^) build/sysroot/lib/notos/libc.a -o $@
+build/box-blob.o: build/box.elf
+	objcopy --strip-all $< build/box-app.elf
+	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.boximage,alloc,load,readonly,data,contents --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=noload,readonly build/box-app.elf $@
+
 

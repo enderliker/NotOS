@@ -12,7 +12,7 @@ descriptor slot.
 | --- | --- |
 | `/tmp` | In-memory `tmpfs` directories and files: up to 16 named entries, 24 total nodes, and 64 KiB per file (256 KiB / 64-frame global RAM quota; physical-frame-backed, not kernel heap) |
 | `/disk` | Persistent transactional `NotFS v3` on the secondary IDE disk: up to 48 nodes and 88 KiB (`90,112` bytes) total payload |
-| `/system` | Immutable embedded read-only/NX blobs: `curl.elf`, `libc.elf`, `sh.elf`, and `cacert.pem` |
+| `/system` | Immutable embedded read-only/NX blobs: `curl.elf`, `libc.elf`, `sh.elf`, `box.elf`, and `cacert.pem` |
 | `/dev` | Per-process private `stdin`, shared `stdout`/`stderr`/`console`, and `null` |
 
 ## Path Resolution & Directories

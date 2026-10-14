@@ -1,7 +1,15 @@
-# Handoff: User-Space Shell (`/system/sh.elf`), NotFS v3, Atomic Rename, and Process Composition
+# Handoff: Multi-Call Utilities (`/system/box.elf`), User-Space Shell (`/system/sh.elf`), NotFS v3, and Process Composition
 
 ## Current State & Recent Implementation
 
+- **Multi-Call User Utilities (`/system/box.elf`), `ed`, and `SYS_PROCESS_LIST` (M4)**:
+  Added `/system/box.elf` providing 24 user-space applets (`echo`, `cat`, `ls`,
+  `cp`, `mv`, `rm`, `mkdir`, `rmdir`, `touch`, `head`, `tail`, `wc`, `grep` with
+  `-v`/`-n`/`-i`, `env`, `kill`, `ps`, `sleep`, `date`, `uptime`, `true`,
+  `false`, `reboot`, `poweroff`, and the `ed` line editor supporting `a`, `i`,
+  `c`, `d`, `p`, `n`, `=`, `w`, `e`, `q`, and line addresses), plus
+  `SYS_PROCESS_LIST` (`49`, read-only snapshot of active and zombie process
+  slots) and cross-filesystem `mv` copy+unlink fallback.
 - **User-Space Shell (`/system/sh.elf`), Raw TTY Mode, and Shell Parser (M3)**:
   Added raw/no-echo mode on `stdin` via `SYS_FCNTL` (`NOTOS_F_GETTTY` /
   `NOTOS_F_SETTTY`), pure shell command/pipeline parser (`shell_parse_core.*`,
@@ -44,8 +52,8 @@
   [docs/CURL_PORT.md](docs/CURL_PORT.md) and [docs/TLS.md](docs/TLS.md).
 - **Bootloader & Memory Layout**: Loads 512 KiB low (`0x10000..0x90000`) plus
   768 KiB high (`0x100000..0x1c0000`) verified by signatures at `0x8fffc` and
-  `0x1bfffc`. Embedded `curl`, `sh`, and CA blobs are mapped R/NX; kernel BSS
-  spans `0x1c0000` to `< 0x280000` and is reserved in the physical frame
+  `0x1bfffc`. Embedded `curl`, `sh`, `box`, and CA blobs are mapped R/NX; kernel
+  BSS spans `0x1c0000` to `< 0x280000` and is reserved in the physical frame
   allocator. Total bootable image size is 1.5 MiB.
 - **VFS Execution & `SYS_EXEC` (`37`)**: `SYS_EXEC` validates and prepares the
   new ELF image, private PAE address space, and initial user stack before
@@ -97,9 +105,9 @@
   a full clean rebuild matching CI.
 - All 24 native host unit test binaries (including `fs-unit`, `line-unit`,
   `shell-parse-unit`, `vfs-unit`, `poll-unit`, `elf-unit`, `cert-unit`, and
-  `float-unit` under ASAN/UBSAN) and all 27 QEMU system test suites (including
-  `tests/shell.py`, `tests/pipeline.py`, `tests/storage.py`, `tests/files.py`,
-  and `tests/vfs.py`) pass (`make` and `make test`).
+  `float-unit` under ASAN/UBSAN) and all 28 QEMU system test suites (including
+  `tests/utilities.py`, `tests/shell.py`, `tests/pipeline.py`,
+  `tests/storage.py`, `tests/files.py`, and `tests/vfs.py`) pass (`make clean test`).
 - Upstream compiler warnings remain explicitly documented per policy: GCC warns
   on enum/bool conversions in curl's `transfer.c`, an unused function in curl's
   `url.c`, and `_set_tls` in Picolibc's `tls.c`. First-party code compiles

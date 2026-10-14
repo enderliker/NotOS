@@ -23,6 +23,8 @@ int pipe2(int fds[2], int flags);
 #define F_SETTTY 101
 /* Returns 1 for one entry, 0 at EOF, or -1 with errno. */
 int notos_readdir(int fd, struct notos_directory_entry *entry);
+/* Copies up to capacity active or zombie process descriptors; returns count or -1 with errno. */
+int notos_process_list(struct notos_process_info *entries, uint32_t capacity);
 static inline int notos_raw_call4(uint32_t number,uint32_t first,uint32_t second,uint32_t third,uint32_t fourth) {
     uint32_t result;
     __asm__ volatile("int $0x80":"=a"(result):"a"(number),"b"(first),"c"(second),"d"(third),"S"(fourth):"memory","cc");

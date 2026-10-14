@@ -6,7 +6,7 @@ SECTIONS {
     .text : { *(.text.entry) *(.text*) } :code
     . = ALIGN(4096);
     __text_end = .;
-    .rodata : { *(EXCLUDE_FILE (build/curl-blob.o build/system-ca.o build/sh-blob.o) .rodata*) } :code
+    .rodata : { *(EXCLUDE_FILE (build/curl-blob.o build/system-ca.o build/sh-blob.o build/box-blob.o) .rodata*) } :code
     . = ALIGN(4096);
     __readonly_end = .;
     .data : { *(.data*) } :data
@@ -21,6 +21,7 @@ SECTIONS {
     .systemca : AT(ADDR(.systemca) - 0x70000) {
         build/system-ca.o(.rodata.systemca)
         build/sh-blob.o(.rodata.shimage)
+        build/box-blob.o(.rodata.boximage)
         . = ALIGN(4096);
     } :image
     __curl_image_end = .;

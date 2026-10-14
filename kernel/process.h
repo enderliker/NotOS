@@ -16,6 +16,8 @@ int process_wait_try(u32 parent_id,int target_pid,u32 flags,u32 *status_out);
 u32 process_getppid(u32 pid);
 /* Terminate a live non-running process with status 128+sig, or probe with sig=0. */
 int process_kill(u32 pid,u32 sig);
+/* Copy up to capacity live or zombie process descriptors and return the active count. */
+u32 process_list(struct notos_process_info *entries,u32 capacity);
 /* Suppress routine completion output; faults and cleanup errors remain visible. */
 void process_quiet(u32 pid);
 void process_set_foreground(u32 pid,int reprompt);
