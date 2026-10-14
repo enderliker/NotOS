@@ -1,32 +1,52 @@
-# Hoja de ruta
+# Roadmap and Next Milestones
 
-## Continuación implementada
+## Recently Completed Milestones
 
-- curl upstream HTTP/HTTPS en ring 3 con MbedTLS fijado, CA inmutable y peers
-  locales TLS 1.2/1.3. Arranque bajo 512 KiB más 768 KiB altos.
-- `SYS_EXEC=37`: reemplazo preparado antes del commit, PID/cwd/FDs conservados
-  salvo CLOEXEC. `spawn-elf PATH [ARGUMENTS]` carga desde VFS.
-- Directorios reales, cwd privado, mkdir/rmdir/getcwd/readdir; tmpfs y NotFS v2
-  escribible. Migración v1 conservando bancos antiguos hasta verificar v2.
-- Historial de ocho comandos, edición flechas/Home/End/Delete, completado Tab
-  de comandos/rutas; teclado PS/2 y serie CSI fuera de IRQ.
-- Pruebas nativas de fallos de publicación/migración, QEMU para reemplazo,
-  coherencia/persistencia y edición. Contratos: VFS.md, STORAGE.md, ELF.md,
-  CURL_PORT.md, UI.md. TESTING.md registra solo resultados observados.
+- **Ring 3 `curl` HTTP/HTTPS**: Upstream `curl` 8.11.1 running in ring 3 with a
+  dedicated Picolibc-linked build of MbedTLS 3.6.5, default trust store
+  `/system/cacert.pem`, `--cacert` override, and TLS 1.2 / 1.3 verification.
+  Supported by the 512 KiB low + 768 KiB high BIOS bootloader layout.
+- **VFS Execution & `SYS_EXEC` (`37`)**: Transactional image/space/stack
+  preparation before commit, preserving PID, `cwd`, and open descriptors except
+  `FD_CLOEXEC`. `spawn-elf PATH [ARGS]` launches ELF binaries from `/system`,
+  `/tmp`, and `/disk`.
+- **Directories & Writable `NotFS v2`**: Real directories, per-process private
+  `cwd`, wire syscalls `mkdir`, `rmdir`, `chdir`, `getcwd`, and `readdir`,
+  writable dual-bank `NotFS v2` (24 nodes, 60 KiB payload), and safe `NotFS v1`
+  to `v2` migration preserving v1 banks until v2 is verified on disk.
+- **Shell Line Editing & Completion**: 8-entry circular command history, cursor
+  editing (`Left`/`Right`/`Home`/`End`/`Backspace`/`Delete`), and `Tab`
+  completion for commands and VFS paths across PS/2 and serial CSI/SS3 outside
+  IRQ context.
+- **Comprehensive Verification**: Native ASAN/UBSAN unit suites (`fs-unit`,
+  `line-unit`, `vfs-unit`, `poll-unit`, `elf-unit`, `cert-unit`, `float-unit`)
+  and 25 full-system QEMU test suites (see [TESTING.md](TESTING.md)).
 
-## Próximos hitos
+## Next Planned Milestones
 
-1. API de directorios POSIX sobre la enumeración wire existente, rename
-   transaccional y estrategia de reciclado de inodes persistentes.
-2. Presupuesto de CPU configurable con política que limite cadenas exec;
-   timers/timeouts y latencia del kernel durante operaciones ATA largas.
-3. Parser shell con comillas/escapes y control explícito de trabajos/terminal,
-   sin cambiar silenciosamente el contrato actual de argumentos.
-4. Capacidades TLS adicionales según aplicaciones: certificados cliente,
-   revocación, CApath, actualización explícita de raíces y HTTP/2.
-5. Paquetes/aplicaciones ELF pequeñas instalables en el disco dedicado.
+1. **POSIX `dirent` Wrapper, Transactional `rename`, and Inode Recycling**:
+   - Layer standard `opendir`/`readdir`/`closedir` wrappers in libc over
+     `SYS_READDIR`, add atomic `rename` across `tmpfs` and `NotFS v2`, and add
+     bounded persistent inode recycling.
+2. **Configurable CPU Budgets & Storage Latency**:
+   - Refine per-process CPU budget policies across `SYS_EXEC` chains and reduce
+     timer/network latency during multi-sector ATA PIO flushes.
+3. **Quoted Shell Argument Parser & Job Control**:
+   - Add opt-in quoting/escaping and explicit foreground/background terminal
+     control without silently breaking the existing space-split argument
+     contract.
+4. **Extended TLS & HTTP Capabilities**:
+   - Support client certificates, explicit trust-store updates, `CApath`, and
+     optional HTTP/2 framing where needed by user-space applications.
+5. **Installable Disk Packages**:
+   - Package small standalone ring 3 ELF utilities for installation and execution
+     from `/disk`.
 
-Permanecen cuatro procesos, ocho endpoints, 16 FDs, RAM tmpfs de 256 KiB,
-NotFS de 60 KiB de payload. No hay SMP/threads, FPU/SSE, UEFI, hardware físico
-validado, preemption kernel ni conformidad POSIX completa. No hay TODOs nuevos
-que representen funcionalidad parcial dentro de estos hitos.
+## Current Architectural Boundaries
+
+NotOS intentionally retains bounded laboratory limits: 4 concurrent process
+slots, 8 TCP endpoints, 16 FDs per task, 64 global open file descriptions,
+256 KiB global `tmpfs` RAM quota, and 60 KiB `NotFS v2` disk payload. SMP,
+threads, hardware FPU/SSE, UEFI, verified physical hardware, kernel preemption,
+and full POSIX compliance are out of scope for the current architecture. There
+are no open `TODO` placeholders for incomplete functionality in the codebase.

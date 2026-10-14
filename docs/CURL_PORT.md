@@ -1,19 +1,23 @@
-# curl upstream en NotOS
+# Upstream `curl` in NotOS
 
-## Alcance
+## Scope
 
-curl **8.11.1** se compila como ELF32 estático y se ejecuta en ring 3 con
-Picolibc 1.8.11, heap y pila privados. El cliente utiliza sockets TCP/IPv4 y
-DNS del invitado sobre RTL8139/lwIP, y `poll` para esperar eventos.
+Upstream **curl 8.11.1** is compiled as a static 32-bit ELF (`ET_EXEC`) and runs
+in **ring 3** with Picolibc 1.8.11, a private PAE address space, heap, and user
+stack. It uses NotOS user-space TCP/IPv4 sockets and DNS over RTL8139/lwIP, and
+multiplexes I/O with `poll` / `select`.
 
-El port habilita HTTP y HTTPS con MbedTLS 3.6.5, construido por separado para
-Picolibc en ring 3. La confianza por defecto es `/system/cacert.pem`, el bundle
-fijado en trust/roots.pem; `--cacert PATH` selecciona otro archivo del invitado.
-No se modifica el bundle automáticamente. TLS 1.2/1.3 verifica cadena, fechas,
-SAN, EKU serverAuth, SHA256/384/512 y RSA de al menos 2048 bits. Entropía proviene
-de SYS_ENTROPY; RTC y semilla ausentes fallan cerrado.
+The port supports both **HTTP** and **HTTPS** using a dedicated user-space build
+of **MbedTLS 3.6.5** linked against Picolibc. By default, `curl` trusts the
+immutable guest CA bundle at `/system/cacert.pem` (generated from
+`trust/roots.pem`); `--cacert PATH` selects an alternate bundle in the guest
+VFS. TLS 1.2 and TLS 1.3 enforce certificate chain validation, expiration dates,
+DNS SAN matching, `serverAuth` EKU, SHA-256/384/512 signatures, and RSA keys of
+at least 2048 bits. Entropy comes from `SYS_ENTROPY` (`fw_cfg`-seeded
+HMAC-DRBG); missing entropy or an invalid RTC clock fails closed before
+connecting.
 
-## Uso
+## Usage
 
 ```text
 curl --version
@@ -24,83 +28,88 @@ ps
 kill PID
 ```
 
-La shell continúa atendiendo entrada mientras curl se ejecuta en segundo
-plano. Por defecto solo se muestra la salida de curl, sin PID ni estadísticas
-de terminación. `process-trace on` habilita estos diagnósticos;
-`process-trace off` los deshabilita. `ps` permite consultar procesos activos.
-Los errores de opciones,
-HTTP con `-f`, DNS, conexión y timeout conservan los códigos de salida de curl.
+The shell remains interactive while `curl` runs as a background process. By
+default, only `curl`'s standard output/error is printed, suppressing kernel PID
+spawn/reap banners. Run `process-trace on` to enable kernel lifecycle banners or
+`process-trace off` to hide them; `ps` lists active processes at any time.
+Option errors, HTTP errors with `-f`, DNS failures, refused connections, and
+timeouts preserve upstream `curl` exit codes.
 
-El ELF se ejecuta en el invitado NotOS y usa sus syscalls, libc y pila TCP/IP;
-no llama al curl, libc ni sockets del host. QEMU proporciona la NIC virtual.
-Con el backend NAT de QEMU, el acceso externo depende de la conectividad y de
-la configuración de red del sistema anfitrión.
+The `curl` binary executes entirely inside the NotOS guest using NotOS syscalls,
+Picolibc, MbedTLS, and lwIP—never host `curl`, host libc, or host sockets. QEMU
+provides the emulated RTL8139 NIC and user-mode NAT.
 
-Los argumentos se separan solo por espacios; los espacios repetidos se
-colapsan. Máximo **256 bytes** después de `curl ` y **16 elementos de argv**,
-incluido `argv[0]` (15 argumentos después del nombre). Las comillas y barras inversas son caracteres literales;
-no hay expansión, escapes ni sintaxis de shell POSIX. Los excesos se rechazan,
-sin ejecutar una entrada truncada. Los comandos comunes conservan 159 caracteres; spawn-elf también admite una línea extendida.
+Arguments are split on spaces (consecutive spaces are collapsed), up to **256
+bytes** after `curl ` and at most **16 `argv` elements** including `argv[0]` (15
+user arguments). Quotes and backslashes are treated as literal characters; there
+is no POSIX shell quoting, escaping, or variable expansion. Overlong argument
+lines or excessive argument counts are rejected without executing a truncated
+command.
 
-`ls /tmp`, `stat /tmp/page.txt`, `cat /tmp/page.txt` y `rm /tmp/page.txt`
-operan sobre las descargas. `cd /tmp` permite usar nombres relativos en los
-comandos de archivos de la shell; curl comienza con cwd `/` y admite rutas relativas a ese cwd.
-Los archivos tmpfs viven hasta unlink o reinicio. Ver [STORAGE.md](STORAGE.md)
-para navegar y escribir en el disco persistente mediante la shell.
+Downloaded files can be inspected and managed with `ls`, `stat`, `cat`, `rm`,
+`cd`, and `pwd`. `curl` starts with `cwd` set to `/` and resolves relative paths
+against its current working directory. Files in `/tmp` live in RAM until
+unlinked or rebooted; files written to `/disk` persist on the NotFS v2 data
+disk (see [STORAGE.md](STORAGE.md)).
 
-## Construcción
+## Build Integration
 
-`tools/fetch_curl.py` descarga el archivo 8.11.1 con SHA256 fijado. Para usar un
-archivo local verificado: `CURL_ARCHIVE=/ruta/curl-8.11.1.tar.xz make`.
-`tools/build_curl.py` compila libcurl y la herramienta después de extraer las
-fuentes. Make agrupa ambos archives en una sola receta, también bajo `-j`.
+- `tools/fetch_curl.py` downloads `curl-8.11.1.tar.xz` and verifies its SHA-256
+  digest (`c7ca7db48b0909743eaef34250da02c19bc61d4f1dcedd6603f109409536ab56`).
+  For offline builds: `CURL_ARCHIVE=/path/to/curl-8.11.1.tar.xz make`.
+- `tools/build_user_mbedtls.py` builds MbedTLS 3.6.5 for ring 3 against the
+  Picolibc sysroot.
+- `tools/build_curl.py` compiles `libcurl` and the `curl` CLI tool using
+  `user/curl_port/curl_config.h` (HTTP/HTTPS, IPv4, `poll`/`select`, no threads).
+- The link step combines `libcurl.a`, user-space MbedTLS archives, sysroot
+  `libc.a`, and NotOS integer/`binary64` software helpers (`integer_runtime.c`,
+  `float_runtime.c`), without host libc, `libgcc`, semihosting, or FPU/MMX/SSE
+  instructions.
+- The stripped ELF binary is embedded as a read-only/NX payload in high physical
+  memory (`0x100000..0x1c0000`), loaded by the BIOS bootloader via 32 KiB bounce
+  copies and exposed in the VFS as `/system/curl.elf` (see
+  [MEMORY.md](MEMORY.md)).
 
-`user/curl_port/curl_config.h` selecciona HTTP/HTTPS, IPv4 y poll. El enlace incorpora
-la libc del sysroot y runtimes propios de enteros/binary64; no utiliza libc del
-host, libgcc, semihosting ni instrucciones FPU/MMX/SSE. Stdio sigue configurado
-para formatos enteros: no se declara soporte general de libm o formato float.
+First-party code compiles with `-Wall -Wextra -Werror`. Upstream `curl` sources
+compile with `-Wall -Wextra` under the third-party warning policy without
+modifying upstream files (GCC 15.2 emits enum/bool conversion warnings in
+`transfer.c` and an unused-function warning in `url.c`).
 
-El ELF stripped se incorpora como bloque de solo lectura/NX en memoria física
-alta. El cargador BIOS mantiene los 512 KiB del kernel bajo 1 MiB y copia otros
-768 KiB mediante un buffer temporal, sin ocupar VGA. Ver [memoria](MEMORY.md).
+## Architectural Limits
 
-El código propio mantiene `-Wall -Wextra -Werror`. Curl upstream se compila con
-`-Wall -Wextra`, siguiendo la política separada de dependencias sin modificar
-sus fuentes. GCC 15.2 muestra avisos de conversión enum/bool en `transfer.c` y
-función sin uso en `url.c`; no se silencian.
+- Up to 4 managed processes, 8 TCP endpoints, and 16 FDs per process.
+- `tmpfs` supports up to 64 KiB per file (256 KiB global RAM quota); `NotFS v2`
+  supports up to 60 KiB total payload across 24 nodes. Real directories and
+  `--create-dirs` are supported (see [VFS.md](VFS.md)).
+- Only HTTP/1.x and HTTPS (TLS 1.2 / 1.3) over IPv4 are enabled; no HTTP/2,
+  HTTP/3, proxies, cookies, MIME/multipart, FTP, or other protocols.
+- **Strict TLS verification**: `-k` / `--insecure` does not bypass certificate
+  validation. No client certificates, `CApath` directory hashing, or OCSP/CRL
+  revocation checks. CA bundle parsing is bounded to 256 KiB and peer chains to
+  8 certificates of 16 KiB each.
+- Unauthenticated TLS EOF (missing `close_notify`) fails transfers that rely on
+  EOF framing. Responses with a satisfied `Content-Length` may complete once all
+  declared body bytes are received.
+- No `fork`, threads, signals, or full POSIX environment.
+- Asynchronous DNS resolution in `getaddrinfo` enforces its own 8-second
+  application deadline; `--max-time` is not guaranteed to preempt an in-flight
+  DNS query mid-sleep.
 
-## Límites
+## Verification
 
-- Cuatro procesos gestionados, ocho endpoints TCP y 16 FDs por proceso.
-- tmpfs hasta 64 KiB/256 KiB globales; NotFS hasta 60 KiB de payload total.
-  Directorios reales y `--create-dirs` disponibles; ver VFS.md.
-- Sin HTTP/2, HTTP/3, proxy, cookies, MIME/multipart, FTP ni otros protocolos.
-- Verificación estricta: `-k` no permite saltar validaciones. Sin certificados
-  cliente, CApath ni revocación OCSP/CRL. Parseo CA limitado a 256 KiB y cadena
-  a ocho certificados de 16 KiB; sin actualización automática de confianza.
-- EOF TLS sin close_notify devuelve error si la transferencia necesita EOF.
-  Una respuesta con Content-Length completo puede terminar antes de leer el
-  cierre; no se presenta ese éxito como prueba de close_notify.
-- Sin fork, threads, señales ni conformidad POSIX completa.
-- La resolución DNS del adaptador tiene su propio límite de espera; no se
-  garantiza que `--max-time` interrumpa una resolución en curso.
-- La cobertura es de QEMU/TCG; no se declara validación de hardware físico.
-
-## Validación
-
-`make test` incluye `tests/curl.py`: versión/protocolo, argumentos vacíos y sus
-límites, HTTP, descarga binaria de 32768 bytes, lectura/verificación/unlink desde
-otro ELF y upload POST del mismo contenido. Comprueba HTTP404 con `-f`, conexiones HTTP/HTTPS
-rechazadas, timeout, shell/INT3 disponibles, cuatro
-procesos y cancelación/slot reutilizado. DNS A/NXDOMAIN utiliza un peer local
-con la imagen de fixture, mientras producción conserva el puerto DNS 53.
-
-Después de escenarios sin archivos persistentes en tmpfs, frames, heap,
-descripciones, endpoints y consultas vuelven al estado inicial. El mapa de
-enlace verifica Picolibc y ausencia de bibliotecas del host. El runtime binary64
-se compara con el hardware del host bajo ASAN/UBSAN con un millón de pares.
-
-`tests/curl_https.py` prueba TLS 1.2/1.3 con una CA de fixture descargada
-explícitamente a tmpfs, rechazo por confianza/SAN/EKU/clave/firma, EOF truncado y
-limpieza en 16/64 MiB. Producción no incluye la CA de fixture. La validación
-opcional online se describe en TESTING.md.
+- `tests/curl.py` (`make test`): Verifies `curl --version`, empty/overlong
+  arguments, HTTP GET, 32,768-byte binary download to `tmpfs`, cross-process
+  verification/unlink from another ELF, 32,768-byte binary POST upload, HTTP 404
+  with `-f`, refused HTTP/HTTPS connections, `--max-time` timeout, concurrent
+  shell/`INT3` responsiveness, 4 concurrent `curl` processes, `kill`
+  cancellation, and DNS `A`/`NXDOMAIN` against the local UDP 53530 fixture image.
+- `tests/curl_https.py` (`make test`): Verifies TLS 1.2 and TLS 1.3 downloads
+  and uploads in 16 MiB and 64 MiB RAM using an ephemeral fixture CA downloaded
+  to `/tmp`, rejection by the default `/system/cacert.pem` bundle, `-k`
+  rejection, invalid SAN/EKU/key-size/signature/expired certificates, and
+  truncated TLS EOF without `close_notify`.
+- `tests/continuation.py` (`make test`): Verifies downloading a real ELF binary
+  via `curl` into `/tmp` and `/disk` and executing it across a reboot.
+- `tests/curl_online.py` (`make test-online`): Verifies live public DNS, HTTP,
+  and HTTPS transfers from `example.com` into `/tmp` with full resource
+  restoration.

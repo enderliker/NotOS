@@ -1,31 +1,55 @@
-# IDT, IRQ y temporizador — NotOS 0.5
+# IDT, IRQs, PIC/PIT, and Exceptions
 
-## Fase 2 completada para el PC emulado
+## Interrupt Architecture
 
-- IDT propia con 256 puertas de interrupción de 32 bits, DPL 0 y selector de código 0x08.
-- Stubs x86 que normalizan los códigos de error, conservan registros y segmentos, limpian DF y alinean la pila antes de entrar a C.
-- IRET restaura EIP, CS y EFLAGS. Los offsets del frame C se verifican al compilar.
-- PIC 8259 remapeado: IRQ0..7 en vectores 32..39 y IRQ8..15 en 40..47. Se habilitan IRQ0, IRQ1, la cascada IRQ2 e IRQ12 si el ratón está disponible; las demás líneas permanecen enmascaradas.
-- EOI específicos y tratamiento de IRQ7/15 espurias consultando los registros ISR del PIC.
-- PIT canal 0, modo 2, divisor 1193: aproximadamente 1000 IRQ por segundo.
-- Teclado PS/2 por IRQ1, con una cola circular de scancodes y procesamiento diferido en el bucle principal.
+- **Custom 256-entry IDT**: 32-bit interrupt gates (`DPL=0`, kernel code
+  selector `0x08`), plus `INT 0x80` (`DPL=3`) for user-space system calls.
+- **Uniform x86 trap frame (`kernel/isr.S`)**: Normalizes dummy error codes for
+  vectors that do not push one, saves general-purpose and segment registers,
+  clears `EFLAGS.DF` (`cld`), and aligns the stack before calling C. `IRET`
+  restores `EIP`, `CS`, `EFLAGS`, and (on CPL3 transitions) user `ESP`/`SS`.
+  Trap frame field offsets are verified at compile time with `_Static_assert`.
+- **8259 PIC remapping (`kernel/pic.c`)**: Maps master `IRQ0..7` to vectors
+  `32..39` and slave `IRQ8..15` to vectors `40..47`. Unmasks `IRQ0` (PIT),
+  `IRQ1` (PS/2 keyboard), `IRQ2` (slave cascade), and `IRQ12` (PS/2 mouse when
+  present); all other IRQ lines remain masked.
+- **Spurious IRQ handling**: Checks the master/slave PIC In-Service Register
+  (ISR) on `IRQ7` and `IRQ15` before sending EOI (sending master EOI only when
+  a spurious slave `IRQ15` occurs).
+- **PIT Channel 0 (`kernel/clock.c`)**: Configured in Mode 2 (rate generator)
+  with divisor `1193` (~1000.15 Hz), using exact fractional remainder
+  accumulation against the nominal `1,193,182 Hz` crystal frequency so
+  millisecond uptime does not drift.
 
-## Excepciones
+## CPU Exceptions & Faults
 
-INT3 es recuperable y se usa para autopruebas. Las otras excepciones entran en panic: vector, nombre, código de error, EIP, CS, EFLAGS y registros. Page fault imprime CR2 cuando corresponde. La CPU se detiene con CLI/HLT; no se intenta continuar con estado incierto.
+`INT3` (breakpoint, vector 3) is recoverable in ring 0 and used for self-tests.
+Other exceptions originating in ring 0 trigger a fatal kernel panic screen
+displaying the vector, mnemonic, error code, `EIP`, `CS`, `EFLAGS`, general
+registers, and `CR2` (on `#PF`), and halt the CPU with `cli; hlt`.
+
+Exceptions originating in **ring 3 (CPL 3)** terminate only the faulting user
+task/process, record the fault vector/error/`CR2`, release the task's resources
+outside IRQ context, and return cleanly to the shell or next ready task.
 
 ```text
 int3
 fault divide
 fault opcode
 fault gp
+fault null
+fault readonly
+fault guard
+fault unmapped
+fault heap-end
 ```
 
-**Los comandos `fault` detienen deliberadamente el sistema; hay que reiniciar QEMU.** No son errores de NotLang. Ejecutan una división por cero, UD2 y una carga de DS con el selector inválido 0x30. Esta última debe producir #GP con código 0x30.
+**Note**: The `fault <kind>` shell commands intentionally trigger ring 0 CPU
+faults to test the kernel panic handler and require restarting QEMU afterward.
+`int3` is non-destructive and verifies register, `CF`, `DF`, and `IF`
+preservation across `IRET`.
 
-`int3` comprueba registros generales, CF, DF y conservación de IF. El handler C siempre entra con DF limpio aunque la excepción se origine con DF activo.
-
-## Reloj y espera
+## Clock & Timing Commands
 
 ```text
 uptime
@@ -35,26 +59,37 @@ irqs
 irq-test
 ```
 
-- `uptime`: milisegundos acumulados, cantidad de IRQ0 e IF.
-- `sleep MS`: espera mediante HLT; el par STI/HLT se ejecuta después de comprobar la condición con IF desactivado para evitar la carrera de despertar perdido.
-- `busy MS`: ocupa el primer plano; las IRQ siguen actualizando el reloj y encolando el teclado.
-- `irqs`: contadores de timer, teclado, IRQ inesperadas, scancodes descartados y IRQ espurias.
-- `irq-test`: simula entradas a los vectores IRQ7/15 sin bits ISR activos para comprobar las rutas espurias. No es una prueba de que el hardware haya generado una IRQ espuria real.
+- `uptime`: Prints accumulated milliseconds, `IRQ0` tick count, and `IF` state.
+- `sleep MS`: Idles the CPU using `HLT`. Checks the deadline with interrupts
+  disabled and executes `sti; hlt` atomically to prevent lost-wakeup races.
+- `busy MS`: Spins in the foreground for `0..5000` ms while `IRQ0` updates the
+  clock and `IRQ1`/`IRQ12` continue queueing PS/2 input.
+- `irqs`: Displays counters for timer ticks, keyboard/mouse interrupts,
+  unexpected IRQs, dropped scancodes, and spurious `IRQ7`/`IRQ15` events.
+- `irq-test`: Dispatches software interrupts to vectors `39` (`IRQ7`) and `47`
+  (`IRQ15`) with empty PIC ISR bits to verify spurious IRQ handling.
 
-`busy` y `sleep` aceptan 0..5000 ms. Mientras ejecutan la espera no se procesan comandos ni se sondea la red; no hay preemption del kernel. Los handlers no dibujan la UI ni ejecutan NotLang. Actualizan el reloj, encolan datos, contabilizan IRQ y envían EOI; desde NotOS 0.8, IRQ0 también selecciona el siguiente frame user, sin asignar memoria ni imprimir trazas en el handler.
+IRQ handlers never draw UI, interpret commands, or allocate/free memory. They
+update tick counters, enqueue raw PS/2 bytes, send PIC EOI, and (on `IRQ0`)
+select the next ready user trap frame when a quantum or budget expires.
 
-El reloj usa los IRQ recibidos, no lecturas del contador PIT desde el bucle principal. La aritmética de fracciones corrige el redondeo del divisor 1193 respecto de la frecuencia nominal 1193182 Hz. Los contadores de 32 bits y las diferencias sin signo toleran rollover; esto se prueba nativamente usando la misma función que llama el handler.
+## PS/2 Keyboard & Controller (`kernel/keyboard.c`, `kernel/mouse.c`)
 
-## Teclado
+The i8042 controller is initialized with interrupts disabled and the PIC masked.
+Port 1 (`IRQ1`) is configured with Scancode Set 1 translation, and Port 2
+(`IRQ12`) is enabled for the 3-byte PS/2 mouse. The shared controller drain
+routes `AUX` bytes to the mouse ring buffer and keyboard scancodes to a
+255-entry circular queue, discarding controller `ACK` (`0xFA`) and parity/timeout
+errors. Dequeueing uses a brief critical section that preserves `EFLAGS.IF`.
+Scancode translation, modifier tracking, and shell line editing run outside IRQ
+context in the main loop.
 
-La inicialización del controlador i8042 se hace con interrupciones desactivadas y PIC enmascarado. Se habilitan IRQ1, traducción a scancodes set 1 y escaneo; el segundo puerto se habilita al inicializar el ratón. El handler enruta bytes AUX a su cola y descarta ACK y errores de paridad/timeout, y entrega scancodes a una cola de 255 elementos útiles. El consumidor usa una sección crítica corta y conserva el estado previo de IF. Si la cola se llena se contabilizan descartes; no hay memoria dinámica en el handler.
+## Scope & Limits
 
-El decodificador y la shell se ejecutan fuera de la IRQ. Izquierda/derecha Shift se contabilizan por separado. La prueba escribe una orden mediante PS/2 durante `busy 1000` y comprueba que se ejecuta después sin pérdida de teclas.
-
-## Pruebas y alcance
-
-`make test` incluye fallos de CPU reales, registro/flags tras IRET, despertar HLT repetido, progreso de IRQ0 durante trabajo en primer plano y entrada por IRQ1. Incluye también las regresiones de gráficos, NotLang y HTTP local. `make test-online` comprueba DNS/HTTP externos con IRQ activas.
-
-Se han probado cambios de privilegio ring 3, espacios privados y cuatro procesos gestionados; véanse USERSPACE.md y PROCESSES.md. No se ha probado hardware real, APIC, SMP ni todos los tipos de excepción. No hay TSS/pila alternativa para double fault ni recuperación de un stack supervisor corrupto. Los fallos user ordinarios terminan solo el proceso; los fallos kernel siguen siendo fatales.
-
-Este reloj no es de tiempo real duro: si se mantienen interrupciones desactivadas demasiado tiempo, el PIC puede fusionar ticks y perder resolución. El rollover se verifica en una prueba de la aritmética, no dejando QEMU encendido durante semanas. La consola serie y RTL8139 continúan sondeadas. El bucle principal aún hace espera activa fuera del comando `sleep`.
+- Tested in QEMU TCG emulation; physical hardware, APIC, HPET, and SMP are not
+  implemented.
+- There is no separate TSS or alternate supervisor stack for double faults
+  (`#DF`).
+- Keeping interrupts disabled for extended periods can cause the 8259 PIC to
+  coalesce timer ticks; the clock is not a hard real-time source.
+- The `COM1` serial port and RTL8139 NIC remain polled from the main event loop.

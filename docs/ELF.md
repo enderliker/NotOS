@@ -1,6 +1,6 @@
-# Aplicaciones ELF32 y memoria privada — NotOS 0.12
+# ELF32 Applications, Private Virtual Memory, and `SYS_EXEC`
 
-## Uso
+## Shell Commands
 
 ```text
 elf-test
@@ -10,81 +10,128 @@ elf-run nx-stack
 elf-run stack-guard
 elf-run readonly
 elf-run sleep
+spawn-elf /system/libc.elf test
 ps
 ```
 
-`elf-run` arranca ELF32 estáticos **reales** compilados por separado y embebidos como archivos ELF, no código plano rebautizado. Se ejecutan en ring3, comparten el gestor de cuatro procesos con NotLang y son recolectados al terminar. La shell no espera a que acabe el proceso. Las variantes de fallo son diagnósticos intencionales: solo termina la tarea.
+`elf-run` launches **real static 32-bit ELF (`ET_EXEC`)** binaries compiled and
+linked separately from the kernel. They execute in **ring 3** with private PAE
+page tables, share the four-slot background process manager with NotLang, and
+are automatically reaped on exit. The fault variants (`nx-heap`, `nx-stack`,
+`stack-guard`, `readonly`) are intentional negative tests that fault and
+terminate only the offending user task while the kernel and shell continue
+running.
 
-`spawn-elf PATH [ARGS]` carga ejecutables VFS y SYS_EXEC reemplaza el proceso. El comando shell `exec FILE` conserva su significado existente: compilar fuente NotLang. Curl HTTP/HTTPS usa el mismo cargador; ver CURL_PORT.md.
+`spawn-elf PATH [ARGS]` loads and spawns an ELF binary from the VFS (`/system`,
+`/tmp`, or `/disk`), and `notos_exec` (`SYS_EXEC=37`) replaces the calling
+process image in place. (The shell command `exec FILE` retains its original
+meaning: compiling and running a NotLang source file.)
 
-## Validación y carga
+## Validation & Loading (`kernel/elf.c`, `kernel/space.c`)
 
-`elf.c` es un parser puro y acotado. Solo acepta ELF32 little-endian/System V, ET_EXEC/i386/version1, cabecera de 52 bytes, program headers de 32 bytes y hasta 16 headers. El archivo está limitado a 2 MiB. El entry point debe estar dentro de bytes de archivo de un segmento ejecutable.
+`elf.c` is a pure, bounded parser with no dynamic memory allocation:
+- Accepts only 32-bit little-endian System V `ET_EXEC` images for `EM_386`
+  (version 1), with a 52-byte ELF header, 32-byte program headers, and at most
+  16 program headers.
+- Maximum image size is **2 MiB**. The entry point (`e_entry`) must lie within
+  the file-backed bytes (`p_filesz`) of an executable `PT_LOAD` segment.
+- Every `PT_LOAD` segment must be readable (`PF_R`), satisfy
+  `p_filesz <= p_memsz`, lie completely within the file and within the user
+  image region (`0x08000000..0x08400000`), and have power-of-two alignment with
+  congruent file offset and virtual address modulo 4096.
+- Strictly enforces **`W^X`**: rejects any segment that is both writable and
+  executable, any page-level overlap between segments, `PT_INTERP`, `PT_DYNAMIC`,
+  `PT_TLS`, and executable `PT_GNU_STACK`. Dynamic linking and relocations are
+  not used.
 
-Los PT_LOAD deben tener lectura, filesz <= memsz, rangos completos dentro del archivo y direcciones dentro de la región de imagen. Se comprueba alineación potencia de dos y congruencia offset/VA; no se supone que los punteros estén alineados. Se rechazan W+X, solapamientos incluso a nivel de página, intérprete, segmentos dinámicos/TLS y GNU_STACK ejecutable. No se implementan relocaciones ni enlazado dinámico.
+Physical frames are allocated only after the entire load plan passes validation.
+Segments are copied page-by-page through supervisor physical aliases, with BSS
+tails and page padding zeroed. User code pages are mapped RX, rodata R/NX, and
+data RW/NX. Any partial allocation failure rolls back all acquired frames and
+page tables, restoring the physical frame counter exactly.
 
-Solo después de validar todo el plan se adquieren frames. Cada segmento se copia por páginas usando aliases físicos supervisor; BSS y padding arrancan a cero. El código user es RX, rodata R/NX y datos RW/NX. Fallos parciales liberan todas las páginas/tablas y conservan el contador de frames.
+## Per-Process Virtual Memory Map
 
-## Espacio por proceso
-
-| Región | Dirección | Uso |
+| Region | Virtual Address Range | Permissions & Purpose |
 | --- | --- | --- |
-| Imagen | 0x08000000..0x08400000 | PT_LOAD |
-| Heap | 0x08400000..0x08800000 | brk, demanda, RW/NX |
-| Anónima | 0x08800000..0x08c00000 | mmap privado, RW/NX |
-| Reserva/guard | hasta 0x08ff0000 | no presente |
-| Pila ELF | 0x08ff0000..0x09000000 | 64 KiB RW/NX |
+| ELF Image | `0x08000000 .. 0x08400000` | `PT_LOAD` segments (`RX`, `R/NX`, `RW/NX`) |
+| User Heap (`brk`) | `0x08400000 .. 0x08800000` | Demand-paged via `SYS_BRK`, `RW/NX` (up to 4 MiB) |
+| Anonymous `mmap` | `0x08800000 .. 0x08c00000` | Private anonymous pages via `SYS_MMAP`, `RW/NX` (up to 4 MiB) |
+| Unmapped Guard | `0x08c00000 .. 0x08ff0000` | Not present (guard gap below user stack) |
+| ELF User Stack | `0x08ff0000 .. 0x09000000` | 64 KiB private stack (`RW/NX`) |
 
-Cada espacio tiene PDPT/directorio privado y tablas user creadas bajo demanda. La destrucción recorre exclusivamente la región user; nunca libera mappings supervisor compartidos. No hay una lista grande de propietarios dentro de la estructura task. El layout de las demos antiguas de una página y de NotLang se conserva.
+Each process owns a private PAE PDPT and page directory, with user page tables
+allocated on demand. Address-space teardown walks only the user virtual range
+and never frees shared supervisor mappings. Legacy single-page ring 3 demos and
+the NotLang VM retain their compact `0x08000000..0x08004000` layout.
 
-## ABI incremental, no ABI Linux/POSIX completa
+## Memory & Process Syscall ABI (`INT 0x80`)
 
-INT 0x80: EAX número/resultado, EBX primer argumento, ECX segundo. Se conservan todos los números existentes.
+Syscalls pass the number in `EAX` and arguments in `EBX`, `ECX`, `EDX`, `ESI`,
+returning the result or negative error code in `EAX`:
 
-- **6 / SYS_BRK:** EBX break solicitado; cero consulta. Devuelve el break actual/antiguo si falla. Extender hace rollback completo ante OOM; reducir libera páginas completas.
-- **7 / SYS_MMAP:** EBX longitud. Devuelve VA de memoria anónima privada RW/NX o -ENOMEM. Sin prot/flags/address hint, archivos ni MAP_FIXED.
-- **8 / SYS_MUNMAP:** EBX VA alineada, ECX longitud. Devuelve 0 o -EINVAL; solo acepta la región anónima. Las tablas vacías se liberan.
+- **`6` / `SYS_BRK`**: `EBX` = requested break (`0` queries current break).
+  Returns the new break on success, or the unchanged current break on invalid
+  range or OOM. Extending rolls back any partially allocated pages on OOM;
+  shrinking unmaps and frees complete pages and invalidates the TLB.
+- **`7` / `SYS_MMAP`**: `EBX` = byte length. Allocates zeroed, private anonymous
+  `RW/NX` pages in `0x08800000..0x08c00000` and returns the base virtual address
+  or `-ENOMEM` / `-EINVAL`. Does not take protection/flags/file/hint arguments.
+- **`8` / `SYS_MUNMAP`**: `EBX` = page-aligned virtual address, `ECX` = length.
+  Unmaps pages in the anonymous region, frees empty page tables, and returns `0`
+  or `-EINVAL`.
+- **`9` / `SYS_SLEEP`**: `EBX` = `0..60000` ms (`0` yields). Suspends a managed
+  process (`TASK_BLOCKED`) until its relative deadline expires without consuming
+  CPL3 tick budget.
 
-Validación de buffers recorre todos los PDE/PTE involucrados, incluyendo cruces de 2 MiB. Se invalida TLB al cambiar mappings del proceso activo. El kernel sigue sin preemption/SMP.
+User buffer validation walks every PAE PDE and PTE across the buffer span,
+including 2 MiB PDE boundaries.
 
-Esto **no** es ABI Linux, ni mmap POSIX completo, ni una implementación completa de mmap POSIX. Desde 0.14, el runtime de Picolibc prepara argc/argv, envp vacío y AT_NULL, con errno/stdio/malloc reales; ver LIBC.md. Las demos standalone conservan su entry propio. Thread-local storage sigue sin soporte.
+## Startup Stack Layout & Arguments
 
-## Pruebas
+`process_spawn_elf_args` and `process_spawn_elf_split` construct a 16-byte
+aligned initial user stack containing bounded argument strings, the `argc`
+count, the `argv` pointer array terminated by `NULL`, an empty `envp` (`NULL`),
+and an `AT_NULL` auxiliary vector pair. `process_spawn_elf_split` accepts up to
+256 bytes of space-separated arguments and up to 16 `argv` entries (including
+`argv[0]`). Overlong inputs are rejected before allocation, and any OOM rolls
+back all resources without advancing the monotonic PID counter.
 
-- Parser nativo con ASAN/UBSAN: tipos/flags/rangos/entry/alineación/solapamiento, todos los prefijos y 50000 mutaciones. Output sin cambios cuando falla.
-- QEMU: BSS multipágina, dato inicializado, pila >12 KiB en región de 64 KiB, crecimiento/reducción/reutilización brk y cero al reutilizar frames.
-- mmap de 2 MiB + 4 KiB y SYS_WRITE con buffer que cruza tablas PAE; munmap invalida acceso, rechaza regiones prohibidas y permite reutilización cero.
-- Cuatro ELF concurrentes en 16/64 MiB: direcciones iguales, datos/heap/pilas distintos, yield, slots limitados y recolección.
-- Fallos reales #PF: ejecución de heap/pila (NX), guard y escritura de texto RX; kernel continúa.
-- OOM al crear root/tablas, al crecer heap/mmap después de cruzar una tabla PAE y al reservar pila kernel. Frames/breaks originales restaurados.
+## VFS Executables & Process Replacement (`SYS_EXEC = 37`)
 
-No se afirma soporte para binarios arbitrarios, libc completa, señales, kernel preemptivo ni hardware físico.
+`spawn-elf PATH [ARGS]` loads an ELF binary from `/system`, `/tmp`, or `/disk`:
+- `/system` provides immutable embedded ELF images (`/system/curl.elf`,
+  `/system/libc.elf`), parsed and mapped directly from their read-only memory
+  region without duplicating the image on the kernel heap.
+- `/tmp` and `/disk` support user-written or downloaded ELF binaries up to
+  64 KiB (`NotFS v2` payload limit is 60 KiB).
 
-## Espera por syscall
+`notos_exec(path, arguments)` invokes **`SYS_EXEC` (`37`)**:
+- Validates and prepares the new VFS ELF image, fresh PAE address space, and
+  argument stack (`argv[0]` set to the path basename, up to 256 bytes / 16
+  arguments) **before** committing.
+- If any check or allocation fails, the calling process retains its existing
+  PID, address space, `cwd`, file descriptors, and execution state and receives
+  a negative error code.
+- On commit, the kernel cancels any pending async DNS tokens for the task,
+  switches `CR3` to the new address space before destroying the old one, closes
+  only descriptors marked `FD_CLOEXEC`, resets the user trap frame on the task's
+  kernel stack, and resumes at the new entry point.
+- Standard tasks keep a 250-tick CPL3 budget; `/system/curl.elf` receives a
+  2,500-tick budget for TLS/X.509 processing. `SYS_EXEC` never resets `user_ticks`
+  and can only raise the budget ceiling when executing `/system/curl.elf`.
 
-NotOS 0.13 agrega SYS_SLEEP=9 para procesos gestionados: 0..60000 ms, cero yield y retorno 0 al despertar.
-TASK_BLOCKED conserva el frame privado y no es seleccionado hasta vencer el timeout. Ver PROCESSES.md para restricciones de lotes síncronos y POLL.md para espera de FDs.
+## Verification
 
-## Startup y libc
-
-`process_spawn_elf_args` añade nombre y un argumento acotados al stack privado, seguido de argv NULL, envp vacío y auxv AT_NULL. ESP inicial alineado a 16 bytes; copy se realiza por aliases supervisor antes de ejecutar. El CRT separado conserva segmentos W^X y ejecuta arrays init/fini. La API `process_spawn_elf_split` admite hasta 256 bytes separados por espacios y 16 elementos de argv, incluido el nombre, conservando el mismo layout. Los excesos se rechazan y la creación revierte todos los recursos. Ver LIBC.md y CURL_PORT.md.
-
-## Ejecutables VFS y reemplazo
-
-`spawn-elf /system/libc.elf exec-source` lanza una imagen VFS. System proporciona
-ELFs inmutables; tmpfs/NotFS admiten imágenes hasta 64 KiB (NotFS 60 KiB). El
-parser ELF y sus límites/W^X siguen vigentes; una imagen se copia antes de cerrar
-su handle, y los blobs system se leen sin asignar una copia al heap kernel.
-
-`notos_exec(path, arguments)` usa SYS_EXEC=37, con cadena separada por espacios,
-256 bytes/16 elementos incluido argv[0] (basename), envp vacío y AT_NULL. Se
-preparan y validan imagen, espacio y stack antes de confirmar. Un fallo conserva
-PID, espacio, cwd, offsets y FDs. Al confirmar se cambia CR3 antes de destruir
-el espacio anterior, se reconstruye el frame en la pila kernel compartida y se
-cierran solo los slots CLOEXEC. El éxito no retorna a la imagen antigua.
-Los descriptores conservan sus referencias, flags y posiciones; no hay fork,
-execve POSIX, loader dinámico ni búsqueda PATH.
-
-El presupuesto normal conserva 250 ticks CPL3; curl embebido dispone de 2500
-para criptografía/CA/limpieza, con el mismo quantum de cinco ticks y cuatro slots.
-No equivale a tiempo de pared. No se elimina el límite para errores TLS.
+- **Native parser tests (`tests/elf_unit.c`, ASAN/UBSAN)**: Header/program
+  header bounds, `W^X` violations, segment overlaps, alignment/congruence, entry
+  point checks, all truncated prefixes, and 50,000 randomized mutations.
+- **QEMU ELF suite (`tests/elf.py`)**: Multi-page BSS, initialized data, >12 KiB
+  stack usage inside the 64 KiB stack, `brk` grow/shrink/reuse, 2 MiB + 4 KiB
+  `mmap` crossing PAE PDE boundaries, `munmap` invalidation, 4 concurrent ELF
+  processes in 16/64 MiB RAM, recoverable NX/guard/read-only `#PF` faults, and
+  deterministic OOM rollback.
+- **VFS execution & `SYS_EXEC` (`tests/continuation.py`)**: `spawn-elf`,
+  in-place `SYS_EXEC` preserving PID/`cwd`/open FDs while closing `FD_CLOEXEC`,
+  failed `SYS_EXEC` rollback, and downloading an ELF via `curl` to `/tmp` and
+  `/disk` and executing it across a reboot.

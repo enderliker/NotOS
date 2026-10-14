@@ -1,64 +1,92 @@
 # NotOS
 
-Prototipo de sistema operativo educativo escrito desde cero para x86 de 32 bits. Tiene cargador y kernel propios: no usa Linux, otro kernel ni una distribución como base. TLS utiliza MbedTLS 3.6.5 (Apache-2.0), y HMAC-DRBG/SHA256 usa BearSSL (MIT); no se afirma que esa biblioteca criptográfica sea original. La libc de usuario es Picolibc 1.8.11 upstream, con sus licencias originales y un port propio; no se afirma que esa biblioteca sea original. TCP y DNS de usuario utilizan lwIP 2.2.1 upstream (BSD-3-Clause), con integración propia; no se afirma autoría de esa pila. curl upstream 8.11.1 (licencia curl) aporta el cliente HTTP de usuario. GCC, Python y QEMU son herramientas del equipo de desarrollo, no componentes del sistema invitado.
+NotOS is a 32-bit x86 educational operating system prototype written from
+scratch for PC BIOS and QEMU. It features its own BIOS bootloader and
+freestanding kernel: it does not use Linux, another OS kernel, or a base
+distribution.
 
-## Implementado y probado
+Third-party components are pinned by SHA-256 and preserve their upstream
+licenses without claiming original authorship:
+- **TLS 1.2 / 1.3 & X.509**: MbedTLS 3.6.5 (`Apache-2.0`)
+- **Entropy DRBG / SHA-256**: BearSSL 0.6 (`MIT`)
+- **User-space C library**: Picolibc 1.8.11 (upstream per-file BSD/MIT/Newlib
+  licenses, with a custom NotOS syscall port)
+- **User-space TCP/IPv4 & DNS**: lwIP 2.2.1 (`BSD-3-Clause`, raw `NO_SYS=1`
+  integration)
+- **User-space HTTP/HTTPS client**: curl 8.11.1 (`curl` license)
 
-| Hito | Implementación | Prueba |
+GCC, binutils, Meson, Ninja, Python, OpenSSL, and QEMU are host build/test tools
+and are not part of the guest runtime.
+
+## Implemented & Verified Subsystems
+
+| Milestone | Implementation | Verification |
 | --- | --- | --- |
-| Arranque | Cargador BIOS propio, imagen cruda, A20, GDT y modo protegido | Ejecución real del kernel C en QEMU |
-| Interfaz gráfica | VGA 320×200, PS/2 mouse, cursor, toolbar y minimizar/restaurar | Framebuffer, movimiento/clicks QMP y teclado PS/2 |
-| Lenguaje | NotLang 0.1 kernel y 0.2 compilador/VM ring3, repeat y exec de archivos | Aritmética, loops, errores, aislamiento y ejecución tras reinicio |
-| Red | Driver RTL8139, ARP, IPv4, UDP/DNS, TCP/HTTP/HTTPS, retry y config estática | NAT, pérdidas SYN/GET/SYN-ACK/respuesta y DNS/HTTP/HTTPS público, TLS1.2/1.3, X509, AEAD, pérdidas y certificados inválidos |
-| Excepciones | IDT propia de 256 entradas, frame x86 y pantalla de panic | INT3 recuperable y fallos reales #DE, #UD y #GP |
-| Interrupciones | PIC 8259, PIT por IRQ0 y teclado por IRQ1 | HLT, reloj durante trabajo en primer plano y cola PS/2 |
-| Memoria física | Mapa BIOS E820 y frames de 4 KiB con bitmap | Agotamiento/liberación en QEMU con 16/32/64/128 MiB |
-| Paginación | PAE, CR0.PG/WP, NX y código W^X | Aliases, TLB y fallos #PF reales con CR2 |
-| Heap | kmalloc/kcalloc/kfree, split/coalesce y alineación de 16 bytes | 20000 operaciones nativas y asignaciones reales en el kernel |
-| ELF32 y VM user | Segmentos PT_LOAD W^X, BSS, pila 64 KiB, brk y mmap privado | Parser con sanitizadores, ring3, cruces PAE, NX, concurrencia y rollback OOM |
-| Libc de usuario | Picolibc estática, CRT, heap, stdio entero, errno, tiempo64 y entropía | ELF ring3, cuatro procesos, OOM, buffers, exit/flush y recursos restaurados |
-| Aislamiento básico | GDT/TSS, CR3 privados, INT 0x80 y buffers validados | CPL3 real, datos separados, fallos user y timeout recuperables |
-| Espera de procesos | SYS_SLEEP, TASK_BLOCKED y despertar por tiempo | Shell/worker concurrentes, cancelación, slots bloqueados y clock wrap |
-| VFS y FDs | tmpfs, NotFS v2 escribible, FDs privados, dup/seek y stdin bloqueante | Stdio binario ring3, cuotas/OOM, cuatro procesos, EOF y kill/fault sin fugas |
-| Sockets de usuario | lwIP TCP/IPv4, API BSD parcial, DNS y bloqueo por proceso | 32 KiB binarios, HTTP->tmpfs, cuatro procesos, pérdidas, TIME_WAIT, errores y cancelación |
-| Multiplexación | poll de hasta 64 entradas sobre sockets/FDs, espera por proceso | Eventos TCP/stdin, timeouts, backpressure, cuatro esperas y cancelación |
-| curl | Upstream 8.11.1 HTTP/HTTPS en ring 3 | HTTP, archivos/upload binarios, DNS, timeout, argumentos y cancelación |
-| Archivos | ATA PIO y NotFS propio en disco de datos separado | Reinicios, CRC, rollback y CRUD persistente |
-| Multitarea básica | Round-robin por IRQ0, cuatro slots, pilas privadas y SYS_YIELD | Contextos/registros, lotes mixtos, presupuesto, FPU rechazada y rollback OOM |
+| Bootloader | Custom 512-byte BIOS boot sector, raw image, A20, GDT, protected mode, and high-memory payload copy | Real C kernel boot and signature checks in QEMU |
+| Graphics & UI | VGA Mode 13h (320×200), PS/2 mouse, 8×8 cursor, toolbar, window minimize/restore, and shell line editing | Framebuffer pixel captures, QMP mouse/keyboard events, and CSI/PS/2 editing |
+| Language | NotLang 0.1 kernel interpreter and 0.2 ring 3 bytecode compiler/VM with nested `repeat` and source file `exec` | Arithmetic, loops, error isolation, resource cleanup, and execution across reboots |
+| Kernel Networking | RTL8139 PCI/DMA driver, ARP, IPv4, UDP/DNS, TCP/HTTP/HTTPS, exponential backoff retry, and `/24` static config | Local NAT, injected SYN/GET/SYN-ACK/response drops, public DNS/HTTP/HTTPS, TLS 1.2/1.3, X.509, AEAD tamper, and invalid certs |
+| Exceptions | Custom 256-entry IDT, uniform x86 trap frame, and fatal kernel panic screen | Recoverable `INT3` and real CPU faults (`#DE`, `#UD`, `#GP`, `#PF`) |
+| Interrupts | 8259 PIC remap, PIT timer on IRQ0 (~1000 Hz), and PS/2 keyboard/mouse on IRQ1/IRQ12 | `HLT` wakeups, clock progress during foreground work, spurious IRQ paths, and PS/2 queueing |
+| Physical Memory | BIOS E820 memory map parser and 4 KiB frame bitmap allocator (up to 64 MiB) | Pool exhaustion, boundary writes, and full recovery in QEMU with 16/32/64/128 MiB RAM |
+| Paging | PAE (64-bit descriptors), `CR0.PG`/`CR0.WP`, `EFER.NXE` (NX), and strict `W^X` | Virtual aliases, `INVLPG` TLB shootdown, and real `#PF` faults with `CR2` verification |
+| Kernel Heap | `kmalloc`/`kcalloc`/`kfree`, block split/coalesce, 16-byte alignment, and guard pages | 20,000 native randomized ops (ASAN/UBSAN) and live kernel heap stress tests |
+| ELF32 & User VM | `PT_LOAD` `W^X` segments, zeroed BSS, 64 KiB user stack, `brk`, private anonymous `mmap`, and `SYS_EXEC` | Sanitizer-fuzzed parser (50,000 mutations), ring 3 execution, PAE table crossings, NX faults, 4-way concurrency, and OOM rollback |
+| User-space Libc | Static Picolibc 1.8.11, custom CRT, `sbrk` heap, integer `stdio`, private `errno`, 64-bit time, and `getentropy` | Ring 3 ELF suite, 4 concurrent processes, OOM preservation, `atexit`/stdio flush, and exact frame/heap recovery |
+| Ring 3 Isolation | Custom GDT/TSS, per-task private `CR3`, `INT 0x80` syscall gate, and validated user buffers | Real CPL3 execution, isolated virtual addresses, recoverable user faults, and CPU tick budget enforcement |
+| Process Waiting | `SYS_SLEEP`, `TASK_BLOCKED`, and deadline-driven wakeups | Concurrent shell/workers, cancellation cleanup, all-blocked slots, and 32-bit clock wrap |
+| VFS & File Descriptors | Writable `tmpfs` and `NotFS v2`, immutable `/system`, per-process FDs/cwd, directories, `dup`/`lseek`, and blocking `stdin` | Ring 3 binary stdio, quotas/OOM rollback, 4 concurrent writers/readers, `mkfs`/v1->v2 migration, and leak-free `kill`/fault cleanup |
+| User-space Sockets | lwIP TCP/IPv4, partial BSD socket API, async DNS (`getaddrinfo`), and per-process blocking | 32 KiB binary streams, HTTP-to-tmpfs downloads, 4 concurrent clients, packet drops, `TIME_WAIT` recycling, and cancellation |
+| I/O Multiplexing | `poll` (up to 64 entries) and `select` adapter over sockets, files, and `stdin` | Multi-peer TCP/stdin readiness, relative/infinite timeouts, TX backpressure, 4 blocked waiters, and cancellation |
+| User-space `curl` | Upstream curl 8.11.1 HTTP/HTTPS in ring 3 linked with user-space MbedTLS 3.6.5 and Picolibc | Binary HTTP/HTTPS downloads & POST uploads, X.509/SAN/EKU checks, `--cacert`, DNS, timeouts, and VFS ELF download + `exec` |
+| Persistent Storage | 28-bit ATA PIO driver and dual-bank transactional `NotFS v2` on a dedicated data disk | Reboots, CRC corruption fallback, v1-to-v2 migration, mid-commit fault injection, and persistent directory/file CRUD |
+| Preemptive Multitasking | IRQ0 round-robin scheduler, four task slots, 16 KiB private kernel stacks, and `SYS_YIELD` | Register/flag preservation, mixed batches, 250-tick CPL3 budget, `#NM` FPU rejection, and OOM rollback |
 
-Cada avance se registra en un commit `feature(alcance) descripción` después de sus pruebas. No es un sistema de escritorio completo ni está listo para uso diario.
+NotOS is an educational laboratory kernel and is not a general-purpose desktop
+OS or hardened for hostile production environments.
 
-## Construir, probar y arrancar
+## Building, Testing, and Running
 
-Objetivo de CPU: x86 de 32 bits con PAE, MSR y NX (QEMU `-cpu max`), probado solo en QEMU. El kernel comprueba las capacidades antes de activar PAE/NXE. El código se genera sin SSE/FPU.
+**Target CPU**: 32-bit x86 with PAE, MSR, and NX support (QEMU `-cpu max`),
+tested in QEMU TCG emulation. The kernel verifies CPUID capabilities before
+enabling PAE/NXE, and all guest code is compiled without FPU/MMX/SSE
+instructions.
 
-Requisitos del host: GNU Make 4.3+, GCC capaz de generar código `-m32` (el kernel no necesita libc de 32 bits), GNU binutils, Meson/Ninja, Python 3.12+ (para extracción segura de la dependencia), OpenSSL para fixtures y `qemu-system-i386`. En Ubuntu/Debian:
+**Host Prerequisites**: GNU Make 4.3+, GCC with 32-bit code generation (`-m32`,
+no 32-bit host libc required), GNU binutils, Meson, Ninja, Python 3.12+, OpenSSL
+(for ephemeral TLS test fixtures), and `qemu-system-i386`. On Ubuntu/Debian:
 
 ```sh
 sudo apt-get update
 sudo apt-get install gcc binutils make python3 meson ninja-build openssl qemu-system-x86
 make
 make test
-make test-online  # opcional: requiere DNS, HTTP y HTTPS salientes
+make test-online  # optional: requires outbound DNS, HTTP, and HTTPS access
 make run
 ```
 
-`make run` abre QEMU con gráfica y salida serie en la terminal. Sin escritorio
-gráfico, usa `python3 tools/run.py -display none`. El lanzador crea y conserva
-`data.img` como disco de datos separado; ejecuta `mkfs` solo para formatearlo
-explícitamente (borra sus datos). Ver [STORAGE.md](docs/STORAGE.md). La imagen arrancable es `build/notos.img`. Las pruebas usan emulación TCG, sin necesitar KVM. Se puede seleccionar otro ejecutable con la variable de entorno `QEMU` para las pruebas.
+`make run` launches QEMU with a graphical window and serial console attached to
+your terminal. On a headless machine, run `python3 tools/run.py -display none`.
+The launcher automatically creates and preserves `data.img` as a separate
+primary-slave IDE data disk; run `mkfs` inside the NotOS shell only when you
+explicitly want to format and erase that data disk (see
+[docs/STORAGE.md](docs/STORAGE.md)). The bootable image is `build/notos.img`.
+You can override the QEMU binary via the `QEMU` environment variable.
 
-La primera compilación descarga BearSSL, MbedTLS, Picolibc, lwIP y curl con SHA256 fijado; se conserva en `.cache/`. Para compilar offline, usa `BEARSSL_ARCHIVE=/ruta/bearssl-0.6.tar.gz` y `MBEDTLS_ARCHIVE=/ruta/mbedtls-3.6.5.tar.bz2` y `PICOLIBC_ARCHIVE=/ruta/picolibc-1.8.11.tar.xz` y `LWIP_ARCHIVE=/ruta/lwip-2.2.1.tar.gz` y `CURL_ARCHIVE=/ruta/curl-8.11.1.tar.xz` (hashes verificados).
+The first build downloads BearSSL, MbedTLS, Picolibc, lwIP, and curl into
+`.cache/` and verifies their pinned SHA-256 hashes before extraction. For
+offline builds, pass local verified tarballs via `BEARSSL_ARCHIVE`,
+`MBEDTLS_ARCHIVE`, `PICOLIBC_ARCHIVE`, `LWIP_ARCHIVE`, and `CURL_ARCHIVE`.
 
-El workflow de GitHub ejecuta `make clean test` y conserva los artefactos. Su ejecución remota no fue comprobada desde este entorno.
+The GitHub Actions workflow runs `make clean test` and uploads test artifacts.
 
-## Comandos del sistema
+## Shell Commands
 
 ```text
 help
 about
 clear
-echo Hola NotOS
+echo Hello NotOS
 run let x = (2 + 3) * 4; print x
 run print x - 7
 run-user let n = 1; repeat 3 { let n = n * 2; }; print n
@@ -96,7 +124,7 @@ socket-run web 80
 socket-run poll-basic 1
 socket-run poll-web 80
 curl --version
-curl -sS -o /tmp/page.txt http://example.com/
+curl -sS -o /tmp/page.txt https://example.com/
 ls /tmp
 cat /tmp/page.txt
 cd /tmp
@@ -108,12 +136,13 @@ df
 feed 1 hello-vfs
 feed-eof 1
 elf-run demo
+spawn-elf /system/libc.elf test
 spawn worker
 spawn spin
 ps
 kill 2
 mkfs
-write hello.txt Hola
+write hello.txt Hello
 cat hello.txt
 ls
 rm hello.txt
@@ -127,55 +156,79 @@ user-run bad-buffer
 user-run kernel-read
 ```
 
-`F1` muestra ayuda y `F2` limpia la terminal. Se controla por teclado PS/2 o por COM1. La fuente inicial representa las minúsculas como mayúsculas; el intérprete conserva la entrada original. La red responde de forma asíncrona en la terminal.
+Press `F1` for help and `F2` to clear the terminal. Input is accepted via the
+PS/2 keyboard or `COM1` serial port, with an 8-entry command history, cursor
+movement (`Left`/`Right`/`Home`/`End`/`Delete`), and `Tab` completion for shell
+commands and VFS paths.
 
-## Diseño
+## System Design Overview
 
-BIOS carga nuestro sector de 512 bytes. El cargador lee dieciséis bloques de 64 sectores consecutivos desde `0x10000`, activa A20, configura una GDT, selecciona VGA modo 13h y entra a modo protegido. La entrada del kernel configura una pila en `0x9f000` y limpia BSS antes de llamar a C. El kernel bajo admite 512 KiB; un bloque adicional de 768 KiB se copia por BIOS desde un buffer temporal a partir de 1 MiB para incorporar curl. Las firmas 0x8fffc y 0x1bfffc verifican ambas cargas; linker y generador comprueban los límites. El kernel detecta RAM mediante BIOS E820 y reserva el primer MiB y la región estática alta, con BSS desde 0x1c0000; el gestor de frames tiene un límite físico de 64 MiB.
+The BIOS loads our 512-byte boot sector (`boot/boot.S`). The loader reads a
+512 KiB low kernel image into `0x10000..0x90000` (16 blocks of 64 sectors) and
+copies an additional 768 KiB high payload (`0x100000..0x1c0000`) through a
+32 KiB bounce buffer using BIOS `INT 15h / AH=87h` before enabling A20, loading
+the GDT, selecting VGA Mode 13h, and entering 32-bit protected mode. End-of-load
+signatures at `0x8fffc` and `0x1bfffc` validate both regions. The kernel entry
+(`kernel/entry.S`) sets the initial stack at `0x9f000` and zeroes BSS starting
+at `0x1c0000` before calling `kernel_main`. The physical frame allocator parses
+the BIOS E820 map, reserves the first MiB and the high static/BSS region up to
+`__bss_end` (`< 0x280000`), and manages up to 64 MiB of physical RAM.
 
-El kernel funciona en ring 0 con paginación supervisor, frames físicos y un heap virtual de 1 MiB. El código/rodata están protegidos contra escritura y la página nula no está mapeada. El PIC está remapeado, el PIT actualiza el reloj por IRQ0 y el teclado encola scancodes por IRQ1; la shell los procesa fuera del handler. La consola serie y la red siguen sondeadas. La red tiene buffers DMA estáticos y usa la tarjeta RTL8139 emulada y la NAT de QEMU para salir del equipo. El invitado genera y procesa sus propios paquetes; no llama a sockets de un sistema operativo base.
+The kernel runs in ring 0 with PAE paging (`CR4.PAE`, `EFER.NXE`, `CR0.PG`,
+`CR0.WP`), enforcing `W^X` permissions (RX text, R/NX rodata and embedded
+system images, RW/NX data/heap/stacks, unmapped null page, and stack/heap guard
+pages) and a 1 MiB virtual kernel heap at `0xd0001000`. The 8259 PIC is
+remapped to vectors `32..47`, the PIT drives `IRQ0` at ~1000 Hz, and PS/2
+keyboard/mouse interrupts (`IRQ1`/`IRQ12`) enqueue raw bytes for deferred
+processing in the main loop. Networking uses a custom PCI/DMA driver for the
+emulated RTL8139 NIC.
 
-## Límites importantes
+## Architectural Limits
 
-- Solo PC BIOS/x86 y hardware emulado especificado; no UEFI ni soporte comprobado en equipos reales.
-- Lotes síncronos de hasta cuatro tareas ring 3, con round-robin por IRQ0 y espacios/pilas privados; gestor de cuatro procesos background; exec de fuente NotLang persistente; ELF32 estático embebido con libc de usuario; con ejecutables VFS/exec, sin instalador. El heap es fijo de 1 MiB y el gestor físico administra como máximo 64 MiB, según E820; no hay crecimiento automático.
-- Los fallos comprobados de las demos user terminan la ejecución y regresan a la shell; los fallos del kernel siguen siendo fatales. No hay pila independiente para double fault. Las IRQ de timer y teclado están activas, pero no hay APIC, SMP ni preemption del kernel. FPU/MMX/SSE no están soportados en tareas.
-- Interfaz gráfica mínima con ratón PS/2, toolbar y minimizar/restaurar; sin navegador ni gestor completo de ventanas.
-- NotLang tiene intérprete 0.1 y compilador/VM ring3 0.2 con repeat y exec de archivos fuente; sin funciones ni acceso a archivos desde las aplicaciones.
-- Red con IP estática para QEMU, cliente kernel de una solicitud a la vez y ocho sockets TCP/IPv4 de usuario (ver SOCKETS.md), HTTP y HTTPS/TLS1.2/1.3 con validación X509. Configuración estática /24 y retransmisión con backoff; sin DHCP, IPv6 ni reensamblado de fragmentos IP. TLS requiere semilla fresca por firmware y RTC UTC válidos. El cliente muestra el estado HTTP y la cantidad de bytes, no renderiza páginas web.
-- Picolibc es un port parcial: stdio entero, heap y tiempo, con archivos tmpfs y stdin por proceso; con sockets TCP/IPv4 y DNS parciales; con poll básico; con select sobre poll y helpers binary64 por software; sin VFS POSIX completo ni libm/formato float general. Curl HTTP/HTTPS está disponible.
-- Pensado para pruebas de laboratorio; no usar para información sensible ni redes hostiles.
+- **Platform**: PC BIOS / 32-bit x86 in QEMU only; no UEFI or verified physical
+  hardware support.
+- **Processes & Memory**: Up to four concurrent tasks/processes (both for
+  synchronous diagnostic batches and background managed processes), private PAE
+  address spaces and 16 KiB kernel stacks, a fixed 1 MiB kernel heap, and a
+  64 MiB physical memory cap. No swap, ASLR, SMP, threads, or kernel preemption.
+  FPU/MMX/SSE instructions are disabled (`CR0.TS=1`).
+- **Fault Handling**: User-space exceptions terminate only the faulting process
+  and return cleanly to the shell; kernel-mode exceptions halt the CPU with a
+  diagnostic panic screen. No separate TSS for double faults.
+- **VFS & Storage**: 16 FDs per process, 64 global open file descriptions,
+  `tmpfs` (up to 64 KiB per file, 256 KiB total RAM quota), and dual-bank
+  transactional `NotFS v2` on the secondary IDE disk (up to 24 nodes and 60 KiB
+  total payload).
+- **Networking & TLS**: Static `/24` IPv4 configuration, one active request at a
+  time on the legacy kernel client, and up to eight user-space TCP endpoints and
+  four concurrent DNS queries via lwIP. Strict TLS 1.2/1.3 and X.509 validation
+  requiring a fresh `fw_cfg` entropy seed and valid CMOS UTC clock (`-k` does
+  not bypass certificate validation).
+- **User-space Libc & `curl`**: Single-threaded static Picolibc 1.8.11 port with
+  integer `stdio`, `sbrk` heap (up to 4 MiB per process), software `binary64`
+  helpers, `poll`/`select`, directory syscalls, and `notos_exec` (`SYS_EXEC`).
+  Upstream `curl` 8.11.1 supports HTTP and HTTPS in ring 3 with default trust
+  bundle `/system/cacert.pem`.
 
-## Documentación
+## Documentation Index
 
-- [Arquitectura y convenciones](docs/ARCHITECTURE.md)
-- [Ejecución de usuario](docs/USERSPACE.md)
-- [Multitarea y planificador](docs/TASKS.md)
-- [Procesos en segundo plano](docs/PROCESSES.md)
-- [ELF32 y memoria privada](docs/ELF.md)
-- [Libc de usuario](docs/LIBC.md)
-- [FDs, VFS y entrada](docs/VFS.md)
-- [Sockets TCP y DNS](docs/SOCKETS.md)
-- [poll y espera múltiple](docs/POLL.md)
-- [Memoria](docs/MEMORY.md)
-- [Almacenamiento](docs/STORAGE.md)
-- [Ratón y controles gráficos](docs/UI.md)
-- [NotLang](docs/NOTLANG.md)
-- [NotLang ring3 y programas](docs/NOTLANG_USER.md)
-- [Red](docs/NETWORK.md)
-- [HTTPS/TLS y sus límites](docs/TLS.md)
-- [Interrupciones y excepciones](docs/INTERRUPTS.md)
-- [Pruebas y resultados](docs/TESTING.md)
-- [Hitos y próximos pasos](docs/ROADMAP.md)
-
-## curl HTTP/HTTPS y continuación
-
-curl upstream 8.11.1 usa la red del invitado y MbedTLS 3.6.5 en ring 3;
-la confianza por defecto es `/system/cacert.pem`. Admite descarga/upload binario,
-directorios reales y argumentos separados por espacios (256 bytes/16 elementos).
-`spawn-elf PATH [ARGS]` carga ELF desde VFS y `notos_exec` reemplaza el proceso
-conservando PID y FDs salvo CLOEXEC. NotFS v2 permite escritura persistente y
-migra v1 conservando un snapshot anterior. Shell añade historial/flechas/Tab.
-
-Ver [curl](docs/CURL_PORT.md), [almacenamiento](docs/STORAGE.md),
-[ELF](docs/ELF.md) y [hoja de ruta](docs/ROADMAP.md) para límites y pruebas.
+- [Architecture and Module Boundaries](docs/ARCHITECTURE.md)
+- [User-Space Execution (Ring 3)](docs/USERSPACE.md)
+- [Preemptive Multitasking and Scheduler](docs/TASKS.md)
+- [Background Processes and Blocking Waits](docs/PROCESSES.md)
+- [ELF32 Loader, Private VM, and `SYS_EXEC`](docs/ELF.md)
+- [User-Space C Library (Picolibc Port)](docs/LIBC.md)
+- [VFS, File Descriptors, and Directories](docs/VFS.md)
+- [Persistent Storage and NotFS v2](docs/STORAGE.md)
+- [User-Space TCP/IPv4 Sockets and DNS](docs/SOCKETS.md)
+- [I/O Multiplexing (`poll` and `select`)](docs/POLL.md)
+- [Physical Memory, PAE/NX Paging, and Heap](docs/MEMORY.md)
+- [Interrupts, PIC/PIT, and Exceptions](docs/INTERRUPTS.md)
+- [Kernel Networking (RTL8139, TCP/IP, HTTP)](docs/NETWORK.md)
+- [HTTPS / TLS 1.2 & 1.3 and X.509 Policy](docs/TLS.md)
+- [Upstream `curl` 8.11.1 Port](docs/CURL_PORT.md)
+- [Mouse, VGA UI, and Shell Line Editing](docs/UI.md)
+- [NotLang 0.1 Kernel Interpreter](docs/NOTLANG.md)
+- [NotLang 0.2 Ring 3 Compiler and VM](docs/NOTLANG_USER.md)
+- [Verification Log and Test Suites](docs/TESTING.md)
+- [Roadmap and Next Milestones](docs/ROADMAP.md)

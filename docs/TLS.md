@@ -1,6 +1,6 @@
-# HTTPS/TLS — NotOS 0.11
+# HTTPS / TLS 1.2 & 1.3 and X.509 Policy
 
-## Uso
+## Kernel HTTPS Client Usage
 
 ```text
 https example.com
@@ -11,58 +11,79 @@ tls
 tls-selftest
 ```
 
-`https HOST[:PORT] [IP]` usa 443 por defecto. El hostname DNS se usa para **SNI y verificación del certificado**. La IP opcional solo cambia dónde conectar, no la identidad a verificar; es equivalente a una resolución explícita y permite tests locales. Identidades IP literales/iPAddress SAN no se soportan: usar un nombre DNS y, si hace falta, la IP de conexión. No hay `--insecure` ni fallback a HTTP.
+`https HOST[:PORT] [IP]` connects to port `443` by default. The DNS `HOST` name
+is always used for **TLS Server Name Indication (SNI) and X.509 certificate
+identity verification**. The optional `[IP]` argument overrides only the TCP
+destination address (allowing local fixture testing against `10.0.2.2` while
+verifying a DNS hostname). Literal IP identities / `iPAddress` SANs are not
+supported, and there is no `--insecure` bypass or plaintext HTTP fallback.
 
-El cliente hace GET `/` con HTTP/1.0 dentro del canal cifrado, muestra estado y bytes de plaintext autenticado, y requiere `close_notify` autenticado para declarar terminación correcta. No renderiza el cuerpo ni implementa un navegador. Una línea de estado puede mostrarse durante streaming antes de detectar un truncamiento posterior; eso no equivale a una respuesta completada.
+The kernel client sends an `HTTP/1.0 GET /` request inside the encrypted tunnel,
+reports the HTTP status line and authenticated plaintext byte count, and
+requires an authenticated TLS `close_notify` alert before reporting success.
 
-Ejecutar `make run`: genera una semilla fresca para el invitado. Para añadir disco persistente, usar `python3 tools/run.py -drive if=ide,index=1,format=raw,file=build/data.img`. Reutilizar data.img no requiere reutilizar la semilla.
+## Architecture & Cryptographic Policy
 
-## Arquitectura y política
+NotOS uses **MbedTLS 3.6.5** (`Apache-2.0`) for TLS 1.2, TLS 1.3, and X.509
+chain validation, and **BearSSL 0.6** (`MIT`) for its `fw_cfg`-seeded
+HMAC-DRBG/SHA-256 entropy generator. All TLS handshakes, record encryption, and
+certificate checks run inside the NotOS guest—never via a host proxy.
 
-MbedTLS 3.6.5 (Apache-2.0) suministra TLS1.2/1.3 y X.509; BearSSL conserva solo HMAC-DRBG/SHA256; NotOS mantiene kernel, Ethernet, IPv4, TCP, retransmisión y event loop propios. **No hay proxy ni TLS del host en el camino del cliente**. El build obtiene fuentes sin modificar, con SHA256 fijado antes de extraer/compilar; no usa libc ni runtime Linux en el invitado. Ver third_party/README.md y su opción offline.
+- **Protocol Versions**: **TLS 1.3 preferred, TLS 1.2 minimum**. TLS 1.0/1.1,
+  PSK, 0-RTT early data, and renegotiation are disabled.
+- **Cipher Suites & Key Exchange**:
+  - TLS 1.3: `AES-128-GCM`, `AES-256-GCM`, and `ChaCha20-Poly1305` with ECDHE
+    (`secp256r1`, `secp384r1`, `x25519`) and `RSA-PSS` / `ECDSA` signatures.
+  - TLS 1.2: `ECDHE-RSA` and `ECDHE-ECDSA` with `AES-128-GCM` or
+    `ChaCha20-Poly1305` (no static RSA key exchange or CBC ciphers).
+- **Certificate & Key Policy (`kernel/certificate_policy.c`)**:
+  - RSA keys must be **>= 2048 bits** (2047-bit keys are rejected); EC keys
+    support P-256, P-384, and P-521.
+  - Certificate signatures must use **SHA-256, SHA-384, or SHA-512** (MD5 and
+    SHA-1 peer certificate chains are rejected).
+  - **DNS SAN required**: Peer certificates must contain a matching `dNSName`
+    Subject Alternative Name (including single-label leftmost wildcards);
+    CN-only fallback is rejected.
+  - **Extended Key Usage (EKU)**: When present on leaf or intermediate
+    certificates, EKU must permit `serverAuth` or `anyExtendedKeyUsage`.
+  - Chain depth is bounded to 8 certificates of at most 16 KiB each, validated
+    against the pinned Mozilla/curl root snapshot (`trust/roots.pem`).
+- **Memory & Timeouts**: Per-connection state and 32 KiB I/O FIFOs are allocated
+  from the kernel heap and explicitly zeroed (`mbedtls_platform_zeroize`) before
+  freeing. Responses are bounded to 16 MiB, with a 30 s idle timeout and 60 s
+  total transfer deadline.
 
-- TLS **1.3 preferido, mínimo 1.2**: ECDHE, RSA-PSS/ECDSA; AES128/256-GCM o ChaCha20-Poly1305 para 1.3. ECDHE_RSA/ECDHE_ECDSA con AES128-GCM/ChaCha20 para 1.2. Sin TLS1.0/1.1, PSK, 0-RTT ni renegociación.
-- RSA >=2048 bits exactos (también se rechaza 2047), certificados EC P256/P384/P521; firmas de certificados SHA256/384/512. No MD5/SHA1 chains, CBC ni intercambio RSA estático.
-- Cadena contra un snapshot Mozilla/curl comprometido; no actualizaciones silenciosas de raíces.
-- Identidad DNS verificada, incluyendo wildcard de una sola etiqueta. SAN DNS requerido: no se acepta fallback CN-only.
-- EKU, cuando está presente en hoja o intermedios enviados, debe autorizar serverAuth o anyExtendedKeyUsage. MbedTLS verifica firmas, CA/basic constraints, keyUsage y fechas; el wrapper añade SAN/EKU/límites.
-- Hasta ocho certificados de 16 KiB cada uno. DER adicional usa slices limitados; el validador original sigue verificando la estructura/cadena.
-- Registros TLS sobre TCP con una transmisión pendiente; reenvío conserva ciphertext/sequence originales. Input/output FIFO de 32 KiB y buffers MbedTLS completos para records de 16 KiB.
-- Estado/buffers por conexión en heap, borrados de forma explícita antes de liberar. Sin buffers secretos compartidos con user space.
-- Límite de respuesta de 16 MiB, inactividad TLS de 30 s y total de 60 s; timeouts y errores limpian el contexto.
+## Entropy & Real-Time Clock (Fail-Closed)
 
-## Entropía y tiempo
+- **Entropy (`kernel/entropy.c`)**: `tools/run.py` generates 64 fresh bytes from
+  the host CSPRNG on each launch and passes them via QEMU `fw_cfg`
+  (`opt/notos/entropy`). The kernel seeds BearSSL HMAC-DRBG/SHA-256 and wipes
+  temporary buffers. If no seed is present, TLS and `SYS_ENTROPY` **fail closed
+  before connecting**.
+- **CMOS RTC UTC (`kernel/rtc.c`, `kernel/utc.c`)**: Reads coherent CMOS RTC
+  snapshots (supporting BCD/binary and 12/24-hour modes for UTC years
+  `2000..2099`) and converts them to 64-bit Unix epoch seconds (`tests/utc_unit.c`
+  verifies post-2038 dates). Missing or invalid RTC data fails closed.
 
-`make run` genera 64 bytes nuevos con el CSPRNG del host y los entrega como `opt/notos/entropy` por QEMU fw_cfg. El invitado siembra HMAC-DRBG/SHA256, borra temporales y deriva entropía distinta por intento. No usa PIT jitter, semilla fija, OS RNG implícito ni extensiones CPU. Sin semilla, TLS falla **antes de conectar**; HTTP sigue disponible. La seguridad exige un host confiable y semillas impredecibles/no reutilizadas. Restaurar/clonar snapshots puede repetir DRBG state y no se soporta como flujo seguro. Todavía no hay fuente de entropía para equipos físicos.
+## User-Space `curl` HTTPS (`ring 3`)
 
-CMOS se lee con snapshots coherentes; formatos BCD/binario y 12/24 h, UTC 2000..2099. Clock ausente/inválido falla cerrado. Host/firmware/RTC pertenecen al límite de confianza; no hay tiempo autenticado ni protección contra rollback del host. El snapshot de raíces también requiere mantenimiento explícito.
+Upstream `curl` 8.11.1 links against a separate user-space build of MbedTLS
+3.6.5 (`user/curl_port/`) using Picolibc, `SYS_ENTROPY`, and `SYS_TIME`. It
+reads the immutable default CA bundle from `/system/cacert.pem` (or a custom
+bundle via `--cacert PATH`) and enforces the same strict X.509 policy
+(`certificate_policy.c`), preventing `-k` / `--insecure` from bypassing
+certificate verification. See [CURL_PORT.md](CURL_PORT.md).
 
-El cargador conserva 512 KiB bajos y añade 768 KiB altos para el ELF curl, con firmas 0x8fffc y 0x1bfffc. BSS comienza en 0x1c0000; la región estática alta se reserva antes de asignar frames. Ver MEMORY.md. Límites de payload, readonly/BSS y guard de stack siguen comprobados por linker. CSPRNG y TLS son kernel no preemptivo; procesamiento criptográfico puede demorar el loop.
+## Verification
 
-## Pruebas y límites
-
-`make clean test` genera CA/keys **efímeros en build** y otra imagen (`notos-tls-test.img`) que confía solo en esa CA. **La imagen de producción no confía en ella**; se prueba su rechazo. Keys no se comprometen en git y se excluyen de artifacts de CI. El servidor Python/OpenSSL solo es un peer de test: la negociación cliente/cifrado/verificación ocurren dentro del invitado.
-
-Casos positivos: TLS12 y TLS13, RSA-PSS/ECDSA, HelloRetryRequest, TLS12 AES-GCM/ChaCha20, SNI, SAN/wildcard, múltiples solicitudes, headers divididos, body mayor que un RX ring, cierre autenticado y recuperación de pérdida RX.
-
-Casos negativos: identidad incorrecta/wildcard multietiqueta, raíz no confiable, falta de SAN, EKU incorrecto de hoja/intermedio, RSA débil, certificado futuro/expirado, firma SHA1 de hoja, truncamiento sin close_notify y ciphertext AEAD alterado. Sin entropía y OOM no se conecta. Frames/heap se restauran exactamente tras intentos; ring3/batches/heap siguen operativos. PCAP verifica ausencia de GET/body en claro y ClientHello random distinto por intento. Parser de política DER probado con ASAN/UBSAN, todos los prefijos truncados y 10000 mutaciones.
-
-`make test-online` prueba DNS/HTTP y HTTPS público con roots de producción: example.com, versión negociada 1.2/1.3, HTTP200 y close_notify. Un peer solo TLS13 ya se acepta; uno solo TLS12 conserva compatibilidad.
-
-No revocación OCSP/CRL/CT, client certificates, session resumption, HTTP2, browser, general TCP stack, hardware real ni auditoría de producción. No se implementa todo el ecosistema de políticas PKI. La criptografía portable no garantiza ausencia de canales laterales en equipos físicos. Es un hito comprobado en QEMU, no un sistema para manejar credenciales/información sensible ni una garantía contra todos los ataques.
-
-## Port de plataforma
-
-El backend se compila con cabeceras freestanding propias y configuración limitada. BIO no bloqueante devuelve WANT_READ/WANT_WRITE; TCP conserva sus retransmisiones cifradas. Se liberan cadena/contextos y slots PSA al terminar.
-RTC se convierte a epoch UTC de 64 bits y calendario sin libc del anfitrión. Fechas posteriores a 2038 se prueban explícitamente. RNG PSA consume la misma fuente fail-closed en bloques limitados; no existe fallback determinista.
-Las funciones de formato de diagnóstico no utilizadas fallan explícitamente; **no constituyen una libc para curl**. El cliente educativo sigue siendo `https`.
-
-## curl HTTPS en ring 3
-
-Curl integra otra construcción de MbedTLS 3.6.5 enlazada a Picolibc, sin
-fuentes upstream modificadas. `/system/cacert.pem` expone el bundle production
-como blob readonly. El adaptador de usuario registra SYS_ENTROPY como fuente
-fuerte, comprueba el reloj y aplica perfil de certificados estricto, sin permitir
-que el callback upstream borre errores con `-k`. Ver CURL_PORT.md para límites
-de CA, certificados cliente, cierre y cobertura; el cliente kernel conserva sus
-pruebas y contrato independientes.
+- `tests/cert_unit.c` and `tests/utc_unit.c` (ASAN/UBSAN): Test DER X.509
+  policy parsing across all truncated prefixes and 10,000 mutations, plus 64-bit
+  UTC calendar math.
+- `tests/https.py` and `tests/curl_https.py`: Test TLS 1.2 and TLS 1.3 against
+  ephemeral OpenSSL fixtures (`notos-tls-test.img` for the kernel client;
+  `--cacert` in `tmpfs` for `curl`), verifying rejection of untrusted roots,
+  wrong SAN/wildcards, missing SAN, bad EKU, weak RSA (`1024`/`2047`), SHA-1
+  leaf signatures, expired/future dates, missing `close_notify`, and tampered
+  AEAD records.
+- `make test-online`: Verifies live TLS 1.3 handshakes, X.509 validation, HTTP
+  200 responses, and authenticated `close_notify` against `https://example.com`.

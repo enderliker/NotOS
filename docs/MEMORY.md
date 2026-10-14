@@ -1,31 +1,75 @@
-# Memoria — NotOS 0.6
+# Physical Memory, PAE/NX Paging, and Kernel Heap
 
-El cargador obtiene un mapa BIOS E820 completo antes de entrar en modo protegido. El header está en 0x5000; admite hasta 64 entradas de 24 bytes, con compatibilidad para entradas de 20 bytes. Si el BIOS no proporciona un mapa completo y válido, el sistema no continúa a la asignación de RAM.
+## Physical Memory & BIOS E820 (`kernel/physical.c`)
 
-El gestor físico usa páginas de 4096 bytes y dos bitmaps: páginas utilizables y páginas libres. Respeta regiones no disponibles incluso si se solapan con regiones de tipo RAM. Solo admite páginas enteras dentro de RAM habilitada. Todo el primer MiB está reservado para kernel, firmware, VGA, mapa BIOS, pila y estructuras estáticas.
+Before switching to protected mode, the BIOS bootloader queries the full BIOS
+`INT 15h / EAX=E820h` memory map and stores the header at `0x5000` (up to 64
+entries of 24 bytes, compatible with 20-byte ACPI 2.0 entries). If the BIOS does
+not provide a valid E820 map, the kernel refuses to initialize dynamic frame
+allocation.
 
-Se gestiona como máximo el primer bloque de 64 MiB de direcciones físicas. Esto no equivale a afirmar que toda esa región sea RAM: el mapa BIOS decide qué páginas se pueden usar. En QEMU se comprobó con 16, 32, 64 y 128 MiB; en el último caso solo se gestiona RAM hasta el límite de 64 MiB.
+The physical frame allocator manages **4096-byte (4 KiB) frames** using two
+bitmaps: usable RAM frames and currently free frames.
+- Overlapping non-RAM or reserved E820 regions always take precedence over
+  usable RAM ranges.
+- Only complete 4 KiB pages fully contained within usable E820 RAM are admitted.
+- All of the first 1 MiB (`0x00000000..0x00100000`) and the high static/BSS
+  kernel region (`0x00100000..__bss_end`, where `__bss_end < 0x00280000`) are
+  explicitly reserved before any frame can be allocated.
+- The physical manager caps managed RAM at **64 MiB** (tested in QEMU with 16,
+  32, 64, and 128 MiB configurations).
 
 ```text
 mem
 frame-test
 ```
 
-`frame-test` agota los frames libres, comprueba escritura en los extremos de cada página, rechaza liberaciones inválidas/dobles y devuelve todos los frames que adquirió. No toca páginas ya asignadas a otros componentes. El asignador entrega frames sin inicializar; quien los utilice debe limpiar su contenido si hace falta.
+`frame-test` allocates every available free frame, writes/verifies boundary
+patterns at the start and end of each page, rejects invalid and double frees,
+and releases all acquired frames back to the pool. Allocated frames are returned
+uninitialized; callers that require zeroed pages (such as user-space page
+allocations) explicitly zero them.
 
-El sector BIOS tiene exactamente 512 bytes. La carga actual separa el kernel bajo y el ELF curl en memoria alta; las direcciones, firmas y capacidades se especifican al final de este documento. Linker y generador verifican sus límites.
+## Bootloader & High-Memory Layout (`boot/boot.S`, `kernel/link.ld`)
 
-Desde NotOS 0.7 existen espacios privados y demos en ring 3 (ver USERSPACE.md); todavía no hay swapping ni un gestor de procesos de propósito general.
+The 512-byte BIOS boot sector loads two contiguous payload regions from the disk
+image:
+1. **Low kernel image (`0x10000..0x90000`, 512 KiB)**: Loaded via 16 reads of
+   32 KiB (64 sectors) without crossing 64 KiB DMA boundaries, verified by the
+   magic word at `0x8fffc`.
+2. **High read-only payload (`0x100000..0x1c0000`, 768 KiB)**: Loaded in 24
+   chunks of 32 KiB through the real-mode bounce buffer at `0x90000..0x98000`
+   and copied into high memory (`1 MiB .. 1.75 MiB`) via BIOS
+   `INT 15h / AH=87h`, verified by the magic word at `0x1bfffc`.
 
-## Paginación implementada
+The initial supervisor stack sits at `0x9f000` (with an unmapped guard page at
+`0x90000`), and kernel `.bss` starts at `0x1c0000` and is zeroed in
+`kernel/entry.S`. The high payload holds read-only (`R/NX`) system blobs such as
+`/system/curl.elf` and `/system/cacert.pem`.
 
-Páginas x86 de 4 KiB, directorio/tablas propias y CR0.PG + CR0.WP activos. Se requiere una CPU x86 con las capacidades de 486 (WP/INVLPG); QEMU es el único hardware comprobado. El kernel y las estructuras estáticas usan identity mapping. Por encima de 1 MiB se mapea RAM utilizable según E820 y la región estática reservada del kernel, hasta el cap de 64 MiB. El VGA del primer MiB permanece mapeado sin caché.
+## PAE & NX Paging (`kernel/paging.c`)
 
-- Página cero no presente: las lecturas nulas provocan #PF.
-- Código y rodata alineados y de solo lectura, incluso para escrituras supervisor con WP.
-- Página 0x90000 no presente como guard inferior de la zona de pila. Un desbordamiento que corrompa la pila puede necesitar TSS/stack alternativo, todavía ausentes.
-- Ventana virtual supervisor de 4 MiB en 0xd0000000 para mapear frames ya asignados. Todas las entradas son supervisor, no user.
-- Map/unmap con invalidación TLB mediante INVLPG y secciones críticas que preservan IF. No se permite sobrescribir un mapping ya presente.
+NotOS enables **Physical Address Extension (PAE)** and the **No-Execute (NX)**
+bit (`CPUID.PAE`, `CPUID.NX`, `MSR EFER.NXE`, `CR4.PAE`, `CR0.PG`, and
+`CR0.WP`):
+- 4-entry Page Directory Pointer Table (PDPT) and 512-entry 64-bit Page
+  Directories and Page Tables (4 KiB frames).
+- When publishing a 64-bit PTE/PDE, the upper 32 bits (containing the `NX` bit
+  and high physical address bits) are written before the lower 32-bit word with
+  the `P` (Present) bit.
+- **Strict `W^X` protection**:
+  - Kernel `.text`: Supervisor Read/Execute (`RX`), write-protected even in ring
+    0 via `CR0.WP`.
+  - Kernel `.rodata` and high embedded `/system` blobs: Supervisor Read-Only /
+    No-Execute (`R/NX`).
+  - Kernel `.data`, `.bss`, stacks, and heap: Supervisor Read/Write /
+    No-Execute (`RW/NX`).
+  - Page `0x00000000` (null page) and stack guard page `0x00090000`: Not
+    present (any access triggers `#PF`).
+  - VGA framebuffer (`0xA0000..0xBFFFF`): Mapped uncacheable (`PWT`/`PCD`).
+  - Dynamic supervisor mapping window (`0xd0000000..0xd03fffff`, 4 MiB):
+    Supervisor-only virtual window used for the kernel heap and temporary frame
+    aliases, with `INVLPG` TLB invalidation on map/unmap.
 
 ```text
 vm
@@ -36,59 +80,35 @@ fault guard
 fault unmapped
 ```
 
-Los comandos `fault` detienen deliberadamente la CPU y requieren reiniciar QEMU. Se comprueban #PF y CR2 reales: nulo (error 0, CR2 0), escritura en código (error 3, CR2 0x10000), guard virtual y acceso tras unmap. Este último toca el mapping antes de eliminarlo para comprobar la invalidación del TLB.
+## Dynamic Kernel Heap (`kernel/heap.c`, `kernel/heap_core.c`)
 
-`vm-test` verifica dos aliases de un mismo frame, traducción con offset, remapping a otro frame, limpieza y restauración del contador físico. Los mappings no tienen conteo de referencias: el llamador debe eliminar todos los aliases antes de liberar un frame. La ventana del heap sigue siendo exclusivamente supervisor; las demos de usuario tienen directorios separados desde NotOS 0.7. El identity mapping de los frames sigue existiendo. PAE/NX y memoria privada bajo demanda se describen abajo y en ELF.md; no hay ASLR ni swapping. Los espacios privados de las demos user se documentan por separado.
+The kernel reserves a fixed **1 MiB virtual heap** at `0xd0001000..0xd0101000`
+backed by 256 physical frames, bookended by unmapped guard pages at `0xd0000000`
+and `0xd0101000`. If startup frame acquisition fails partway, all acquired
+mappings and frames are rolled back.
 
-## Heap dinámico implementado
+- `kmalloc(bytes)`: Allocates a 16-byte aligned block; returns `NULL` if
+  `bytes == 0` or out of memory.
+- `kcalloc(count, bytes)`: Checks `count * bytes` for multiplication overflow
+  and zeroes the allocated payload (leaving interrupts enabled while zeroing if
+  they were enabled on entry).
+- `kfree(pointer)`: Frees a valid allocated block (`NULL` is a safe no-op).
+  Rejects out-of-range, interior, unaligned, and double-freed pointers.
 
-Se reserva un heap de 1 MiB en 0xd0001000 usando 256 frames físicos, con guards no presentes en 0xd0000000 y 0xd0101000. Si no se pueden obtener todos los frames al iniciar, se eliminan los mappings adquiridos y se devuelven sus frames antes de reportar el fallo. El heap es fijo: las liberaciones reutilizan el espacio del heap, no devuelven sus páginas al gestor físico.
-
-API del kernel:
-
-- `kmalloc(bytes)`: asigna, con alineación de 16 bytes; devuelve null si bytes=0 o no cabe. Contenido no inicializado.
-- `kcalloc(count, bytes)`: comprueba overflow del producto y limpia el contenido solicitado. La limpieza se hace con IRQ habilitadas cuando lo estaban al entrar.
-- `kfree(pointer)`: libera un bloque válido; null es un no-op exitoso. Rechaza punteros ajenos, interiores, no alineados y doble liberación de un bloque que sigue libre.
-
-El algoritmo first-fit divide bloques cuando hay espacio para otro header/payload y une vecinos libres al liberar. Los headers tienen magic y comprobación de rangos/alineación/enlaces antes de recorrer la lista. Es una ayuda para detectar corrupción, no una defensa completa frente a código malicioso en ring 0. El heap no se usa dentro de handlers IRQ y no es un asignador SMP o de tiempo real.
+The first-fit allocator (`heap_core.c`) splits blocks when sufficient space
+remains for a new header and payload, coalesces adjacent free blocks on `kfree`,
+and validates block header magic numbers, alignment, and neighbor links before
+traversing the list. The heap is never called from IRQ handlers.
 
 ```text
 heap
 heap-test
 alloc 128
 alloc 4097
-heap
 free 0
 free 1
-heap
 fault heap-end
 ```
 
-Los comandos `alloc`/`free` ofrecen ocho slots de diagnóstico. `alloc` usa kcalloc; `free` recibe el índice, no una dirección arbitraria. `heap-test` requiere heap sin asignaciones activas y comprueba alineación, división, unión, calloc, OOM y liberaciones inválidas; restaura el estado. `fault heap-end` escribe en el guard final: #PF esperado, error 2 y CR2 0xd0101000. **Este comando detiene el sistema.**
-
-Pruebas: 20000 operaciones de asignación/liberación con patrones en una arena nativa, más tres autopruebas en el invitado y ocho asignaciones simultáneas liberadas fuera de orden. Se verifica restauración de espacio/contadores y funcionamiento tras agotar frames libres. La validación de metadata corrupta se prueba nativamente; no se afirma recuperación segura de cualquier corrupción.
-
-Los guards protegen los bordes de la región virtual, no cada bloque individual. No hay detección completa de use-after-free, redzones ni crecimiento automático del heap. El heap kernel es RW/NX; el aislamiento de aplicaciones utiliza espacios privados. Los componentes del kernel comparten el espacio supervisor; las demos en ring 3 utilizan sus propios directorios CR3 y no un heap de aplicación.
-
-## PAE y NX
-
-Se exige CPUID.PAE y CPUID.NX: EFER.NXE, CR4.PAE y CR0.PG/WP.
-PDPT de cuatro entradas, directorios/tablas de 512 entradas de 64 bits; cada frame sigue siendo de 4 KiB.
-Text RX; rodata R/NX; datos, heap y pilas RW/NX. El descriptor se publica después de escribir su mitad alta.
-Cada tarea tiene PDPT y directorio privado, compartiendo exclusivamente los mapeos supervisor.
-Las pruebas ejecutan saltos desde ring3 al dato/pila: #PF con error 21, sin terminar el kernel.
-
-El cargador lee 512 KiB hacia 0x10000..0x90000 y valida el sello 0x8fffc.
-Para curl y raíces añade veinticuatro lecturas de 32 KiB: cada bloque pasa por el buffer BIOS
-0x90000..0x98000 y se copia con INT 15h/AH=87 a 0x100000..0x1c0000. El sello
-alto está en 0x1bfffc. Las transferencias BIOS no cruzan un límite de 64 KiB;
-VGA y la pila inicial 0x9f000 quedan fuera de ambos destinos.
-
-La imagen ELF de curl ocupa la región alta de solo lectura/NX. BSS comienza
-en 0x1c0000, se borra en entry y debe terminar antes de 0x280000. El asignador
-reserva desde 0x100000 hasta el fin de BSS antes de entregar frames; el mapping
-supervisor incluye esa región reservada. Linker y generador comprueban las
-capacidades baja/alta y tamaño del archivo de disco. La protección R/NX no
-convierte el blob en código kernel: el cargador ELF lo copia al espacio user.
-
-La ejecución ELF, brk y mmap privados están documentados en [ELF.md](ELF.md).
+Per-process user-space virtual memory (`brk`, `mmap`, and 64 KiB user stacks) is
+documented in [ELF.md](ELF.md).

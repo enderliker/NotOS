@@ -1,44 +1,73 @@
-# Multitarea básica — NotOS 0.8
+# Preemptive Multitasking and Scheduler
 
-## Contratos y separación
+## Module Contracts & Separation
 
-- `task.*`: estado, contexto inicial, recursos y resultado. Objetos inicialmente a cero; rollback al fallar creación; nunca liberar una tarea activa.
-- `scheduler_policy.*`: función pura round-robin, sin hardware, consola ni asignación. Solo selecciona READY; ignora UNUSED/FINISHED.
-- `scheduler.*`: lote síncrono de 1..4 tareas, quantum, estadísticas y traza acotada. Rechaza tamaños inválidos, punteros repetidos, IDs repetidos y estados no READY antes de cambiar el runtime.
-- `syscall.*`: ABI y rangos user. `SYS_YIELD` devuelve 0 cuando la tarea vuelve a ejecutarse.
-- `multitask.*`: escenarios de laboratorio, validación y reportes, fuera de IRQ. El protocolo de la imagen de prueba está separado en `user_test_abi.h`.
-- `arch.*`, `user_entry.S`, `isr.S`: TSS y restauración de frames x86.
+- `task.*`: Owns task state, initial trap frame construction, private address
+  space and 16 KiB kernel stack allocation, and exit/fault status recording.
+  Tasks are zero-initialized, roll back partial allocations on error, and are
+  never freed while active.
+- `scheduler_policy.*`: Pure, host-tested round-robin selection over 4 slots
+  without hardware I/O, console output, or memory allocation. Selects only
+  `TASK_READY` tasks and ignores `TASK_UNUSED`, `TASK_BLOCKED`, and
+  `TASK_FINISHED` slots.
+- `scheduler.*`: Orchestrates synchronous diagnostic batches (`1..4` tasks) and
+  single-pulse background execution (`scheduler_pulse`), tracking 5-tick
+  quantums, 250-tick CPL3 budgets, dispatch/preemption statistics, and a bounded
+  32-event trace buffer.
+- `syscall.*`: Validates user arguments and handles `SYS_YIELD` (`5`), returning
+  `0` when the task is next scheduled.
+- `multitask.*`: Implements laboratory batch scenarios and verifies results
+  outside IRQ context (`user_test_abi.h`).
+- `arch.*`, `user_entry.S`, `isr.S`: Manage the x86 TSS (`ESP0`) and trap frame
+  save/restore.
 
-Estado: `UNUSED -> READY -> RUNNING -> READY` por quantum/cesión, o `RUNNING -> FINISHED` por exit/fallo/presupuesto. Los resultados se inspeccionan antes de liberar los recursos; una tarea FINISHED no puede ser elegida otra vez.
+## Context Switching & Time Accounting
 
-## Contextos y tiempo
+Each task owns a private PAE `CR3` and a 16 KiB supervisor stack allocated from
+the kernel heap with a low-end canary word. On a context switch:
+1. `IRQ0` sends PIC EOI **before** switching context.
+2. The scheduler updates `TSS.ESP0` to the top of the incoming task's kernel
+   stack and loads its private `CR3`.
+3. Assembly (`isr.S`) switches `ESP` to the selected 76-byte trap frame and
+   executes `IRET`, restoring general-purpose registers, segment selectors,
+   `EIP`, `EFLAGS`, and user `ESP`/`SS`.
 
-Cada tarea conserva sus cinco frames privados de memoria y una pila supervisor de 16 KiB del heap. El canario detecta corrupción en su extremo bajo; no es una página guard ni una solución general de overflow. La TSS recibe ESP0 de la siguiente tarea. Se selecciona su CR3 y se restaura su frame: registros generales, segmentos, EIP, flags y ESP/SS user. El frame inicial mide 76 bytes, comprobados en compilación.
+When a synchronous batch has no `TASK_READY` tasks left (or when a background
+pulse yields/blocks/finishes), the scheduler restores the saved kernel trap
+frame and supervisor `CR3`.
 
-IRQ0 envía EOI **antes** de transferir a otro contexto. El dispatcher devuelve el puntero al frame elegido; assembly cambia ESP y ejecuta IRET. El frame del llamador kernel se conserva por separado y se recupera, con su CR3, cuando no quedan tareas READY. El lote no permite anidamiento.
+- **Quantum**: 5 `IRQ0` ticks received while executing in CPL 3.
+- **CPU Budget**: 250 CPL3 `IRQ0` ticks per standard task (2,500 ticks for
+  `/system/curl.elf`). Exhausting the budget terminates the task with exit
+  status `124`.
+- **Fault & FPU Isolation**: User-mode faults terminate only the faulting task
+  and record the vector/error/`CR2`. `CR0.TS` is set so any x87/MMX instruction
+  raises `#NM` (vector 7), terminating that task with status `135` without
+  corrupting other tasks.
 
-Quantum: cinco IRQ0 recibidas en CPL3. Presupuesto: 250 IRQ0 recibidas en CPL3 por tarea; al agotarse termina con estado 124. No es tiempo de pared ni contabilidad exacta de CPU: no cuenta trabajo kernel y puede perder muestras con IRQ desactivadas. No se ofrece una garantía contra todos los patrones hostiles de syscalls/yield. `SYS_TICKS` consulta el reloj global en ms, no el consumo de una tarea.
-
-Las fallas user normales terminan solo la tarea afectada. NMI, double fault, machine check y errores originados en kernel siguen siendo fatales. CR0.TS rechaza uso de x87/MMX; SIMD tampoco está habilitado. El test x87 comprueba #NM/vector 7. No hay guardado/restauración de estado FPU/SIMD.
-
-## Escenarios
+## Diagnostic Batch Scenarios
 
 ```text
-multitask-test          # dos workers: ninguna cesión voluntaria
+multitask-test          # two preemptive workers without voluntary yield
 multitask-run workers
-multitask-run four      # cuatro workers y wrap de round-robin
-multitask-run yield     # dos workers con SYS_YIELD
-multitask-run fault     # dos workers sobreviven al #PF de la tercera tarea
-multitask-run budget    # worker normal + bucle infinito, termina con 124
-multitask-run fpu       # uso x87 rechazado; otro worker termina normalmente
+multitask-run four      # four concurrent workers with round-robin wraparound
+multitask-run yield     # two workers cooperating via SYS_YIELD
+multitask-run fault     # two workers survive a third task's #PF fault
+multitask-run budget    # normal worker completes while infinite loop hits 124
+multitask-run fpu       # x87 instruction trapped (#NM) while peer completes
 ```
 
-Workers mantienen registros EBX/EDX/ESI/EDI/EBP y DF como canarios, contador y marcador en su página privada. Comprueban esos valores al reanudarse y salen con 42. Cada TASK reporta CR3 real verificado, dirección de pila, ticks, despachos y preemptions.
+Each worker seeds `EBX`, `EDX`, `ESI`, `EDI`, `EBP`, and `EFLAGS.DF` with canary
+values, mutates its private virtual data page, verifies all registers upon
+resuming after preemption, and exits with status `42`.
 
-Trazas: causas 0 inicio, 1 timer, 2 exit, 3 fallo, 4 presupuesto, 5 yield; ID 0 representa al llamador kernel. Se conservan solo los primeros 32 eventos, sin imprimir dentro del handler. Los contadores cubren el lote completo; una traza truncada no es un historial exhaustivo.
+## Verification & Limits
 
-## Pruebas y límites
+`make test` runs `tests/scheduler_unit.c` on the host and boots QEMU with 16,
+32, and 64 MiB RAM (`tests/multitask.py`) to verify all batch scenarios,
+rejection of invalid batches, OOM rollback when kernel stacks cannot all be
+allocated, and exact restoration of physical frames and kernel heap bytes.
 
-`make test` prueba la política nativamente y arranca lotes reales con 16/32/64 MiB. Comprueba contextos privados, todos los escenarios, rechazo de lotes inválidos, exclusión de terminadas, rollback cuando no cabe ninguna pila o solo cabe una parte del lote, y restauración exacta de frames/heap. Repite escenarios en 32 MiB y verifica INT3/IRQ/heap después. Los tests HTTP locales prueban red después de fallos y presupuesto en la misma VM; `make test-online` prueba DNS/HTTP externo después de lotes de cuatro tareas y del rechazo de x87.
-
-No hay SMP, kernel preemptivo, bloqueo/wakeup, prioridades, IPC ni ELF. Los lotes de este módulo son síncronos; shell y procesamiento de red esperan a que termine el lote y IRQ0/IRQ1/IRQ12 siguen activos. Desde 0.9, el gestor [PROCESSES.md](PROCESSES.md) ejecuta pulsos background entre iteraciones del loop; NotLang 0.2 puede ejecutarse en VM ring3 (NOTLANG_USER.md). Es un hito de laboratorio, no un sistema operativo terminado ni un sandbox auditado.
+Synchronous diagnostic batches (`multitask-run`) run to completion before
+returning to the shell; for persistent background processes that interleave with
+the shell and networking, see [PROCESSES.md](PROCESSES.md).

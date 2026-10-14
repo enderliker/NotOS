@@ -1,10 +1,14 @@
-# NotLang 0.1
+# NotLang 0.1 (Kernel Interpreter)
 
-Intérprete propio que se ejecuta dentro del kernel de NotOS. No usa Python, JavaScript, una VM externa ni libc.
+NotLang 0.1 is a custom arithmetic scripting interpreter that runs inside the
+NotOS kernel for quick interactive expressions (`run`). It uses no external VM
+or host library.
 
-## Uso
+For the isolated **ring 3** bytecode compiler, virtual machine, loops
+(`repeat`), and persistent script execution (`run-user` and `exec`), see
+[NOTLANG_USER.md](NOTLANG_USER.md).
 
-Escribe en la terminal:
+## Usage
 
 ```text
 run let x = (2 + 3) * 4; print x
@@ -12,26 +16,29 @@ run print x - 7
 lang-reset
 ```
 
-Los dos primeros comandos imprimen `20` y `13`. Las variables sobreviven entre comandos hasta `lang-reset` o un reinicio; no se guardan en disco.
+The first two commands print `20` and `13`. Variables in the 0.1 interpreter
+persist in RAM across `run` commands until `lang-reset` or a system reboot.
 
-## Gramática
+## Grammar
 
 ```text
-program   := statement (';' statement)* ';'?
-statement := 'let' identifier '=' expression | 'print' expression
+program    := statement (';' statement)* ';'?
+statement  := 'let' identifier '=' expression | 'print' expression
 expression := term (('+' | '-') term)*
-term      := factor (('*' | '/' | '%') factor)*
-factor    := integer | identifier | '(' expression ')' | ('+' | '-') factor
+term       := factor (('*' | '/' | '%') factor)*
+factor     := integer | identifier | '(' expression ')' | ('+' | '-') factor
 ```
 
-- Enteros con signo de 32 bits; detección de desbordamiento y división por cero.
-- Literales decimales no negativos hasta 2147483647; el mínimo entero se expresa como `-2147483647 - 1`.
-- División entera truncada hacia cero. `%` devuelve el resto.
-- Máximo de 16 variables, nombres de hasta 15 caracteres y profundidad de expresión de 24.
-- Cada línea de shell admite hasta 159 caracteres. Los comandos demasiado largos se descartan al pulsar Enter.
-- Palabras clave y variables distinguen mayúsculas/minúsculas. La fuente gráfica inicial dibuja las minúsculas como mayúsculas; la entrada y el intérprete conservan el carácter original.
-- Las sentencias ya completadas conservan sus efectos si una posterior falla. Una asignación fallida no modifica su variable.
+## Semantics & Limits
 
-No hay todavía funciones, bucles, cadenas, archivos, compilador ni programas aislados del kernel.
-
-Desde 0.2, `run-user` y `exec` ofrecen un compilador/VM separado en ring 3 y repeat anidado; ver [NOTLANG_USER.md](NOTLANG_USER.md). Este documento describe exclusivamente el intérprete 0.1 del comando `run`.
+- **32-bit signed integers (`i32`)** with checked overflow detection on `+`,
+  `-`, `*`, `/`, `%`, and unary negation, plus division-by-zero traps.
+- Non-negative decimal literals up to `2147483647` (`INT32_MAX`); `INT32_MIN` is
+  written as `-2147483647 - 1`.
+- Integer division truncates toward zero; `%` computes the remainder.
+- Up to **16 variables**, identifier names up to **15 characters**, and a
+  maximum expression nesting depth of **24**.
+- Keywords (`let`, `print`) and identifiers are case-sensitive.
+- Earlier statements separated by `;` retain their side effects if a later
+  statement in the same line fails; a failed `let` expression never mutates its
+  target variable.

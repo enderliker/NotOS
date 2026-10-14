@@ -1,69 +1,94 @@
-# VFS, descriptores y directorios
+# VFS, File Descriptors, and Directories
 
-El invitado opera sobre archivos propios, con 16 FDs por tarea y 64 descripciones
-abiertas globales. `dup` comparte posición/flags; CLOEXEC pertenece al descriptor.
-No se declara conformidad POSIX completa.
+## Overview
 
-| Ruta | Contrato |
+NotOS provides a bounded Virtual File System (`kernel/vfs.c`) and per-process
+file descriptor tables (`kernel/fd.c`) with **16 file descriptors per task** and
+**64 global open file descriptions**. `dup` and `dup2` share the underlying open
+file description (offset and status flags), while `FD_CLOEXEC` is stored per
+descriptor slot.
+
+| Mount Path | Backend Contract |
 | --- | --- |
-| `/tmp` | Directorios y archivos RAM, 16 nombres y 24 nodos, hasta 64 KiB por archivo |
-| `/disk` | NotFS v2 persistente, 24 nodos y 60 KiB de payload total |
-| `/system` | Imágenes inmutables `curl.elf`, `libc.elf` y `cacert.pem` |
-| `/dev` | stdin privado, stdout/stderr/console y null |
+| `/tmp` | In-memory `tmpfs` directories and files: up to 16 named entries, 24 total nodes, and 64 KiB per file (256 KiB / 64-frame global RAM quota) |
+| `/disk` | Persistent transactional `NotFS v2` on the secondary IDE disk: up to 24 nodes and 60 KiB (`61,440` bytes) total payload |
+| `/system` | Immutable embedded read-only/NX blobs: `curl.elf`, `libc.elf`, and `cacert.pem` |
+| `/dev` | Per-process private `stdin`, shared `stdout`/`stderr`/`console`, and `null` |
 
-Las rutas absolutas o relativas se normalizan respecto al cwd privado del
-proceso: `.`, `..` y separadores repetidos; máximo 63 bytes. Los componentes
-para tmpfs/NotFS tienen 1..23 caracteres alfanuméricos, punto, guion o underscore.
-Cada tarea nueva comienza en `/`; exec conserva cwd. El cwd de shell es separado.
-`mkdir`, `rmdir`, `chdir`, `getcwd`, stat y apertura readonly de directorios están
-implementados. `notos_readdir` devuelve una entrada wire y avanza la descripción
-compartida; los cambios concurrentes de nombres pueden alterar la enumeración.
-No hay rename, symlinks, hardlinks, montaje configurable, permisos multiusuario,
-timestamps mantenidos ni API POSIX completa de dirent.
+## Path Resolution & Directories
 
-Los opens del mismo inode `/disk` comparten un nodo coherente; los cambios de
-shell y syscalls son visibles en las lecturas siguientes. Unlink conserva una
-copia RAM del contenido para los handles abiertos, reservada antes de publicar
-la eliminación. Un inode recreado no cambia esos handles. Tras mkfs, los handles
-antiguos de disco devuelven ENOENT: format es una operación administrativa
-explícita, no unlink. Inodes persistentes no se reutilizan durante el montaje;
-se agotan tras 65280 creaciones, aunque se borren nombres. IDs tmpfs 16..255
-se reutilizan evitando colisiones con todos los nodos vivos; IDs de disco
-256..65535 son compatibles con ino_t i386.
+Absolute and relative paths are normalized lexically against the calling
+process's private current working directory (`cwd`), resolving `.`, `..`, and
+repeated `/` separators up to **63 bytes** total. Path components in `/tmp` and
+`/disk` accept `1..23` characters from `[A-Za-z0-9._-]`. Every new task starts
+with `cwd` set to `/`, and `SYS_EXEC` preserves `cwd` (the interactive shell
+maintains its own separate `cwd`).
 
-`open/read/write/close/lseek/stat/fstat/unlink/ftruncate/dup/dup2/fcntl/isatty`
-usan syscalls y Picolibc proporciona stdio. Create/exclusive/truncate/append,
-nonblock y CLOEXEC están soportados. Un write tiene hasta 4096 bytes; stdio/libc
-puede dividir transferencias. Append toma EOF en cada syscall. Seek/write crea
-huecos a cero; truncate borra datos descartados. Cuota RAM: 64 páginas (256 KiB)
-para tmpfs y handles de disco sin nombre. System y disco enlazado no consumen
-esa cuota. Las reservas parciales tmpfs se revierten ante OOM/ENOSPC.
+Supported directory operations:
+- `mkdir`, `rmdir` (requires an empty directory), `chdir`, `getcwd`, `stat`, and
+  read-only directory `open`.
+- `notos_readdir` (`SYS_READDIR=42`) reads one 36-byte
+  `struct notos_directory_entry` (`inode`, `type`, `size`, `name[24]`) and
+  advances the open directory description's index, returning `1` per entry and
+  `0` at EOF.
 
-NotFS publica cada write/truncate en un snapshot completo; una transferencia
-multisyscall puede quedar parcialmente escrita. La shell `write` reemplaza un
-archivo de disco en una publicación. No hay mmap de archivos ni journaling.
-Las imágenes system son readonly/NX y no se pueden borrar o reemplazar.
+## Coherency, `unlink`, `mkfs`, and Inodes
 
-Las colas stdin son privadas de 256 bytes. `feed PID TEXT` añade newline;
-`feed-eof PID` marca EOF. Read bloquea sin detener shell, y NONBLOCK devuelve
-EAGAIN. Exit/kill/fault cierran descripciones y cancelan consultas de red.
+- Opening the same file path on `/disk` multiple times shares a single coherent
+  in-memory VFS node so shell and user-space writes are immediately visible to
+  subsequent reads.
+- **`unlink` with open handles**: Before removing a `/disk` file entry and
+  publishing the new `NotFS v2` snapshot, the VFS reserves a RAM copy of the
+  file's payload (charged against the 64-page RAM quota) so existing open file
+  descriptors continue reading/writing the unlinked file's content until closed.
+- **`mkfs` invalidation**: Running `mkfs` explicitly formats `/disk` and marks
+  any pre-existing open `/disk` nodes stale (`ENOENT` on subsequent I/O).
+- **Inode numbers**: `tmpfs` reuses inode IDs in `16..255` while avoiding
+  collisions with any live node; `NotFS v2` assigns monotonic persistent inodes
+  in `256..65535` (compatible with 16-bit/32-bit `ino_t` on `i386`).
 
-## ABI incremental
+## File & Console I/O Semantics
 
-Se conservan las operaciones 14..25 y poll=36. Nuevas:
+- Supported file syscalls and Picolibc wrappers: `open`, `read`, `write`,
+  `close`, `lseek`, `stat`, `fstat`, `unlink`, `ftruncate`, `dup`, `dup2`,
+  `fcntl`, and `isatty`.
+- Supports `O_CREAT`, `O_EXCL`, `O_TRUNC`, `O_APPEND`, `O_NONBLOCK`, and
+  `O_CLOEXEC`.
+- Single `read`/`write` syscalls transfer up to **4096 bytes**. `O_APPEND`
+  positions at EOF before each write. Seeking past EOF and writing creates
+  zero-filled sparse gaps; `ftruncate` zeroes discarded ranges. Partial page
+  allocations in `tmpfs` roll back cleanly on `ENOSPC` / `ENOMEM`.
+- Every `write` or `ftruncate` on `/disk` publishes a transactional `NotFS v2`
+  snapshot (see [STORAGE.md](STORAGE.md)).
+- **Per-process `stdin`**: Each process has a private 256-byte input queue fed
+  by `feed PID TEXT` (which appends `\n`) and closed by `feed-eof PID`. Blocking
+  reads suspend only the calling process (`TASK_WAIT_INPUT`); `O_NONBLOCK`
+  returns `-EAGAIN` when empty. Process `exit`, `kill`, and user faults close
+  all open descriptors and release any unlinked nodes.
 
-| Número | Operación | Registros |
+## VFS Syscall ABI (`INT 0x80`)
+
+| Number | Operation | Arguments (`EBX`, `ECX`, `EDX`) |
 | --- | --- | --- |
-| 37 | exec | EBX path, ECX texto de argumentos |
-| 38 | mkdir | EBX path, ECX mode |
-| 39 | rmdir | EBX path |
-| 40 | chdir | EBX path |
-| 41 | getcwd | EBX salida, ECX capacidad; retorna 0 |
-| 42 | readdir | EBX fd, ECX salida; 1 entrada, 0 EOF |
+| `14` | `SYS_OPEN` | `path`, `flags`, `mode` |
+| `15` | `SYS_CLOSE` | `fd` |
+| `16` | `SYS_READ` | `fd`, `buffer`, `length` |
+| `17` | `SYS_LSEEK` | `fd`, `offset`, `whence` |
+| `18` | `SYS_STAT` | `path`, `struct notos_file_info *out` (20 bytes) |
+| `19` | `SYS_FSTAT` | `fd`, `struct notos_file_info *out` (20 bytes) |
+| `20` | `SYS_UNLINK` | `path` |
+| `21` | `SYS_FTRUNCATE` | `fd`, `length` |
+| `22` | `SYS_DUP` | `oldfd` |
+| `23` | `SYS_DUP2` | `oldfd`, `newfd` |
+| `24` | `SYS_FCNTL` | `fd`, `command`, `argument` |
+| `25` | `SYS_ISATTY` | `fd` |
+| `37` | `SYS_EXEC` | `path`, `arguments` |
+| `38` | `SYS_MKDIR` | `path`, `mode` |
+| `39` | `SYS_RMDIR` | `path` |
+| `40` | `SYS_CHDIR` | `path` |
+| `41` | `SYS_GETCWD` | `buffer`, `capacity` (returns `0` on success) |
+| `42` | `SYS_READDIR` | `fd`, `struct notos_directory_entry *out` (36 bytes; `1` entry, `0` EOF) |
 
-`notos_file_info` tiene 20 bytes; `notos_directory_entry` 36 bytes con inode,
-tipo, tamaño y nombre[24]. Los buffers completos y permisos se validan antes
-de consumir offsets o mutar estado; wire desalineado se copia por bytes.
-
-Pruebas: `tests/vfs_unit.c`, `tests/fs_unit.c`, `tests/vfs.py`,
-`tests/continuation.py` y `tests/files.py`. Consultar STORAGE.md y ELF.md.
+All user buffers and permissions are validated before mutating descriptor offsets
+or VFS state, and wire structures (`notos_file_info`, `notos_directory_entry`)
+are copied bytewise to tolerate unaligned user addresses.

@@ -1,85 +1,111 @@
-# E/S multiplexada — NotOS 0.17
+# Multiplexed I/O (`poll` and `select`)
 
-## Implementación
+## Overview
 
-`poll(struct pollfd *, nfds_t, int timeout)` está disponible en la libc de usuario. Espera eventos de varios descriptores mediante una syscall **propia**, no un loop de `nanosleep`, una syscall Linux ni sockets del host. Un proceso sin eventos queda TASK_BLOCKED y devuelve el control al event loop; shell/NIC/IRQ y otros procesos siguen funcionando.
+`poll(struct pollfd *fds, nfds_t count, int timeout)` and `select(...)` are
+provided in the NotOS user-space C library (`user/libc/poll.c`). `poll` waits
+for readiness across multiple file descriptors and sockets via native kernel
+syscall **`SYS_POLL` (`36`)**—never a `nanosleep` polling loop or host socket
+passthrough. When no requested events are ready, the calling process enters
+`TASK_BLOCKED` (`TASK_WAIT_POLL`) and yields control back to the kernel event
+loop while the shell, NIC, IRQs, and other processes continue running.
 
-- `kernel/poll_abi.h`: números de eventos y wire fijo; 64 entradas máximo, independientemente de los 16 FDs por proceso. Permite duplicados y entradas negativas.
-- `fd_poll`: backend sobre vectores confiables. Consulta readiness sin leer/escribir datos ni modificar posición, flags o SO_ERROR.
-- `socket_events.h`: política pura, separada de PCBs y comprobada nativamente. `socket_ready` toma una instantánea del endpoint y capacidad TX de lwIP, sin conservar un PCB reciclable.
-- `poll_wait.*`: validación, snapshot de entrada y registro/completado de espera. No interpreta comandos ni implementa TCP.
-- `process_poll`: evalúa esperas antes del round-robin. Resultados se copian al espacio bloqueado por aliases físicos sin activar su CR3. Solo event loop/kernel no preemptivo; no se entra desde IRQ.
-- `user/libc/poll.c`: traduce structs, límites y errno; `user/poll_demo.c` son pruebas en un ELF separado, no otro backend de poll.
+- `kernel/poll_abi.h`: Fixed wire format and event bitmasks; up to **64 entries**
+  per call (independent of the 16-FD-per-process table size), allowing duplicate
+  and negative FDs.
+- `fd_poll` (`kernel/fd.c`): Queries descriptor readiness without consuming data
+  or mutating file offsets, flags, or `SO_ERROR`.
+- `kernel/socket_events.h`: Pure, host-tested readiness policy mapped by
+  `socket_ready` (`kernel/socket_stack.c`) from lwIP endpoint state and TX
+  buffer capacity.
+- `kernel/poll_wait.c`: Validates user buffers, snapshots `fd`/`events` into
+  bounded task storage, and registers/completes `TASK_WAIT_POLL`.
+- `process_poll` (`kernel/process.c`): Evaluates pending waits before each
+  round-robin step and copies `revents` back to the blocked task's address space
+  via physical frame aliases without switching `CR3` in IRQ context.
 
-## Contrato
+## `poll` Contract
 
 ```c
-struct pollfd { int fd; short events; short revents; };
+struct pollfd {
+    int fd;
+    short events;
+    short revents;
+};
+
 int poll(struct pollfd *fds, nfds_t count, int timeout);
 ```
 
-Retorna el **número de entradas** con revents distinto de cero, no cantidad de bits ni de FDs únicos. Un descriptor repetido cuenta una vez por entrada. Retorna 0 al vencer el timeout; -1/errno en errores de argumentos/buffers o espera no soportada.
+Returns the **number of `pollfd` entries** with non-zero `revents` (not the bit
+count or unique FD count), `0` on timeout expiration, or `-1` with `errno` set
+on error:
+- `timeout == 0`: Non-blocking poll; returns immediately.
+- `timeout > 0`: Relative wait up to `INT_MAX` ms using wrap-safe unsigned
+  32-bit tick arithmetic.
+- `timeout < 0`: Infinite wait until at least one entry becomes ready or the
+  process is terminated (`kill`).
+- `count == 0`: Pure timed or infinite sleep without descriptors (`fds` pointer
+  is ignored; returns `0` immediately when `timeout == 0`).
+- `count > 64`: Fails immediately with `EINVAL` before reading user memory.
+- **Full buffer validation**: The kernel validates read/write permissions across
+  the entire `fds` array before touching memory. Kernel, read-only, overflowing,
+  or unmapped user pointers fail with `EFAULT`. Unaligned `pollfd` vectors are
+  copied bytewise (`memcpy`).
+- `fd < 0`: Ignored (`revents` set to `0`).
+- Unopened or out-of-range `fd >= 0`: Sets `POLLNVAL` in that entry's `revents`
+  (never a global `EBADF`).
+- `POLLIN`, `POLLOUT`, and `POLLRDHUP` are masked by `events`; `POLLERR`,
+  `POLLHUP`, and `POLLNVAL` are reported unconditionally even when `events == 0`.
+- If an event and timeout occur on the same event-loop pass, readiness takes
+  priority over timeout.
 
-- `timeout == 0`: consulta inmediata, nunca bloquea.
-- `timeout > 0`: espera relativa hasta INT_MAX ms; resolución PIT/event loop. La comparación unsigned funciona al envolver el reloj de 32 bits. No ofrece garantías duras de latencia cuando hay comandos kernel largos.
-- `timeout < 0`: espera indefinida hasta evento o cancelación del proceso, incluidos valores distintos de -1.
-- `count == 0`: espera temporal o indefinida sin FDs; puntero ignorado. Con timeout 0 retorna 0.
-- Más de 64 entradas: EINVAL antes de leer el vector. Se valida **todo el rango writable/readable** antes de tocar salida. Buffers kernel, readonly, desbordados o no mapeados: EFAULT. El vector raw puede estar desalineado; se copia bytewise antes de interpretarlo.
-- `fd < 0`: se ignora y revents queda cero. FD no abierto/fuera de tabla: POLLNVAL en esa entrada, **no EBADF global**.
-- POLLIN/POLLOUT y POLLRDHUP se filtran por events. POLLERR/POLLHUP/POLLNVAL se devuelven incluso con events=0. revents de entrada se ignora y sobrescribe al completar.
-- Bits de events no soportados se ignoran. POLLPRI está definido como constante convencional, pero **no se implementan datos TCP urgentes/eventos prioritarios**. No se declara conformidad POSIX completa.
+## Readiness by Descriptor Backend
 
-La syscall captura fd/events en almacenamiento acotado del task, no retiene el vector como datos confiables en memoria user. El pointer de salida se conserva solo para completar la copia validada. Al despertar limpia el snapshot; kill/fault/destrucción del task descartan toda la espera, sin asignaciones/FDs/PCBs adicionales ni callbacks que despierten slots reutilizados. Si evento y timeout coinciden en una iteración, se entrega readiness primero. Los lotes diagnósticos síncronos permiten consultas inmediatas, pero rechazan esperas que necesitarían el event loop.
-
-## Readiness por backend
-
-| Backend | Eventos |
+| Backend | Reported Events |
 | --- | --- |
-| tmpfs / snapshot NotFS / null | IN y OUT cuando se solicitan, incluso en EOF; operaciones sobre acceso incorrecto pueden fallar sin bloquear |
-| stdout / stderr | OUT |
-| stdin | IN al tener datos o EOF; HUP para EOF permanente de la cola por PID |
-| console | OUT e IN según cola de entrada; HUP al EOF permanente |
-| TCP conectando | Ninguno hasta terminar connect o fallar |
-| TCP conectado | IN si hay bytes, EOF o SHUT_RD; OUT si hay capacidad de envío/cola o SHUT_WR (write fallaría sin bloquear) |
-| TCP FIN remoto | IN; RDHUP si se solicita. HUP cuando ambos lados están cerrados para I/O |
-| TCP fallido | IN/OUT solicitados y HUP; ERR mientras SO_ERROR esté pendiente |
-| TCP abierto sin connect | HUP y OUT solicitado, no NVAL |
+| `tmpfs` / `NotFS v2` / `/system` / `/dev/null` | `POLLIN` and `POLLOUT` whenever requested (including at EOF) |
+| `stdout` / `stderr` | `POLLOUT` |
+| `stdin` / `/dev/console` | `POLLIN` when input bytes or EOF are queued (`POLLOUT` also on `/dev/console`); `POLLHUP` on permanent EOF |
+| TCP connecting | None until handshake completes or fails |
+| TCP connected | `POLLIN` on queued RX bytes, remote FIN/EOF, or `SHUT_RD`; `POLLOUT` when TX buffer/queue space is available or `SHUT_WR` is set |
+| TCP remote FIN | `POLLIN` (and `POLLRDHUP` if requested); `POLLHUP` when both directions are closed |
+| TCP failed / RST / refused | Requested `POLLIN`/`POLLOUT` plus `POLLHUP`, and `POLLERR` while `SO_ERROR` remains unconsumed |
+| TCP unbound / unconnected socket | `POLLHUP` and requested `POLLOUT` (never `POLLNVAL`) |
 
-ERR no consume SO_ERROR: consultar poll repetidamente conserva el error; getsockopt(SO_ERROR) lo consume una vez, mientras HUP y el estado fallido siguen disponibles. RX pendiente no se drena; PEEK/read conservan su contrato. TX readiness es una instantánea de capacidad, no reserva de heap/segmentos ni garantía de escritura completa: el caller debe tolerar transferencias parciales/EAGAIN, especialmente al ampliar el modelo a concurrencia futura.
+Reporting `POLLERR` does **not** consume `SO_ERROR`: repeated `poll` calls
+continue reporting `POLLERR` until `getsockopt(..., SO_ERROR, ...)` consumes it
+once.
 
-## Comandos y pruebas
+## `select` Adapter (`user/libc/poll.c`)
+
+Picolibc provides `select(nfds, readfds, writefds, exceptfds, timeout)` layered
+on top of `poll` for `0 <= nfds <= 64`:
+- Translates `POLLNVAL` on any watched descriptor into `EBADF`.
+- Clears all descriptor sets on timeout (`0`), preserves input sets unchanged on
+  error (`-1`), and returns the total number of ready bits set across the output
+  sets on success.
+- Converts 64-bit `struct timeval` values to milliseconds by rounding up
+  microseconds and saturating at `INT_MAX` ms without signed overflow, without
+  mutating the caller's `timeval`.
+
+## Shell Diagnostics & Verification
 
 ```text
 socket-run poll-basic 1
 socket-run poll-timer 1
 socket-run poll-stdin 1
-feed PID texto
+feed PID hello
 feed-eof PID
 socket-run poll-wait 1
-ps
-kill PID
 socket-run poll-web 80
 ```
 
-`poll-basic` comprueba límites/rangos, stdin/stdout/null/tmpfs, duplicados/negativos/NVAL, vector raw desalineado y timeout. `poll-wait` espera indefinidamente sin FDs hasta kill. Los modos poll/poll-reset/poll-refused/poll-write necesitan los peers controlados de tests; no son una CLI de red general. `poll-web` usa DNS y HTTP público example.com con sockets no bloqueantes y poll, **no es curl**.
-
-`tests/poll_unit.c` usa ASAN/UBSAN sobre la orquestación real y política pura: snapshot contra cambios de memoria, rango inválido sin efectos, count, duplicados, consulta cero, timeout relativo/wrap, espera indefinida/cancelación, copia fallida y prioridad de eventos al deadline. Los mocks son host-only. `tests/vfs_unit.c` comprueba readiness del backend FD real, sin consumir entrada ni posición de archivos.
-
-`tests/poll.py` arranca la imagen real en 16/64 MiB: dos conexiones pendientes, datos demorados por dos peers en una espera de múltiples FDs, duplicados/PEEK, FIN/RDHUP/HUP, refusal/RST, SO_ERROR no consumido, TX que llega a EAGAIN y vuelve a OUT, stdin/EOF, worker/INT3/shell durante espera, cuatro procesos bloqueados con despertar de uno solo, kill, fallo #UD y slot reutilizado. Recursos de aplicación, frames y heap deben restaurarse exactamente. `tests/poll_online.py` añade HTTP200 público. El fixture RST cierra directamente con SO_LINGER(0), evitando que socketserver envíe un FIN previo por su cierre automático.
-
-## Adaptador select
-
-La libc ofrece `select` sobre esta syscall, con nfds hasta 64. Filtra los
-conjuntos solicitados, devuelve EBADF para POLLNVAL y conserva los conjuntos
-en error. Timeout limpia los conjuntos; timeval64 se convierte sin overflow,
-con redondeo hacia arriba y saturación en INT_MAX ms. No modifica timeval.
-`exceptfds` solicita POLLPRI; la pila no produce eventos TCP urgentes.
-Las pruebas del ELF de libc cubren readiness, timeout, límites y buffers.
-
-## Alcance pendiente
-
-No hay ppoll/pselect, señales/EINTR, threads/SMP/kernel preemptivo, sockets
-server ni UDP público. Curl upstream 8.11.1 HTTP-only usa poll directamente;
-ver [CURL_PORT.md](CURL_PORT.md). HTTPS para curl requiere un backend userspace
-independiente. El cliente TLS kernel 1.2/1.3 se conserva. La cobertura se limita
-a QEMU y al hardware emulado especificado.
+- `tests/poll_unit.c` (ASAN/UBSAN): Verifies snapshot immutability against
+  concurrent user memory mutation, invalid buffer ranges, duplicate/negative
+  FDs, zero/relative/wrapping/infinite timeouts, cancellation, and readiness
+  priority at deadline.
+- `tests/poll.py` (QEMU 16/64 MiB): Verifies dual non-blocking connects, delayed
+  multi-peer RX, `MSG_PEEK`, `FIN`/`POLLRDHUP`/`POLLHUP`, refused/RST sockets,
+  non-destructive `SO_ERROR`, TX backpressure (`EAGAIN` -> `POLLOUT`), `stdin`
+  wakeups via `feed`/`feed-eof`, 4 concurrent blocked processes, and exact
+  resource restoration after `kill` and `#UD` faults.

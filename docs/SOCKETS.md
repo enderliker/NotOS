@@ -1,39 +1,104 @@
-# Sockets de usuario — NotOS 0.16
+# User-Space Sockets and DNS
 
-## Alcance
+## Scope
 
-Cliente **TCP/IPv4 real** en ring3 mediante Picolibc y syscalls propias. lwIP upstream 2.2.1 aporta TCP, UDP interno para DNS, ARP e ICMP; el driver RTL8139 y el kernel de NotOS siguen siendo propios. No usa Linux como base, sockets del host, semihosting ni un proxy TLS. Las bibliotecas externas se identifican y conservan sus licencias.
+NotOS provides a **real ring 3 TCP/IPv4 client and DNS resolver** via Picolibc
+and custom `INT 0x80` syscalls (`26..35`). Upstream **lwIP 2.2.1** (`BSD-3-Clause`)
+supplies TCP, internal UDP for DNS, ARP, and ICMP over NotOS's custom RTL8139
+PCI/DMA driver. No host sockets, Linux kernel code, semihosting, or TLS proxies
+are used.
 
-`user/libc/socket.c` traduce la API BSD a `socket_abi.h`. Cabeceras públicas en `user/include/`; las constantes no son una ABI Linux. `kernel/socket_stack.c` encapsula el API raw de lwIP (`NO_SYS=1`); `fd.c` posee referencias de descripciones abiertas; `syscall.c` valida punteros y decide bloqueo; `process_poll` completa operaciones mediante aliases físicos del espacio bloqueado. No se entra a lwIP desde IRQ ni hay preemption del kernel/SMP.
+- `user/libc/socket.c` and public headers in `user/include/` translate the BSD
+  socket API and `errno` values to the fixed wire ABI in `kernel/socket_abi.h`.
+- `kernel/socket_stack.c` wraps lwIP's raw callback API (`NO_SYS=1`); `kernel/fd.c`
+  owns open file description reference counts; `kernel/syscall.c` validates user
+  buffers and registers blocking waits; and `process_poll` (`kernel/process.c`)
+  completes blocked operations through physical frame aliases of the waiting
+  process's address space. lwIP is never entered from an IRQ handler.
 
-## Operaciones disponibles
+## Supported Socket & DNS Operations
 
-- `socket(AF_INET, SOCK_STREAM, 0/IPPROTO_TCP)`, flags `SOCK_NONBLOCK` y `SOCK_CLOEXEC`.
+- `socket(AF_INET, SOCK_STREAM, 0 / IPPROTO_TCP)` with `SOCK_NONBLOCK` and
+  `SOCK_CLOEXEC`.
 - `connect`, `send`, `recv`, `shutdown`, `getsockname`, `getpeername`, `close`.
-- `read`/`write`, `dup`/`dup2` y `fcntl` sobre FDs de socket. `fstat` devuelve S_IFSOCK.
-- `MSG_DONTWAIT`, `MSG_PEEK`; `MSG_NOSIGNAL` en send, sin señales/SIGPIPE en este runtime.
-- `SO_ERROR` (consumo una vez), `SO_TYPE`, `SO_RCVTIMEO`, `SO_SNDTIMEO`, `TCP_NODELAY`. SO_RCVBUF/SO_SNDBUF son consultas de capacidades fijas, no ajuste de buffers.
-- `inet_pton`/`inet_ntop`, conversiones de orden de bytes y `getaddrinfo`/`freeaddrinfo`/`gai_strerror`: IPv4, TCP, servicios numéricos. Resolución DNS A, NXDOMAIN y timeout; AI_PASSIVE/NUMERICHOST/NUMERICSERV. No AI_CANONNAME ni búsqueda de servicios del sistema.
+- Standard descriptor operations on sockets: `read`, `write`, `dup`, `dup2`,
+  `fcntl` (`F_GETFD`, `F_SETFD`, `F_GETFL`, `F_SETFL`), `fstat` (`S_IFSOCK`),
+  `poll`, and `select`.
+- Per-call flags: `MSG_DONTWAIT`, `MSG_PEEK`, and `MSG_NOSIGNAL` (no `SIGPIPE`
+  exists in this runtime).
+- Socket options (`getsockopt` / `setsockopt`): `SO_ERROR` (consumed once),
+  `SO_TYPE`, `SO_RCVTIMEO`, `SO_SNDTIMEO`, `TCP_NODELAY`, and read-only buffer
+  capacity queries `SO_RCVBUF` / `SO_SNDBUF`.
+- Address & DNS helpers: `inet_pton`, `inet_ntop`, byte-order conversions
+  (`htons`, `htonl`, `ntohs`, `ntohl`), and `getaddrinfo` / `freeaddrinfo` /
+  `gai_strerror` supporting IPv4 `SOCK_STREAM`, numeric services, DNS `A`
+  queries, `NXDOMAIN`, timeouts, and `AI_PASSIVE` / `AI_NUMERICHOST` /
+  `AI_NUMERICSERV`.
 
-connect/send/recv bloqueantes suspenden el **proceso**, no la shell. El frame queda guardado y el event loop atiende NIC/timers y otros procesos. NONBLOCK produce EINPROGRESS/EAGAIN; MSG_DONTWAIT afecta solo esa llamada. Connect bloqueante tiene timeout predeterminado de 10 s; los timeouts de envío/recepción valen 0 (sin límite) o 1..60000 ms. Una espera sin datos vence con EAGAIN. `getaddrinfo` usa consultas asíncronas y SYS_SLEEP de 10 ms mientras espera, no un busy-loop kernel. No hay señales/EINTR.
+Blocking `connect`, `send`, and `recv` suspend only the **calling process**
+(`TASK_WAIT_CONNECT`, `TASK_WAIT_SEND`, `TASK_WAIT_RECEIVE`), leaving the shell,
+NIC, and other processes responsive. Non-blocking sockets return `EINPROGRESS`
+or `EAGAIN`. Blocking `connect` defaults to a 10 s timeout; `SO_RCVTIMEO` and
+`SO_SNDTIMEO` accept `0` (infinite) or `1..60000` ms and fail with `EAGAIN` on
+expiration. `getaddrinfo` polls asynchronous kernel DNS tokens using 10 ms
+`SYS_SLEEP` intervals rather than spinning.
 
-## Recursos y ciclo de vida
+## Resource Quotas & Lifecycle
 
-- 8 endpoints globales y 8 TCP PCBs; 4 procesos gestionados, 16 FDs/proceso y 64 descripciones compartidas (límites existentes).
-- RX/TX 8192 bytes, MSS 1460, 96 segmentos TCP, heap estático lwIP de 64 KiB, pool de 32 pbufs de 1600 bytes. I/O syscall hasta 4096 bytes; send/recv pueden devolver transferencias parciales.
-- 4 consultas DNS simultáneas, máximo una por propietario; nombres de hasta 95 bytes, deadline de aplicación 8 s. Tokens monotónicos de 31 bits no reutilizados; kill/exit cancela el registro propietario. Un callback tardío no escribe en un slot de proceso reutilizado. La consulta/caché raw de lwIP puede persistir de forma acotada hasta resolver o vencer; no se declara cancelación física inmediata del paquete.
-- Quotas/OOM fallan explícitamente. Antes de `tcp_new`, si el pool está lleno se reclama solo un TIME_WAIT sin propietario; de lo contrario ENOMEM. No se expulsa una conexión activa para abrir otra.
-- FIN remoto conserva datos RX pendientes y EOF; no impide enviar hasta SHUT_WR. Lecturas PEEK no consumen bytes ni ventana. SHUT_RD descarta datos y sigue reconociendo segmentos; no usa TF_RXCLOSED, que suprime notificaciones de liberación raw.
-- Cuando FIN y cierre local dejan un PCB reciclable se desconectan callbacks y se conserva la identidad de direcciones/NODELAY en el endpoint. Un FD abierto no conserva un puntero a un PCB TIME_WAIT liberado. El último close libera el endpoint; dup conserva la conexión hasta la última referencia.
-- Los tests exigen restauración exacta de frames físicos/heap kernel, tmpfs/descripciones/endpoints/consultas de aplicación. TIME_WAIT, ARP y caché DNS son estado protocolario **acotado**, no necesariamente cero inmediatamente tras close.
+- **8 global socket endpoints** and **8 lwIP TCP PCBs** across the 4 managed
+  process slots (16 FDs per process, 64 global open file descriptions).
+- **8192-byte RX/TX windows**, MSS `1460`, 96 TCP segments, 64 KiB static lwIP
+  heap, and 32 `pbuf`s of 1600 bytes. Individual `send`/`recv` syscalls transfer
+  up to 4096 bytes and may return partial counts.
+- **4 concurrent DNS queries** (at most one active query per process), hostnames
+  up to 95 bytes, and an 8-second application deadline. Monotonic 31-bit tokens
+  are never reused, and process exit/`kill`/`SYS_EXEC` cancels ownership so late
+  DNS callbacks never touch a reused process slot.
+- **Explicit PCB reclamation**: If all 8 TCP PCBs are occupied when opening a
+  new socket, the stack reclaims only an unowned `TIME_WAIT` PCB; active
+  connections are never evicted (`ENOMEM`).
+- **Half-close & `TIME_WAIT` safety**: Remote `FIN` preserves pending RX bytes
+  and EOF while still allowing TX until `SHUT_WR`. `MSG_PEEK` neither consumes
+  bytes nor advances the TCP window. When both sides close and the PCB enters a
+  recyclable state, lwIP callbacks are detached while endpoint address and
+  `TCP_NODELAY` metadata remain cached on the endpoint until the last FD
+  reference is closed.
 
-## Coexistencia con HTTPS
+## Coexistence with Kernel Networking
 
-La pila educativa anterior se conserva para comandos kernel `dns/http/https` (una solicitud activa). Sus puertos TCP son 49153..51999; lwIP usa 52000..60999 y DNS puertos aleatorios 61000..61999. RX enruta por protocolo/puerto; ARP se entrega a ambas pilas. `net_frame_send` copia el frame de cada productor a DMA. La configuración /24 solo cambia si ambas pilas están libres, incluidos PCBs pendientes/TIME_WAIT.
+The legacy kernel client (`dns`, `http`, `https`) and user-space lwIP share the
+RTL8139 driver via separate ephemeral port ranges:
+- Kernel TCP: `49153..51999`
+- User-space lwIP TCP: `52000..60999`
+- User-space lwIP DNS: random source ports in `61000..61999`
 
-La entropía del DRBG existente inicializa ISNs y puertos DNS; sin NIC o sin semilla el API falla cerrado. El TLS kernel 1.2/1.3 no cambia ni se incorpora automáticamente a sockets de usuario.
+Incoming frames are demultiplexed by protocol and destination port, while ARP
+frames are delivered to both stacks. `net-config` only changes the `/24` IPv4
+settings when both stacks are completely idle. Both stacks require a valid
+`fw_cfg` entropy seed for ISNs and DNS source ports and fail closed without one.
 
-## Diagnóstico y pruebas
+## Syscall Wire ABI (`INT 0x80`)
+
+Arguments are passed in `EBX`, `ECX`, `EDX`, and `ESI` (for 4-argument
+`SYS_SOCKET_SEND` and `SYS_SOCKET_RECV`):
+
+| Number | Syscall | `EBX` / `ECX` / `EDX` / `ESI` |
+| --- | --- | --- |
+| `26` | `SYS_SOCKET_OPEN` | `domain` / `type` / `notos_flags` / — |
+| `27` | `SYS_SOCKET_CONNECT` | `fd` / `notos_socket_address *` (8 bytes) / — / — |
+| `28` | `SYS_SOCKET_SEND` | `fd` / `buffer` / `length` / `flags` |
+| `29` | `SYS_SOCKET_RECV` | `fd` / `buffer` / `length` / `flags` |
+| `30` | `SYS_SOCKET_GETOPT` | `fd` / `option` / `u32 *out_value` / — |
+| `31` | `SYS_SOCKET_SETOPT` | `fd` / `option` / `u32 value` / — |
+| `32` | `SYS_SOCKET_SHUTDOWN` | `fd` / `how` (`0..2`) / — / — |
+| `33` | `SYS_SOCKET_ADDRESS` | `fd` / `notos_socket_address *out` / `peer` (`0..1`) / — |
+| `34` | `SYS_NET_RESOLVE` | `const char *hostname` / — / — / — |
+| `35` | `SYS_NET_RESOLVE_RESULT` | `token` / `u8 out_ipv4[4]` / — / — |
+
+`struct notos_socket_address` is an 8-byte wire structure (`u8 ipv4[4]` followed
+by native-endian `u32 port`).
+
+## Diagnostics & Verification
 
 ```text
 sockets
@@ -44,33 +109,11 @@ socket-run web 80
 socket-drop syn
 socket-drop tx
 socket-drop rx
-ps
-kill PID
 ```
 
-`socket-run` lanza un ELF independiente contra el host QEMU 10.0.2.2; echo espera el fixture binario de `tests/socket_fixture.py`. `http` espera `/socket` con 32768 bytes del patrón del fixture y verifica escritura a `/tmp/http-PID`. `web` hace DNS y HTTP público example.com. No es un curl alternativo ni una CLI HTTP general.
-
-`make test` incluye `tests/sockets.py`: 16/64 MiB, flujo binario, transferencia parcial, HTTP->tmpfs, cuatro procesos, NONBLOCK, rechazo/RST, timeout, cancelación, cuotas/dup, SYN/TX/RX perdidos y más de ocho cierres/reaperturas manteniendo un FD antiguo. También fuerza ocho PCBs ocupados con siete FDs: la novena apertura falla ENOMEM sin expulsar conexiones activas. Un servidor DNS UDP local en **53530** comprueba A/NXDOMAIN/cancelación/callback tardío con `build/notos-socket-test.img`; solo esa imagen enlaza lwIP con el puerto de fixture. La imagen de producción siempre usa DNS 53, sin requerir root para CI. `make test-online` incluye DNS/HTTP reales desde ring3.
-
-## Pendiente
-
-Hay poll y un adaptador select (POLL.md), y curl upstream HTTP-only (CURL_PORT.md). No hay sockets UDP públicos, bind/listen/accept, IPv6, DHCP, reensamblado IP, threads, fork ni ejecutables VFS. El backend TLS de curl deberá portarse y probarse en userspace; el comando kernel HTTPS no satisface ese gate. Solo QEMU/TCG y hardware emulado especificado están comprobados, no equipos reales ni una auditoría de seguridad.
-
-## Wire de syscalls (INT 0x80)
-
-EAX número/resultado, EBX/ECX/EDX primeros tres argumentos; **ESI cuarto argumento** de send/recv. El kernel devuelve errores negativos; libc los traduce a errno Picolibc. Todas las entradas/salidas se validan antes de tocar memoria o consumir estado.
-
-| Número | Operación | EBX / ECX / EDX / ESI |
-| --- | --- | --- |
-| 26 | SOCKET | AF_INET / STREAM / flags NotOS / — |
-| 27 | CONNECT | fd / dirección wire / — / — |
-| 28 | SEND | fd / buffer / longitud / flags |
-| 29 | RECV | fd / buffer / longitud / flags |
-| 30 | GETOPT | fd / opción wire / salida u32 / — |
-| 31 | SETOPT | fd / opción wire / valor u32 / — |
-| 32 | SHUTDOWN | fd / how 0..2 / — / — |
-| 33 | ADDRESS | fd / salida wire / peer 0..1 / — |
-| 34 | RESOLVE | nombre terminado / — / — / — |
-| 35 | RESOLVE_RESULT | token / salida IPv4 4 bytes / — / — |
-
-Dirección wire: IPv4 de cuatro bytes seguido de puerto u32 en orden nativo, tamaño total 8; no es `sockaddr_in` ni expone punteros/kernel padding. Los adaptadores traducen timeval64 a ms y SO_ERROR a errno nativo. Los números 0..25 conservan su ABI; read/write/close/dup/control existentes se aplican también a los descriptores nuevos.
+`tests/sockets.py` tests 16 MiB and 64 MiB configurations: 32,768-byte binary
+echo streams with partial transfers, `MSG_PEEK`, half-close/EOF, HTTP-to-`tmpfs`
+downloads, 4 concurrent clients, `SOCK_NONBLOCK`/`EINPROGRESS`, refused and RST
+connections with pending data, timeouts, `kill` cleanup, SYN/TX/RX packet loss
+recovery, >8 sequential connections with `TIME_WAIT` recycling, and DNS
+`A`/`NXDOMAIN`/cancellation against a local UDP 53530 fixture (`notos-socket-test.img`).

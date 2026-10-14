@@ -1,98 +1,120 @@
-# Libc de usuario
+# User-Space C Library (Picolibc Port)
 
-## Qué se ha portado
+## Overview
 
-**Picolibc upstream 1.8.11**, compilada como biblioteca estática freestanding para i486/i386, con un adaptador de sistema propio. No es una colección de sustitutos de `malloc`/`printf` en el kernel ni la libc de Linux. Las fuentes upstream se descargan con SHA256 fijado y no se modifican; licencias y procedencia en `third_party/`.
+NotOS ports **upstream Picolibc 1.8.11** as a freestanding static C library
+(`build/sysroot/lib/notos/libc.a`) for `i486`/`i386` user-space applications,
+backed by an explicit NotOS syscall adapter (`user/libc/`). Upstream sources are
+fetched with a pinned SHA-256 hash and compiled without modification (see
+[`third_party/README.md`](../third_party/README.md)).
 
-La aplicación `build/libc-demo.elf` se enlaza por separado con `build/sysroot/lib/notos/libc.a`. El linker elimina secciones no utilizadas; `build/libc-demo.map` muestra qué implementaciones upstream se incorporaron. `build/libc-app.elf` conserva los segmentos ELF pero elimina símbolos/debug antes de embeberse en la imagen. El cargador existente valida y carga ese archivo en **ring 3** con CR3, datos, pila y heap privados. No se enlaza libc dentro del kernel.
+User-space ELF binaries (such as `build/libc-demo.elf` / `/system/libc.elf` and
+`/system/curl.elf`) link statically against `libc.a` with `--gc-sections`. Each
+application runs in **ring 3** with its own private PAE `CR3`, data segment,
+64 KiB user stack, and `sbrk` heap. The kernel itself never links against user
+libc.
 
-## Uso y construcción
+## Usage & Build
 
 ```text
 libc-test
 libc-run test
 libc-run exit
+libc-run files
+libc-run stdin
 ps
 ```
 
-`libc-test` y `libc-run test` lanzan la misma batería de comprobaciones como proceso background. El modo `exit` prueba salida buffered, callbacks y estado de terminación 23. `libc-run noentropy` es un diagnóstico para imágenes sin semilla: debe comprobar `EIO`, no simular aleatoriedad.
+- `libc-test` and `libc-run test` launch the ring 3 libc verification suite as a
+  background process.
+- `libc-run exit` verifies buffered `stdio` flushing, `atexit` handlers,
+  `.fini_array` destructors, and exit status `23`.
+- `libc-run noentropy` verifies that `getentropy` fails closed with `EIO` when
+  booted without a `fw_cfg` entropy seed.
 
-El host necesita Meson, Ninja, GCC con `-m32`, binutils y Python 3.12+, además de los requisitos habituales del proyecto. `make` construye el sysroot y la demo; `make test` incluye `tests/libc.py`. Para uso offline:
+For offline builds, point `PICOLIBC_ARCHIVE` to a verified local tarball:
 
 ```sh
-PICOLIBC_ARCHIVE=/ruta/picolibc-1.8.11.tar.xz make
+PICOLIBC_ARCHIVE=/path/to/picolibc-1.8.11.tar.xz make
 ```
 
-El hash se comprueba también al usar un archivo local. No se ejecutan binarios target en el host. El enlace es estático con GNU ld, sin libc/libgcc del host ni semihosting. Las opciones del cross-build y la configuración del compilador forman una firma; cambios de esa firma reconstruyen biblioteca y sysroot. Las bibliotecas de TLS siguen teniendo sus adaptadores freestanding separados.
+The cross-build uses GNU `ld` without host libc, `libgcc`, or semihosting.
+Compiler and Meson configuration flags are hashed into a build stamp so any
+configuration change triggers a clean sysroot rebuild.
 
-## Runtime y funciones comprobadas
+## Supported Runtime & Functions
 
-- `_start` prepara la llamada C alineada; el kernel prepara `argc`, `argv`, un `envp` vacío y el par `AT_NULL`. La API `process_spawn_elf_args` conserva nombre de hasta 23 bytes y un argumento de hasta 64 bytes. `process_spawn_elf_split`, usada por curl, admite 256 bytes de texto separado por espacios y hasta 16 elementos de argv, incluido el nombre; sin comillas ni escapes.
-- BSS a cero; ejecución de `.init_array` antes de `main`, `.fini_array` al salir y `atexit`. Retornar de `main` usa `exit`; `stdout`/`stderr` se vacían antes de `_exit`.
-- `malloc`, `calloc`, `realloc`, `free`, `strdup`: asignador real de Picolibc sobre `sbrk`/SYS_BRK. Heap privado de hasta 4 MiB; crecimiento y rollback pertenecen al gestor VM. Recolección de todo el espacio al terminar o cancelar el proceso.
-- Strings/memoria, `strtol`/`strtoll`, detección de overflow, `qsort`/`bsearch` y `setenv`/`getenv`/`unsetenv`.
-- `printf`, `snprintf`, `puts`, `fprintf`, buffering de stdio y escritura de consola. Configuración **entera y long long**, no formatos de punto flotante. `write` divide transferencias en llamadas de hasta 4096 bytes.
-- `errno` global de Picolibc es privado **por proceso**, porque cada ELF tiene datos propios. No es thread-local ni se soportan threads. El adaptador traduce errores NotOS a constantes Picolibc: no se supone que ENOSYS/ENOTSUP tengan los mismos números.
-- `time_t` de 64 bits, `time`, `gettimeofday`, `clock_gettime`, `clock_getres` y `gmtime_r`. RTC UTC de un segundo; monotónico de 64 bits en milisegundos, actualizado por PIT. El reloj no valida confianza del firmware ni ofrece precisión HPET/APIC.
-- `nanosleep` bloquea el proceso mediante SYS_SLEEP sin bloquear la shell; resolución de 1 ms, duración máxima por llamada de 60 s. `sleep` divide esperas más largas. Sin señales/EINTR.
-- `getpid`, consola `isatty` y `getentropy` de hasta 256 bytes. Entropía procede del DRBG existente con semilla fresca fw_cfg; **sin semilla falla cerrado**. No es una nueva fuente hardware ni se usan datos predecibles como reemplazo.
+- **Startup & Termination (`crt0.S`, `start.c`)**: `_start` aligns the stack and
+  invokes the C startup routine with kernel-prepared `argc`, `argv`, empty
+  `envp`, and `AT_NULL`. Zeroes BSS, runs `.init_array` constructors before
+  `main`, and runs `atexit` and `.fini_array` destructors on `exit` before
+  flushing `stdout`/`stderr` and invoking `_exit`.
+- **Dynamic Memory (`malloc`, `calloc`, `realloc`, `free`, `strdup`)**: Uses
+  Picolibc's allocator over `sbrk` / `SYS_BRK`. Each process has up to **4 MiB**
+  of private heap (`0x08400000..0x08800000`) with full OOM rollback and
+  automatic frame reclamation on process exit or kill.
+- **Strings, Sorting & Environment**: `memcpy`, `memmove`, `memset`, `strcmp`,
+  `strtol`, `strtoll` (with overflow detection), `qsort`, `bsearch`, `getenv`,
+  `setenv`, and `unsetenv`.
+- **Standard I/O (`printf`, `snprintf`, `puts`, `fprintf`, `fopen`, `fread`,
+  `fwrite`, `fseek`, `fclose`)**: Configured for **integer and `long long`**
+  formatting (no floating-point format specifiers). Transfers chunk I/O into
+  calls of up to 4096 bytes over VFS file descriptors (`tmpfs`, `NotFS v2`,
+  `/system`, and `/dev`).
+- **Per-Process `errno`**: Private per-process global variable in each ELF's
+  data segment. The NotOS syscall adapter translates negative kernel error codes
+  to Picolibc `errno` constants.
+- **64-bit Time & Sleep**: 64-bit `time_t`, `time`, `gettimeofday`,
+  `clock_gettime` (`CLOCK_REALTIME` and `CLOCK_MONOTONIC`), `clock_getres`, and
+  `gmtime_r`. `nanosleep` and `sleep` suspend the calling process via `SYS_SLEEP`
+  (1 ms resolution, up to 60 s per syscall, chunked for longer sleeps) without
+  blocking the shell.
+- **Process Identity & Entropy**: `getpid`, `isatty`, and `getentropy` (up to
+  256 bytes per call from the `fw_cfg`-seeded HMAC-DRBG; fails closed with `EIO`
+  if unseeded).
+- **Directories & Execution**: `mkdir`, `rmdir`, `chdir`, `getcwd`,
+  `notos_readdir`, and `notos_exec` (`SYS_EXEC=37`).
+- **Networking & Multiplexing**: BSD socket subset (`socket`, `connect`, `send`,
+  `recv`, `shutdown`, `getsockopt`, `setsockopt`, `getsockname`, `getpeername`,
+  `inet_pton`, `inet_ntop`, `getaddrinfo`, `freeaddrinfo`, `gai_strerror`),
+  `poll`, and `select` (up to `nfds=64`).
+- **Software `binary64` Runtime (`user/float_runtime.c`)**: Implements IEEE-754
+  double-precision conversions, comparisons, and `+`/`-`/`*`/`/` using pure
+  integer arithmetic (no FPU/SSE or `libgcc`), differentially tested against
+  host hardware across 1,000,000 pairs under ASAN/UBSAN.
 
-El port integra solo funciones seleccionadas y comprobadas. La presencia de una función/header en el archive upstream **no implica que funcione en NotOS**: componentes no seleccionados pueden necesitar otros hooks o soporte de CPU.
+## Platform Syscall Additions (`INT 0x80`)
 
-## ABI añadida (INT 0x80)
-
-EAX número/resultado; EBX, ECX y EDX argumentos. Se preservan los números anteriores. Los errores kernel son enteros negativos; la libc devuelve `-1` y establece `errno` cuando corresponde.
-
-| Número | Operación | Argumentos | Resultado |
+| Number | Syscall | Arguments (`EBX`, `ECX`, `EDX`) | Result (`EAX`) |
 | --- | --- | --- | --- |
-| 10 | SYS_FD_WRITE | EBX fd, ECX buffer, EDX bytes | bytes escritos; FDs generales desde 0.15, sockets desde 0.16 |
-| 11 | SYS_TIME | EBX reloj 0 realtime/1 monotónico, ECX salida | 0 o error |
-| 12 | SYS_ENTROPY | EBX salida, ECX bytes | 0 o error |
-| 13 | SYS_PID | ninguno | PID positivo |
+| `10` | `SYS_FD_WRITE` | `fd`, `buffer`, `length` | Bytes written or negative error |
+| `11` | `SYS_TIME` | `clock_id` (`0` realtime, `1` monotonic), `out_timespec_wire` | `0` or negative error |
+| `12` | `SYS_ENTROPY` | `buffer`, `length` (`1..256`) | `0` or negative error |
+| `13` | `SYS_PID` | — | Positive process ID |
 
-SYS_TIME escribe una estructura wire de 12 bytes: segundos low/high de 32 bits y nanosegundos de 32 bits. No expone padding ni tipos nativos del kernel. En este target Picolibc, `timespec`/`timeval` tienen esa misma disposición, protegida por static assertions. El adaptador traduce también identificadores de reloj. El kernel valida todo el rango y permisos antes de leer/escribir un puntero de usuario.
+`SYS_TIME` writes a fixed 12-byte wire structure (`u32 seconds_low`,
+`u32 seconds_high`, `u32 nanoseconds`) using bytewise copy so unaligned user
+pointers are safe. Static assertions verify layout compatibility with Picolibc's
+`struct timespec`.
 
-## Runtime adicional para curl
+## Explicit Limits
 
-`user/float_runtime.c` implementa helpers binary64 mediante operaciones enteras,
-sin FPU/SSE ni libgcc. Incluye conversiones, comparaciones y suma/resta/producto/
-división. La prueba diferencial nativa compara un millón de pares con el
-hardware del host bajo ASAN/UBSAN; no equivale a una biblioteca libm completa.
+- Single-threaded user space only: no `pthread`, thread-local storage (`_set_tls`
+  is unused), `fork`, `waitpid`, signals (`EINTR`), or dynamic linking.
+- Hardware FPU/MMX/SSE remains disabled (`CR0.TS=1`); `stdio` uses integer
+  formatting and `libm` is not claimed.
+- `select` adapts descriptor bitsets (`nfds <= 64`) over `poll`, mapping
+  `POLLNVAL` to `EBADF`, clearing sets on timeout, preserving sets on error, and
+  converting 64-bit `timeval` ceilings without overflow. Urgent TCP data
+  (`POLLPRI` / `exceptfds`) is not generated by the network stack.
 
-`select` adapta conjuntos de descriptores a `poll`, filtra por intereses
-solicitados y devuelve el número de bits listos en los conjuntos. Rechaza
-nfds fuera de 0..64, timeouts inválidos y buffers inaccesibles; NVAL produce
-EBADF. Los conjuntos se limpian al vencer el timeout y permanecen intactos
-cuando la llamada falla. No modifica timeval; redondea hacia arriba a ms y
-satura en INT_MAX sin overflow. `exceptfds` corresponde a POLLPRI, evento
-urgente que la pila actual no implementa. No hay pselect ni señales/EINTR.
+## Verification
 
-`mkdir`, `rmdir`, `chdir` y `getcwd` usan syscalls de directorio reales.
-`notos_exec` usa argumentos separados por espacios y reemplaza la imagen.
-No hay execve/dirent POSIX completos; ver VFS.md y ELF.md.
-
-## Límites explícitos
-
-- Desde 0.15 hay FDs por proceso, archivos tmpfs, NotFS escribible y open/read/write/close/seek/stat/dup/ftruncate/fcntl; `fopen` opera sobre ellos. Ver VFS.md para cuotas y operaciones ausentes; no es VFS POSIX completo.
-- Stdin bloquea hasta datos/EOF entregados con feed/feed-eof al PID; NONBLOCK produce EAGAIN y stdio diferencia EOF de error. stdout/stderr comparten la consola y dup2 permite redirección a archivos. Desde 0.17 hay poll; no hay raw TTY/job control.
-- Desde 0.16 hay API BSD parcial TCP/IPv4 y getaddrinfo DNS; ver SOCKETS.md. Desde 0.17 hay poll de FDs (POLL.md); con adaptador `select`, sin señales, fork, enlazado dinámico ni TLS de threads.
-- FPU/MMX/SSE siguen rechazados por el kernel. No se declara `libm`, formato float general ni conformidad C/POSIX completa. Los helpers binary64 descritos arriba tienen cobertura específica. La configuración selecciona stdio entero; el archive upstream contiene componentes adicionales no preparados para este runtime.
-- `mmap`/`munmap` básicos del kernel siguen disponibles por ABI, pero no se presenta un wrapper POSIX completo. El asignador comprobado usa `sbrk`.
-- Solo QEMU/TCG y hardware emulado del proyecto; no prueba en hardware físico ni auditoría de seguridad.
-
-Curl upstream 8.11.1 HTTP/HTTPS se ejecuta con esta libc y MbedTLS de usuario; ver [CURL_PORT.md](CURL_PORT.md).
-
-## Pruebas
-
-`tests/libc.py` arranca la imagen real con 16 y 64 MiB, ejecuta dos procesos secuenciales, salida 23 y cuatro procesos simultáneos; rechaza el quinto slot. Comprueba strings/formato/calendario, 2500 operaciones de heap, alineación, calloc cero, realloc/OOM sin pérdida de datos, errno privado a través de espera, entrada no bloqueante con EAGAIN, buffers inválidos y constructor/atexit/destructor/flush.
-
-Cada terminación debe restaurar exactamente frames físicos y estado del heap kernel. También prueba reloj real en 2050, ausencia de entropía, el mapa de enlace upstream, syscalls legacy con buffers inválidos y rollback ELF/OOM. La división signed/unsigned de 64 bits tiene pruebas nativas de límites y 100000 comparaciones; el reloj verifica carry al envolver los 32 bits bajos. Las regresiones completas y la red se describen en `TESTING.md`.
-
-La batería de libc también comprueba select con intereses distintos, un FD en
-varios conjuntos, timeout, EBADF, EFAULT, timeval64 enorme y rechazo de mkdir.
-`tests/curl.py` verifica el cliente upstream y archivos binarios desde otro ELF.
-
-El ensayo individual mantiene una asignación de 3 MiB; los cuatro procesos
-concurrentes usan 2 MiB cada uno para caber en 16 MiB con la región estática
-ampliada. Ambos comprueban realloc de 5 MiB fallido sin perder datos, errno,
-heap privado y liberación exacta. No se modifica el límite de heap user (4 MiB).
+`tests/libc.py` boots the production image in 16 MiB and 64 MiB RAM and verifies
+sequential runs, exit status `23`, 4 concurrent processes (with 5th slot
+rejection), string/calendar/integer formatting, 2,500 heap allocation/free ops,
+alignment, zeroed `calloc`, failed 5 MiB `realloc` preserving existing data,
+per-process `errno` isolation across `nanosleep`, non-blocking `stdin` (`EAGAIN`),
+invalid user pointers (`EFAULT`), `select` readiness/timeouts/errors, year-2050
+RTC dates, fail-closed missing entropy (`build/libc-noentropy.log`), and exact
+restoration of physical frames and kernel heap state.

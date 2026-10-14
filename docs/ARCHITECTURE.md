@@ -1,121 +1,124 @@
-# Arquitectura y convenciones
+# Architecture and Module Boundaries
 
-NotOS es un kernel educativo freestanding. Las capas de ejecución se mantienen separadas:
+NotOS is a freestanding 32-bit x86 educational kernel. Execution layers and
+responsibilities are strictly separated:
 
-| Módulo | Responsabilidad | No debe hacer |
+| Module | Responsibility | Must Not Do |
 | --- | --- | --- |
-| `arch.*`, `user_entry.S`, `isr.S` | GDT/TSS, ABI de CPU, entrada/retorno e interrupciones | interpretar comandos |
-| `physical*`, `paging*`, `space*`, `heap*` | memoria y espacios de direcciones | decidir política de planificación |
-| `task.*` | recursos, estado, estadísticas y terminación de tareas | imprimir resultados de demos |
-| `syscall.*` | ABI, validación y despacho de syscalls | crear comandos de shell |
-| `user.*` | demos, resultados esperados y diagnóstico de shell | manejar directamente interrupciones |
-| `syscall_numbers.h` | constantes ABI compartidas entre C y assembly | contener tipos C que rompan el assembler |
+| `arch.*`, `user_entry.S`, `isr.S` | GDT/TSS, CPU ABI, privilege entry/return, and interrupt stubs | Interpret shell commands or application policy |
+| `physical*`, `paging*`, `space*`, `heap*` | Physical frames, PAE/NX page tables, address spaces, and kernel heap | Decide task scheduling policy |
+| `task.*` | Task lifecycle, resources, state transitions, statistics, and teardown | Print demo results or own shell commands |
+| `scheduler_policy.*` | Pure round-robin selection logic (host-tested) | Touch hardware registers, I/O, or memory allocators |
+| `scheduler.*`, `process.*` | Batch and background task rotation, quantums, blocking waits, PIDs, and reaping | Allocate or free tasks inside IRQ handlers |
+| `syscall.*` | `INT 0x80` ABI, user buffer validation, and syscall dispatch | Implement shell commands |
+| `vfs.*`, `fd.*`, `fs.*`, `disk.*` | VFS nodes, open file descriptions, transactional NotFS v2, and ATA PIO | Interpret unvalidated user pointers or schedule tasks |
+| `net.*`, `socket_stack.*`, `poll_wait.*`, `tls.*` | RTL8139 DMA, lwIP `NO_SYS=1` integration, `poll` readiness, and kernel TLS | Run inside IRQ context or bypass user buffer checks |
+| `user.*`, `multitask.*`, `*_command.*` | Shell commands, diagnostic demos, and test harnesses | Directly handle hardware interrupts |
+| `syscall_numbers.h`, `*_abi.h` | Wire constants and layouts shared between kernel, assembly, and user space | Expose C-only types to assembly (`.S`) |
 
-`scheduler_policy.*` contiene round-robin puro y probado nativamente. `scheduler.*` mantiene el lote activo, quantum, trazas y cambios de contexto; `multitask.*` crea y verifica las demos sin participar en IRQ.
+## Core Execution & Scheduling Model
 
-Cada tarea tiene un CR3 propio y una pila kernel de 16 KiB con canario. IRQ0 entrega EOI antes de elegir el siguiente contexto; el dispatcher devuelve el frame a restaurar por assembly. Al cambiar se actualizan CR3 y ESP0 de la TSS. El kernel conserva su frame de entrada y recupera su CR3 al terminar el lote.
+Each task owns a private PAE `CR3` (`PDPT` + page directory) and a 16 KiB kernel
+stack with a low-end stack canary. On `IRQ0`, the handler sends PIC EOI before
+selecting the next context; the C dispatcher returns the trap frame pointer to
+restore in assembly (`isr.S`). Context switches update both `CR3` and `TSS.ESP0`.
+The kernel preserves its entry frame and restores the supervisor `CR3` whenever
+a batch finishes or a background pulse yields back to the main event loop.
 
-El quantum es de 5 ticks del PIT; el presupuesto máximo es de 250 ticks entregados a CPL3 por tarea, no de tiempo de pared ni tiempo de CPU exacto. Hasta cuatro tareas por lote; no hay SMP ni preemption del kernel. CR0.TS bloquea FPU/MMX/SSE: no se declara preservación de ese estado. Shell y red no se procesan mientras el lote ocupa la llamada síncrona.
+- **Quantum**: 5 PIT `IRQ0` ticks delivered in CPL3.
+- **CPU Budget**: 250 CPL3 `IRQ0` ticks per normal task (2,500 ticks for
+  `/system/curl.elf` to accommodate TLS handshakes and CA parsing). Budgets
+  measure sampled CPL3 ticks, not exact wall-clock or kernel CPU time.
+- **Capacity**: Up to four concurrent tasks/processes. No SMP or kernel
+  preemption.
+- **FPU/SIMD**: `CR0.TS` is set to trap x87/MMX/SSE instructions (`#NM`); no
+  FPU/SIMD state is saved or restored.
 
-## Módulos añadidos en 0.9
+## Subsystem Architecture
 
-- `process.*`: propiedad de slots/PID y recolección; `scheduler_pulse` recupera el kernel después de cada quantum/yield/terminación para mantener el event loop vivo.
-- `disk.*` / `fs.*`: transporte ATA primary-slave separado de snapshots/CRC/CRUD; nunca escribir el boot drive.
-- `mouse_decode.*` / `mouse.*` / `gui.*`: parser puro, cola IRQ y event loop, rendering y acciones diferidas, respectivamente.
-- `notlang_compile.*` / `notlang_command.*` / `user/notlang_vm.c`: compilación acotada, carga y VM ejecutada en un espacio ring3; protocolo compartido `notlang_bytecode.h`.
-- `tcp_retry.*`: política pura de ACK/backoff separada del driver/protocolo; la pila sigue teniendo una solicitud activa y una transmisión pendiente a la vez.
+### Background Processes, Storage, UI, and NotLang VM
 
-## TLS en 0.10
+- `process.*`: Owns the four background process slots, monotonic 32-bit PIDs,
+  timeout/I/O wakeups (`process_poll`), and deferred reaping. `scheduler_pulse`
+  runs one ready background process for a single quantum/yield/block and returns
+  to the kernel event loop so networking, serial, keyboard, and mouse remain
+  responsive.
+- `disk.*` / `fs_core.*` / `fs.*`: Separates 28-bit ATA PIO primary-slave
+  transport from pure CRC32/layout/compaction logic (`fs_core.*`) and dual-bank
+  transactional publishing (`fs.*`). The boot drive is never written.
+- `mouse_decode.*` / `mouse.*` / `gui.*`: Separates pure 3-byte PS/2 packet
+  decoding from IRQ12 queueing and deferred VGA framebuffer rendering.
+- `line_core.*` / `line_input.*`: Separates pure command-line editing and
+  8-entry history from PS/2 keyboard, serial CSI/SS3 escape decoding, and VFS
+  `Tab` completion.
+- `notlang_compile.*` / `notlang_command.*` / `user/notlang_vm.c`: Compiles
+  NotLang 0.2 source into bounded bytecode (`notlang_bytecode.h`) and executes
+  it inside an isolated ring 3 VM address space.
+- `tcp_retry.*`: Pure sequence/ACK/exponential backoff policy separated from the
+  RTL8139 driver and legacy TCP state machine.
 
-`tls.*` maneja engine/application y limpieza; `tls_profile.*` define crypto/versiones; `x509_policy.*` delega validación y añade límites/SAN/EKU; `certificate_policy.*` es el parser puro probado con sanitizadores. `entropy.*`, `rtc.*`, `utc.*` encapsulan plataforma. `net.*` solo mueve bytes/registros por TCP. No se emiten datos de aplicación antes de validar el handshake ni se degrada a plaintext.
+### PAE/NX Memory & TLS 1.2 / 1.3
 
-## Reglas
+- **PAE + NX**: Uses a 4-entry PDPT and 512-entry 64-bit page directories/tables
+  with 4 KiB frames. Kernel text is RX, rodata and embedded system blobs are
+  R/NX, and data/heap/stacks are RW/NX. 64-bit page descriptors write the upper
+  32 bits before publishing the lower present word.
+- **TLS (`tls.*`, `tls_profile.*`, `certificate_policy.*`)**: Configures
+  MbedTLS 3.6.5 for TLS 1.2 and TLS 1.3 over non-blocking BIOs, enforces strict
+  X.509 SAN/EKU/key-size policies via the sanitizer-tested DER parser
+  (`certificate_policy.*`), and releases all contexts and PSA key slots on
+  teardown. `entropy.*`, `rtc.*`, and `utc.*` provide fail-closed platform
+  primitives; `integer_runtime.*` provides verified 64-bit division for `i386`.
 
-- Headers con guards y APIs explícitas; datos internos `static` cuando corresponda.
-- No asignar memoria, imprimir diagnósticos extensos ni interpretar programas dentro de handlers IRQ.
-- Validar rangos completos antes de leer buffers user; preservar el estado de IF en secciones críticas.
-- Destruir recursos solo cuando ya no están activos; reportar resultados antes de liberar el espacio que los contiene.
-- Errores de programa y fallos del kernel son categorías diferentes.
-- Constantes ABI nombradas, compartidas por C/assembly y protegidas por dependencias de Make.
-- Los tests de kernel arrancan la imagen real; los algoritmos puros se prueban también nativamente.
-- Cambios funcionales en commits `feature(alcance) descripción`, después de compilar con `-Wall -Wextra -Werror` y pasar las pruebas aplicables.
+### ELF32, Private VM, and Process Replacement (`SYS_EXEC`)
 
-La documentación de límites es parte del contrato. Un prototipo que pasa estos tests no equivale a un sistema de producción ni a una auditoría completa de seguridad.
+- `elf.*` validates ELF32 `ET_EXEC` images without allocating memory.
+- `space.*` loads `PT_LOAD` segments with strict `W^X` permissions, manages
+  private frames/PTEs, `brk` heap (`0x08400000..0x08800000`), and private
+  anonymous `mmap` (`0x08800000..0x08c00000`). Buffer validation walks 2 MiB PAE
+  PDE boundaries, and teardown reclaims user frames by walking page tables.
+- `system_file.*` exposes immutable embedded images (`/system/curl.elf`,
+  `/system/libc.elf`, `/system/cacert.pem`), and `executable.*` loads VFS
+  binaries without duplicating `/system` blobs on the kernel heap.
+- `SYS_EXEC` (`37`) prepares and validates the new ELF image, address space, and
+  argument stack before committing, switches `CR3` before destroying the old
+  address space, closes `FD_CLOEXEC` descriptors via `fd.*`, and preserves PID,
+  `cwd`, and open file descriptions.
 
-## TLS y memoria en 0.11
+### User-Space Libc (Picolibc 1.8.11)
 
-PAE y NX reemplazan tablas de 32 bits: PDPT privado y directorio por tarea; región estática alta reservada explícitamente antes de asignar frames; BSS actual desde 0x1c0000. Texto RX, rodata R/NX, datos/pilas RW/NX.
-`tls_profile.*` ahora configura MbedTLS 1.2/1.3; `tls.*` proporciona BIO no bloqueante, verifica el handshake y libera contextos/slots PSA.
-`certificate_policy.*` sigue aplicando SAN/EKU/límites sin borrar errores de MbedTLS. `x509_policy.*` es legado BearSSL, no se enlaza en el cliente actual.
-`tls_platform_port.*` adapta heap/RTC/DRBG; no es una libc POSIX. `integer_runtime.*` aporta división u64 probada para i386.
+- `user/libc/crt0.S` and `start.c` provide the C runtime startup; `port.c`,
+  `socket.c`, and `poll.c` translate wire ABIs (`platform_abi.h`, `file_abi.h`,
+  `socket_abi.h`, `poll_abi.h`) and map kernel error codes to Picolibc `errno`.
+- `argument_core.*` splits space-delimited command strings (up to 256 bytes and
+  16 `argv` elements) without dynamic allocation.
+- `user/float_runtime.c` implements software `binary64` helpers using pure
+  integer arithmetic so `curl` runs without hardware FPU/SSE or `libgcc`.
 
-## ELF32 y VM de usuario
+### VFS, File Descriptors, Sockets, and `poll`
 
-`elf.*` valida sin asignar; `space.*` carga segmentos y administra frames/PTE privados, brk y anónimos.
-`task_create_elf` utiliza el entry/stack del espacio; `process_spawn_elf` reutiliza slots y recolección existentes.
-`elf_command.*` es integración/diagnóstico, no código del parser. Las demos C se compilan y enlazan separadas del kernel.
-La validación de buffers recorre PDEs de 2 MiB; la propiedad se recupera caminando tablas, no con un array grande por tarea.
+- `vfs.*` owns `tmpfs`, writable `NotFS v2`, `/system`, and `/dev` nodes; `fd.*`
+  owns open file descriptions, reference counts, offsets/flags, and per-task
+  256-byte `stdin` queues.
+- `socket_stack.*` wraps raw lwIP (`NO_SYS=1`) with 8 TCP endpoints and 4
+  concurrent DNS queries, sharing the RTL8139 NIC with the legacy kernel stack
+  via port range demultiplexing.
+- `poll_wait.*` and `socket_events.h` evaluate non-consuming readiness across up
+  to 64 descriptors per `poll` call. Blocked reads, socket calls, sleeps
+  (`wait_policy.h`), and `poll` waits suspend only the calling process
+  (`TASK_BLOCKED` / `TASK_WAIT_*`) and complete via supervisor physical aliases
+  in `process_poll` without switching `CR3` inside IRQ context.
 
-## Bloqueo temporizado
+## Architectural Rules
 
-`wait_policy.h` contiene la comparación relativa pura (sin I/O ni asignación). SYS_SLEEP valida y registra duración; scheduler_block conserva el frame y devuelve el kernel para procesos gestionados.
-`process_poll` despierta vencidos antes del round-robin. Ningún handler IRQ asigna o libera procesos; kill/recolección siguen perteneciendo al event loop.
-Los lotes síncronos no registran una espera que no puedan despertar: devuelven un error definido.
-
-## Libc de usuario en 0.14
-
-`user/libc/crt0.S` y `start.c` son el CRT de aplicaciones; `port.c` traduce ABI/errno y encapsula los hooks OS de Picolibc. `demo.c` es la batería ejecutada en ring3, no una implementación alternativa de libc. `tools/fetch_picolibc.py` fija/verifica fuente; `build_picolibc.py` genera el cross-build Meson y sysroot. `libc_command.*` solo lanza el ELF; no contiene asignador ni stdio.
-
-`platform_abi.h` fija límites y layout wire del tiempo. Las syscalls validan rangos/permisos antes de tocar buffers; el runtime de usuario no puede desactivar esa comprobación. `clock_uptime_ms` toma una instantánea atómica de 64 bits con IF preservado. `integer_runtime.*` proporciona división/remainder signed y unsigned al kernel y al ELF por enlaces separados, sin libgcc host.
-
-Los hooks no soportados no devuelven éxito ficticio. libc privada single-thread no significa threads ni conformidad POSIX completa. VFS y sockets tienen los adaptadores descritos abajo. Ver LIBC.md.
-
-## FDs, VFS y entrada en 0.15
-
-`vfs.*` posee nodos/frames, nombres tmpfs y NotFS v2 escribible e imágenes system inmutables; `fd.*` posee descripciones abiertas, referencias, posición/flags y colas de entrada. `task.*` adquiere/libera la tabla de descriptores. Ni VFS ni FDs interpretan punteros de usuario o deciden planificación.
-
-`syscall.*` valida/copia rutas y buffers antes de llamar al backend. `file_abi.h` fija el wire independiente de Picolibc. `user/libc/port.c` traduce constantes/errores/stat y usa los hooks reales de stdio upstream. `process_poll` termina lecturas TASK_WAIT_INPUT mediante `space_copy_to_user` sobre aliases del espacio bloqueado, sin activar su CR3. Shell/IRQ no comparten datos de entrada entre PIDs.
-
-El backend tiene tests ASAN/UBSAN con un asignador de frames falso host-only; `tests/vfs.py` comprueba el ELF real y recuperación exacta en QEMU. La operación no preemptiva del kernel garantiza consistencia de referencias en un CPU; no se declara soporte SMP ni sincronización multi-CPU.
-
-## TCP y DNS de usuario en 0.16
-
-`socket_stack.*` encapsula lwIP raw NO_SYS; `lwip_port/` aporta configuración/límites, reloj y RNG. `net.*` comparte RTL8139/DMA y demultiplexa puertos con el transporte legacy. `fd.*` integra el endpoint en referencias OFD/dup; no decide bloqueo. `syscall.*` registra espera/punteros validados; `process_poll` copia desde/hacia el espacio bloqueado por aliases físicos y reanuda el frame.
-
-`user/include` define cabeceras propias y `user/libc/socket.c` traduce API/errno/native structs al wire estable `socket_abi.h`. `user/socket_demo.c` es diagnóstico ELF separado, no implementación de TCP. Fixtures de tests usan sockets del host solo como peers; no se incorporan al invitado. `tools/fetch_lwip.py` fija SHA/licencia y `build_lwip.py` cruza upstream sin headers/libc de host. Lifecycle raw, quotas y pendientes están documentados en SOCKETS.md.
-
-## poll en 0.17
-
-poll_abi.h fija vector/eventos; fd_poll y socket_events.h calculan readiness sin consumo ni política de espera. socket_ready solo adapta estado/capacidad de lwIP a esa política. poll_wait.* valida/copia snapshots y conserva/devolver el frame mediante scheduler_block. process_poll orquesta wakeup; ni IRQ ni FD backend planifican procesos. El adaptador user/libc/poll.c traduce structs/errno; poll_demo.c es un módulo de pruebas del ELF, no una implementación alternativa. Ver POLL.md.
-
-## curl HTTP y runtime de argumentos
-
-`argument_core.*` separa texto acotado sin I/O ni asignación. `space.*` copia
-strings y construye el stack ABI; `process.*` comparte creación y rollback
-para argumentos simples o separados. `curl_command.*` solo lanza el ELF
-upstream. `select` es un adaptador de libc sobre poll, no una syscall nueva.
-
-El cargador BIOS añade un bloque alto de 768 KiB usando un buffer temporal y
-INT 15h/AH=87. El linker coloca el blob curl R/NX en 0x100000 y BSS desde
-0x1c0000; physical reserva toda la región estática antes de asignar frames.
-La ejecución sigue ocurriendo en el espacio privado de usuario. Ver MEMORY.md,
-LIBC.md y CURL_PORT.md para contratos y límites.
-
-## Comandos de archivos
-
-`path_core.*` normaliza rutas kernel sin I/O ni asignación; tiene pruebas
-nativas con sanitizadores. `file_command.*` conserva cwd de la shell y adapta
-los comandos a tmpfs y NotFS, con resolución de rutas y cwd por proceso en la ABI incremental. `vfs_entry`
-expone copias de nombres enlazados para listado, sin transferir referencias.
-El lanzador conserva `data.img` fuera de los productos de construcción.
-
-## Continuación: TLS, exec y filesystem
-
-`system_file.*` expone blobs inmutables, `executable.*` adquiere/libera imágenes
-VFS y el lanzador. `syscall.*` copia rutas/argumentos y prepara espacio; `task.*`
-confirma cambio CR3/frame y aplica CLOEXEC con `fd.*` antes de destruir espacio.
-`fs_core.*` contiene CRC/validación/compactación sin I/O; `fs.*` publica dos bancos
-ATA y migra v1 con rollback. `vfs.*` conserva referencias y handles sin nombre.
-`line_core.*` edita sin plataforma; `line_input.*` interpreta CSI/completa/renderiza
-fuera de IRQ. El backend MbedTLS de curl se enlaza a Picolibc por separado del
-TLS kernel, con fuentes/versiones de terceros intactas.
+- Guard all headers (`NOTOS_<NAME>_H`), keep internal symbols `static`, and
+  share ABI constants cleanly between C and assembly.
+- Never allocate memory, print lengthy diagnostics, or interpret user programs
+  inside IRQ handlers.
+- Validate the entire range and page permissions of user buffers before reading,
+  writing, or mutating kernel state; preserve `EFLAGS.IF` across critical
+  sections.
+- Destroy resources only when they are no longer active, and roll back partial
+  allocations on failure.
+- Keep pure algorithms native-testable under ASAN/UBSAN and verify full-system
+  behavior by booting real disk images in QEMU.

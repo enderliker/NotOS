@@ -1,49 +1,66 @@
-# Ejecución de usuario — NotOS 0.8
+# User-Space Execution (Ring 3)
 
-## Arquitectura
+## Privilege Architecture (`kernel/arch.c`, `kernel/user_entry.S`, `kernel/isr.S`)
 
-GDT propia: código/datos supervisor (0x08/0x10), código/datos usuario (0x1b/0x23) y TSS de 32 bits (0x28). LTR carga la TSS; ESP0 selecciona la pila supervisor de 16 KiB de la tarea activa para cambios de privilegio. El mapa I/O queda fuera del límite de la TSS: ring 3 no puede acceder a puertos. La prueba `fault gp` ahora usa el selector inválido 0x30, ya que 0x20 pertenece a la nueva GDT.
+NotOS defines a custom GDT with supervisor code/data (`0x08` / `0x10`), user
+code/data (`0x1b` / `0x23`, `RPL=3`), and a 32-bit Task State Segment (`0x28`).
+`LTR` loads the TSS at boot, and `TSS.ESP0` points to the active task's 16 KiB
+supervisor stack for privilege transitions (`CPL 3 -> CPL 0`). The I/O
+permission bitmap base is set beyond the TSS limit so ring 3 tasks cannot
+execute `IN`/`OUT` port instructions (`#GP`).
 
-Solo la puerta INT 0x80 tiene DPL 3. La entrada user usa IRET con IF=1 e IOPL=0 y limpia los registros generales. Los stubs conservan segmentos/registros y limpian DF antes de C. Un cambio de privilegio agrega ESP/SS user al frame; estos campos solo se leen si CS indica CPL 3.
+Only interrupt gate **`INT 0x80`** has `DPL=3`; hardware interrupt and exception
+gates have `DPL=0` so user code cannot spoof hardware IRQs via software `INT n`
+instructions. Entering ring 3 uses `IRET` with `IF=1`, `IOPL=0`, and zeroed
+general-purpose registers.
 
-## Espacios privados
+## Private Address Spaces (`kernel/space.c`)
 
-Cada espacio tiene cinco frames propios: directorio de páginas, tabla user, código, datos y pila. Las páginas se limpian antes de reutilizarlas. El directorio comparte las tablas del kernel únicamente como supervisor; el directorio kernel original no tiene mappings user. La zona user es:
+Every task executes under its own private PAE `CR3` (`PDPT` + page directory).
+Supervisor mappings are shared with `U/S=0` (supervisor-only), while the kernel's
+master page directory contains no user-accessible mappings.
 
-| Dirección | Permiso |
+### Compact Demo & NotLang VM Layout
+
+Single-page ring 3 diagnostic demos and the NotLang 0.2 VM use five private
+frames (PDPT, page directory, page table, code, data, and stack):
+
+| Virtual Address | Permissions & Purpose |
 | --- | --- |
-| 0x08000000 | código user de solo lectura |
-| 0x08001000 | datos user de lectura/escritura |
-| 0x08002000 | guard no presente |
-| 0x08003000 | pila user de lectura/escritura |
-| 0x08004000 | no presente |
+| `0x08000000` | User code (`RX`, `U/S=1`) |
+| `0x08001000` | User data (`RW/NX`, `U/S=1`) |
+| `0x08002000` | Unmapped guard page |
+| `0x08003000` | User stack (`RW/NX`, `U/S=1`, 4 KiB) |
+| `0x08004000` | Unmapped upper guard |
 
-Se carga CR3 privado al entrar y se restaura CR3 del kernel al salir. El handler de probe lee el CR3 real. La demo crea dos espacios simultáneamente, los ejecuta secuencialmente con distintos datos en la misma dirección virtual y comprueba que sus escrituras no modifican los datos del otro. Una lectura del alias físico supervisor del espacio ajeno se rechaza por #PF.
+Full ELF32 applications use a 16 MiB user virtual region (`0x08000000..0x09000000`)
+with demand-allocated PAE page tables, a 4 MiB `brk` heap, a 4 MiB anonymous
+`mmap` region, and a 64 KiB user stack (see [ELF.md](ELF.md)).
 
-Al terminar se restauran pila/registros/flags/CR3 del llamador y se liberan los cinco frames. Nunca se destruye el directorio activo. Los lotes multitarea se describen en [TASKS.md](TASKS.md), y el gestor background en [PROCESSES.md](PROCESSES.md). Cada tarea agrega su pila kernel del heap; se libera solo después de retornar al contexto del llamador.
+## Core `INT 0x80` Syscalls
 
-## Syscalls INT 0x80
+The syscall number is passed in `EAX` and the return value (or negative error
+code) is placed in `EAX`:
 
-Número en EAX; resultado en EAX:
-
-| Número | Operación | Argumentos |
+| Number | Operation | Arguments |
 | --- | --- | --- |
-| 0 | exit | EBX = estado |
-| 1 | ticks | retorna reloj en ms |
-| 2 | probe | verifica CPL/SS, pila TSS y CR3 |
-| 3 | write | EBX = buffer user, ECX = longitud, máximo 160 bytes |
-| 4 | report | verificación interna de la demo de aislamiento |
-| 5 | yield | cede al siguiente slot READY; retorna 0 al reanudarse |
+| `0` | `SYS_EXIT` | `EBX` = exit status |
+| `1` | `SYS_TICKS` | Returns global monotonic uptime in milliseconds |
+| `2` | `SYS_PROBE` | Verifies `CPL=3`, `SS=0x23`, active `TSS.ESP0`, and private `CR3` |
+| `3` | `SYS_WRITE` | `EBX` = user buffer, `ECX` = length (`0..160` bytes) |
+| `4` | `SYS_REPORT` | Records isolation-demo verification values |
+| `5` | `SYS_YIELD` | Yields the current quantum to the next `TASK_READY` slot; returns `0` |
 
-Una syscall desconocida devuelve -38. Write valida todo el rango y los permisos PDE/PTE antes de tocar un puntero. Rechaza kernel, guards, cruce hacia una página ausente y overflow con -14; longitud mayor de 160 con -22. Longitud cero es un no-op con resultado cero. No toma un terminador NUL como autoridad para salir del rango. La salida se prefija `USER OUT:` y los bytes no imprimibles, salvo newline, se reemplazan por `?`.
+Unknown syscall numbers return `-ENOSYS` (`-38`). `SYS_WRITE` validates the full
+buffer address range and PAE PDE/PTE permissions before dereferencing any user
+byte, returning `-EFAULT` (`-14`) for kernel, unmapped, or guard addresses and
+`-EINVAL` (`-22`) for lengths above 160 bytes. Additional syscalls for ELF VM
+(`6..9`), libc platform hooks (`10..13`), VFS (`14..25`, `37..42`), sockets/DNS
+(`26..35`), and `poll` (`36`) are documented in [ELF.md](ELF.md),
+[LIBC.md](LIBC.md), [VFS.md](VFS.md), [SOCKETS.md](SOCKETS.md), and
+[POLL.md](POLL.md).
 
-## Fallos y presupuesto
-
-Un fallo de programa desde CPL 3 termina esa tarea y conserva vector/error/CR2. Continúan las demás tareas READY; se vuelve a la shell cuando termina el lote. Un fallo originado dentro del kernel sigue siendo fatal; tampoco se presenta NMI/double fault/machine check como un error recuperable de programa.
-
-IRQ0 aplica un presupuesto de 250 ticks entregados a CPL3 por tarea. Un bucle infinito se termina con estado 124; la IRQ envía EOI antes de cambiar el contexto. El planificador round-robin rota después de cinco ticks user o una cesión explícita. El presupuesto es muestreo de CPU user, no una medida exacta de tiempo ni un límite estricto de tiempo de pared. Mientras se ejecuta el lote, siguen avanzando timer y cola de teclado, pero la shell y la red esperan al retorno.
-
-## Comandos de prueba
+## Fault Isolation & Diagnostic Commands
 
 ```text
 ring3-test
@@ -59,15 +76,9 @@ user-run foreign-read
 user-run spin
 ```
 
-A diferencia de `fault ...`, estas demos de fallo user deben regresar a la shell. Los resultados esperados incluyen #PF/error 5 para leer kernel, #PF/error 7 para escribir código, #GP/error 0 para puertos, #PF/error 6 para escribir un guard y #GP/error 258 para intentar INT 0x20. `bad-buffer` comprueba los códigos de error de write sin detener el kernel. `write` imprime `hello from ring3`.
-
-## Alcance comprobado y límites
-
-Pruebas de CPL/TSS/CR3 reales en QEMU, aislamiento de datos, fault recovery, buffers inválidos, salida normal, timeout y restauración exacta de frames. Las pruebas principales usan 32 MiB; se añaden arranque/roots privados/fault recovery con 16 y 64 MiB. La red HTTP se prueba en el mismo invitado después de una ejecución user y de un #GP recuperado.
-
-Hay multitarea preemptiva básica por lotes y gestor background, NotFS y exec de fuente NotLang en VM ring3. Hay ELF, heap de aplicación y NX según ELF.md; no hay señales, IPC, SMP, ASLR ni pila alternativa para double fault. La demo usa un programa assembly incluido en el kernel, de hasta una página; `run` conserva el intérprete kernel y `run-user`/`exec` usan la VM aislada. No es una auditoría de seguridad, un sandbox de producción ni una promesa de recuperación ante cualquier fallo de hardware o del kernel.
-
-## Extensión ELF32
-
-El layout fijo anterior sigue siendo válido para demos/NotLang. Los procesos ELF usan una región user de 16 MiB y tablas PAE bajo demanda, con pila de 64 KiB y heap/anónimos separados.
-Entry/pila ya no son constantes globales del runtime task; SYS_PROBE comprueba límites de la tarea activa. Ver ELF.md para ABI, mapa y límites.
+Unlike the ring 0 `fault <kind>` commands, all `user-run` fault demos trap
+cleanly from CPL 3, terminate only the user task (`#PF` error 5 on
+`kernel-read` and `foreign-read`, `#PF` error 7 on `code-write`, `#GP` error 0
+on `io`, `#PF` error 6 on `guard`, `#GP` error 258 on `gate` `INT 0x20`, and
+exit status `124` on `spin`), restore the kernel `CR3` and all physical frames,
+and return to the interactive shell.

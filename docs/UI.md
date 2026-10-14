@@ -1,29 +1,52 @@
-# Ratón y controles gráficos
+# Mouse, VGA Graphical Controls, and Shell Line Editing
 
-PS/2 estándar de tres bytes, IRQ12. Inicialización i8042 con PIC enmascarado, configuración del segundo puerto y comandos F6/F4 comprobados por ACK. IRQ1/12 comparten el drenaje del controlador y separan bytes AUX de scancodes: el handler solo encola. El decodificador puro interpreta signo y botones, rechaza overflow y resincroniza el primer byte por su bit 3.
+## PS/2 Mouse & VGA Desktop (`kernel/mouse.c`, `kernel/gui.c`)
 
-El event loop procesa hasta 128 bytes por vuelta. Cursor de 8×8 con respaldo del framebuffer, coordenadas recortadas a 320×200. La consola restaura el fondo antes de dibujar y vuelve a superponer el cursor para no dejar rastros.
+NotOS drives a standard 3-byte PS/2 mouse on **IRQ12**:
+- The i8042 controller is initialized with the PIC masked, enabling the second
+  PS/2 port and verifying `ACK` (`0xFA`) responses for `0xF6` (set defaults) and
+  `0xF4` (enable data reporting).
+- `IRQ1` and `IRQ12` share the i8042 status/data drain, routing `AUX` bytes into
+  the mouse queue and keyboard scancodes into the keyboard queue without
+  performing rendering inside the IRQ handler.
+- The pure packet decoder (`kernel/mouse_decode.c`) extracts sign bits and
+  button states, discards overflow packets, and resynchronizes on bit 3 of the
+  first packet byte.
 
-- **CLR** limpia la terminal y descarta su entrada parcial.
-- **FILES** lista el directorio actual de la shell; **TASKS** muestra procesos activos.
-- Click en la barra de título minimiza/restaura la ventana. La consola conserva sus celdas y sigue recibiendo salida cuando está minimizada.
-- `mouse` informa coordenadas, botones, paquetes y descartes.
+During each event-loop pass, the kernel processes up to 128 queued mouse bytes
+and renders an **8×8 cursor** clipped to `320×200` (saving and restoring the
+underlying VGA framebuffer pixels so console output never leaves cursor trails):
+- **`CLR`**: Clears the terminal and discards any partial input line.
+- **`FILES`**: Lists the shell's current working directory.
+- **`TASKS`**: Displays active background processes.
+- **Title bar click**: Minimizes or restores the terminal window (while
+  minimized, the console buffer continues recording output).
+- `mouse`: Prints current cursor coordinates, button states, decoded packet
+  count, and dropped bytes.
 
-Las acciones de UI se ejecutan fuera de IRQ. No hay ratón USB, rueda, ventanas arbitrarias, arrastre, resolución configurable ni escritorio completo. El soporte comprobado es el PS/2 emulado por QEMU; no se afirma compatibilidad con hardware real.
+## Interactive Shell Line Editing (`kernel/line_core.c`, `kernel/line_input.c`)
 
-Tests nativos: sincronización, signo, botones y overflow. Test QMP: movimiento y clicks reales, toolbar, minimizar/restaurar, captura del framebuffer y convivencia con teclado/IRQ0/INT3.
+The shell provides interactive line editing and history across both the **PS/2
+keyboard** and **`COM1` serial CSI/SS3 escape sequences** outside IRQ context:
+- **Command History**: 8-entry circular history navigated with `Up` and `Down`,
+  preserving the in-progress draft line and skipping consecutive duplicate
+  commands.
+- **Cursor Editing**: `Left`, `Right`, `Home`, `End`, `Backspace`, and `Delete`
+  edit the current line in place without stealing input queued for background
+  processes (`feed`).
+- **`Tab` Completion**: Completes shell command names (on the first token) or
+  VFS file/directory path components (against the shell's `cwd`) by longest
+  common prefix, appending `/` when completing a unique directory and listing
+  candidates when ambiguous.
+- **Line Length Limits**: Up to **159 characters** for standard shell commands
+  and up to **320 characters** for `curl` and `spawn-elf` (whose arguments
+  remain bounded to 256 bytes).
 
-## Edición de shell
+## Verification
 
-Historial circular de ocho líneas, con borrador al navegar Up/Down; se omiten
-repeticiones consecutivas. Left/Right, Home/End, Backspace y Delete editan con
-cursor sin consumir datos de procesos. Tab completa comandos o componentes de
-rutas por prefijo común; muestra candidatos cuando no puede avanzar y añade
-`/` para un directorio único. Sin globbing, comillas ni escapes.
-
-`line_core.*` es lógica pura con tests ASAN/UBSAN. `line_input.*` adapta VGA,
-serie CSI/SS3 y listado VFS; las secuencias de control se interpretan en el
-loop, y IRQ solo encola. Límite de línea: 159 caracteres para comandos comunes,
-320 para curl/spawn-elf; sus argumentos permanecen limitados a 256 bytes.
-El renderizado conserva el texto pero no implementa una terminal ANSI general
-ni reconstruye líneas desplazadas fuera de la pantalla por salida background.
+- `tests/mouse_unit.c` and `tests/line_unit.c` (ASAN/UBSAN): Test PS/2 3-byte
+  packet resynchronization/overflow and pure line editing, cursor movement,
+  draft preservation, and history rotation.
+- `tests/mouse.py` and `tests/continuation.py`: Verify QMP mouse movement/clicks,
+  toolbar actions, window minimize/restore, and PS/2 + serial CSI arrow/Home/End/
+  Delete/`Tab` completion in QEMU.
