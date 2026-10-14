@@ -24,6 +24,8 @@ static struct process_slot slots[SCHEDULER_CAPACITY];
 static unsigned cursor;
 static int trace_enabled;
 static u32 next_pid = 1;
+static u32 foreground_pid;
+static int foreground_reprompt;
 extern const u8 user_blob_start[], user_blob_end[];
 
 static int slot_unused(const struct process_slot *slot) {
@@ -149,6 +151,27 @@ void process_quiet(u32 pid) {
         }
     }
 }
+void process_set_foreground(u32 pid,int reprompt) {
+    foreground_pid=pid;foreground_reprompt=reprompt;
+}
+int process_foreground_active(void) {
+    if (!foreground_pid) return 0;
+    for (unsigned i=0;i<SCHEDULER_CAPACITY;i++)
+        if (slots[i].task.state!=TASK_UNUSED && slots[i].task.id==foreground_pid) return 1;
+    foreground_pid=0;foreground_reprompt=0;
+    return 0;
+}
+void process_foreground_input(u8 byte) {
+    if (!foreground_pid) return;
+    for (unsigned i=0;i<SCHEDULER_CAPACITY;i++) {
+        if (slots[i].task.state!=TASK_UNUSED && slots[i].task.id==foreground_pid) {
+            slots[i].task.files.input_eof=0;
+            fd_feed(&slots[i].task.files,&byte,1,0);
+            return;
+        }
+    }
+    foreground_pid=0;foreground_reprompt=0;
+}
 void process_rename(u32 pid, const char *name) {
     if (!name || !*name || length(name) >= PROCESS_NAME_BYTES) return;
     for (unsigned i = 0; i < SCHEDULER_CAPACITY; i++) {
@@ -163,6 +186,11 @@ int process_trace_enabled(void) {
 }
 static void collect(struct process_slot *slot) {
     u32 id = slot->task.id, status = slot->task.result.status, parent = slot->parent_id;
+    int reprompt = (id == foreground_pid && foreground_reprompt);
+    if (id == foreground_pid) {
+        foreground_pid = 0;
+        foreground_reprompt = 0;
+    }
     if (!slot->quiet || trace_enabled) {
         console_puts("PROCESS: pid="); console_uint(id);
         console_puts(" exit="); console_uint(status);
@@ -197,6 +225,7 @@ static void collect(struct process_slot *slot) {
         slot->zombie_id = 0;
         slot->zombie_status = 0;
     }
+    if (reprompt) console_puts("notos> ");
 }
 int process_kill(u32 pid,u32 sig) {
     if (sig>NOTOS_SIG_MAX) return -ERROR_INVALID_ARGUMENT;
@@ -267,6 +296,23 @@ void process_poll(void) {
         } else {
             u32 bytes=task->pending_bytes;
             if (bytes>sizeof(buffer)) bytes=sizeof(buffer);
+            if (!task->files.input_count && !task->files.input_eof
+                && fd_is_tty(&task->files,task->pending_fd)==1 && slots[i].parent_id) {
+                u32 parent_id=slots[i].parent_id;
+                for (unsigned depth=0;depth<SCHEDULER_CAPACITY && parent_id;depth++) {
+                    u32 next_parent=0;
+                    for (unsigned j=0;j<SCHEDULER_CAPACITY;j++) {
+                        if (slots[j].task.state!=TASK_UNUSED && slots[j].task.id==parent_id) {
+                            if (slots[j].task.files.input_count || slots[j].task.files.input_eof)
+                                fd_forward_tty(&slots[j].task.files,&task->files,bytes);
+                            next_parent=slots[j].parent_id;
+                            break;
+                        }
+                    }
+                    if (task->files.input_count || task->files.input_eof) break;
+                    parent_id=next_parent;
+                }
+            }
             int result=fd_read(&task->files,task->pending_fd,buffer,bytes);
             if (result==-ERROR_AGAIN) continue;
             if (result>0 && !space_copy_to_user(&task->space,task->pending_buffer,buffer,(u32)result))

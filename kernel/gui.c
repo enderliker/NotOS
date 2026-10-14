@@ -66,6 +66,17 @@ void gui_init(void) {
     gui_clear();
 }
 void gui_putc(char c) {
+    static u32 escape,param;
+    if(escape) {
+        if(escape==1) {escape=c=='['?2:0;param=0;return;}
+        if(c>='0' && c<='9') {param=param<100?param*10+(u32)(c-'0'):100;return;}
+        escape=0;
+        u32 n=param?param:1u;
+        if(c=='D') gui_move_cursor(-(int)n);
+        else if(c=='C') gui_move_cursor((int)n);
+        return;
+    }
+    if(c==27) {escape=1;return;}
     if(c=='\r') return;
     pointer_hide();
     if(c=='\b') {

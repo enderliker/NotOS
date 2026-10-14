@@ -110,6 +110,13 @@ void vfs_node_info(const struct vfs_node *node,struct notos_file_info *result) {
         else result->links = 0;
     }
 }
+static u32 system_inode(const char *path) {
+    if (equal(path, "/system/cacert.pem")) return 6u;
+    if (equal(path, "/system/sh.elf")) return 7u;
+    if (equal(path, "/system/libc.elf")) return 13u;
+    if (equal(path, "/system/curl.elf")) return 14u;
+    return 15u;
+}
 int vfs_open(const char *path,u32 flags,u32 mode,struct vfs_node **result) {
     u32 image_bytes;
     const u8 *image = system_file_lookup(path, &image_bytes);
@@ -121,7 +128,7 @@ int vfs_open(const char *path,u32 flags,u32 mode,struct vfs_node **result) {
             return 0;
         }
         for (u32 i = 0; i < VFS_NODE_COUNT; i++) if (!nodes[i].used) {
-            nodes[i] = (struct vfs_node){.used=1,.disk=1,.linked=1,.references=1,.inode=equal(path,"/system/cacert.pem")?6u:equal(path,"/system/libc.elf")?13u:14u,.size=image_bytes,.permissions=0444,.kind=NOTOS_FILE_REGULAR,.image=image};
+            nodes[i] = (struct vfs_node){.used=1,.disk=1,.linked=1,.references=1,.inode=system_inode(path),.size=image_bytes,.permissions=0444,.kind=NOTOS_FILE_REGULAR,.image=image};
             *result = &nodes[i];
             return 0;
         }
@@ -447,7 +454,7 @@ int vfs_stat(const char *path,struct notos_file_info *result) {
     }
     u32 image_bytes;
     if (system_file_lookup(path, &image_bytes)) {
-        *result = (struct notos_file_info){equal(path,"/system/cacert.pem")?6u:equal(path,"/system/libc.elf")?13u:14u,image_bytes,NOTOS_FILE_REGULAR,1,0444,0,0,0};
+        *result = (struct notos_file_info){system_inode(path),image_bytes,NOTOS_FILE_REGULAR,1,0444,0,0,0};
         return 0;
     }
     int disk;const char *name;int error=path_name(path,&disk,&name);
@@ -539,12 +546,12 @@ int vfs_directory_entry(const char *path, u32 index, struct notos_directory_entr
     *entry = (struct notos_directory_entry){0};
     const char *root[] = {"tmp", "disk", "dev", "system"};
     const char *devices[] = {"stdin", "stdout", "stderr", "console", "null"};
-    const char *images[] = {"cacert.pem", "libc.elf", "curl.elf"};
+    const char *images[] = {"cacert.pem", "libc.elf", "curl.elf", "sh.elf"};
     const char **names = 0;
     u32 count = 0;
     if (equal(path, "/")) {names = root; count = 4;}
     else if (equal(path, "/dev")) {names = devices; count = 5;}
-    else if (equal(path, "/system")) {names = images; count = 3;}
+    else if (equal(path, "/system")) {names = images; count = 4;}
     if (names) {
         if (index >= count) return 0;
         copy(entry->name, names[index], length(names[index]) + 1);

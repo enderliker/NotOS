@@ -18,6 +18,9 @@ u32 process_getppid(u32 pid);
 int process_kill(u32 pid,u32 sig);
 /* Suppress routine completion output; faults and cleanup errors remain visible. */
 void process_quiet(u32 pid);
+void process_set_foreground(u32 pid,int reprompt);
+int process_foreground_active(void);
+void process_foreground_input(u8 byte);
 /* Update the visible slot name when SYS_EXEC replaces a running task image. */
 void process_rename(u32 pid, const char *name);
 /* Whether shell-requested process diagnostics are enabled. */

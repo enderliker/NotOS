@@ -2,6 +2,14 @@
 
 ## Recently Completed Milestones
 
+- **User-Space Shell (`/system/sh.elf`), Raw TTY Mode, and Shell Parser (M3)**:
+  Added raw/no-echo mode on `stdin` via `SYS_FCNTL` (`NOTOS_F_GETTTY` /
+  `NOTOS_F_SETTTY`), pure shell command/pipeline parser (`shell_parse_core.*`,
+  tested under ASAN/UBSAN) supporting quoting, backslash escapes, `$VAR`/`${VAR}`
+  and `$?`, pipelines (`|`), redirections (`<`, `>`, `>>`), background jobs
+  (`&`), and `;`, and `/system/sh.elf` with `line_core.*` interactive editing,
+  `Tab` completion, and builtins (`cd`, `exit`, `export`, `unset`, `jobs`,
+  `wait`). Launched via kernel shell `sh` (`USER_SHELL_DEFAULT ?= 0`).
 - **NotFS v3, Atomic `rename`, `dirent` Wrappers, and Inode Recycling (M2)**:
   Upgraded persistent disk storage to dual-bank `NotFS v3` (48 nodes, 88 KiB
   payload, 96 KiB banks at 256-sector stride on a 256 KiB data disk, `mtime` via
@@ -31,25 +39,21 @@
   completion for commands and VFS paths across PS/2 and serial CSI/SS3 outside
   IRQ context.
 - **Comprehensive Verification**: Native ASAN/UBSAN unit suites (`fs-unit`,
-  `line-unit`, `vfs-unit`, `poll-unit`, `elf-unit`, `cert-unit`, `float-unit`)
-  and 26 full-system QEMU test suites (see [TESTING.md](TESTING.md)).
+  `line-unit`, `shell-parse-unit`, `vfs-unit`, `poll-unit`, `elf-unit`,
+  `cert-unit`, `float-unit`) and 27 full-system QEMU test suites (see
+  [TESTING.md](TESTING.md)).
 
 ## Next Planned Milestones
 
-1. **User-Space Shell (`/system/sh.elf`) & Quoted Argument Parser**:
-   - Add raw/no-echo mode on `stdin` via `SYS_FD_CONTROL`, pure shell parser
-     (`shell_parse_core.*`) for quoting, variable expansion, pipelines,
-     redirections, and background jobs, and an interactive ring 3 shell with
-     `line_core.*` editing and `Tab` completion.
-2. **Multi-Call User-Space Utilities (`/system/box.elf`) & Power Control**:
+1. **Multi-Call User-Space Utilities (`/system/box.elf`) & Power Control**:
    - Provide standard ring 3 file, text, process (`SYS_PROCESS_LIST`), and line
      editor (`ed`) applets in `/system/box.elf`, plus `SYS_POWER` for clean
      reboot, poweroff, and halt after flushing storage.
-3. **DHCP Network Configuration**:
+2. **DHCP Network Configuration**:
    - Enable lwIP DHCP client with 3-second boot discovery and deterministic
      static fallback (`10.0.2.15/24`), shared network configuration state, and
      configurable hostname (option 12).
-4. **Configurable CPU Budgets & Extended TLS Capabilities**:
+3. **Configurable CPU Budgets & Extended TLS Capabilities**:
    - Refine per-process CPU budget policies and support client certificates,
      explicit trust-store updates, and `CApath`.
 

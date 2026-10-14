@@ -242,6 +242,12 @@ int fd_control(struct fd_table *table,int fd,u32 command,u32 argument) {
     case NOTOS_F_SETFD:
         if (argument&~NOTOS_FD_CLOEXEC) return -ERROR_INVALID_ARGUMENT;
         table->descriptor_flags[fd]=(u8)argument;return 0;
+    case NOTOS_F_GETTTY:
+        if (fd_is_tty(table,fd)<=0) return -ERROR_INVALID_ARGUMENT;
+        return (int)table->tty_mode;
+    case NOTOS_F_SETTTY:
+        if (fd_is_tty(table,fd)<=0 || (argument&~NOTOS_TTY_RAW)) return -ERROR_INVALID_ARGUMENT;
+        table->tty_mode=argument;return 0;
     default:return -ERROR_UNSUPPORTED;
     }
 }
@@ -265,6 +271,29 @@ int fd_feed(struct fd_table *table,const void *buffer,u32 bytes,int eof) {
     for (u32 i=0;i<bytes;i++) table->input[(table->input_head+table->input_count+i)%NOTOS_INPUT_BYTES]=((const u8 *)buffer)[i];
     table->input_count+=bytes;if (eof) table->input_eof=1;
     return 0;
+}
+u32 fd_forward_tty(struct fd_table *parent,struct fd_table *child,u32 max_bytes) {
+    if (!parent || !child || !max_bytes || child->input_eof) return 0;
+    u32 moved=0,limit=NOTOS_INPUT_BYTES-child->input_count;
+    if (max_bytes>limit) max_bytes=limit;
+    while (moved<max_bytes && parent->input_count) {
+        u8 byte=parent->input[parent->input_head];
+        if (!(child->tty_mode&NOTOS_TTY_RAW) && byte==4) {
+            if (!moved) {
+                parent->input_head=(parent->input_head+1)%NOTOS_INPUT_BYTES;
+                parent->input_count--;child->input_eof=1;
+            }
+            break;
+        }
+        parent->input_head=(parent->input_head+1)%NOTOS_INPUT_BYTES;
+        parent->input_count--;
+        if (!(child->tty_mode&NOTOS_TTY_RAW) && byte=='\r') byte='\n';
+        child->input[(child->input_head+child->input_count)%NOTOS_INPUT_BYTES]=byte;
+        child->input_count++;moved++;
+        if (!(child->tty_mode&NOTOS_TTY_RAW) && byte=='\n') break;
+    }
+    if (!moved && !parent->input_count && parent->input_eof) child->input_eof=1;
+    return moved;
 }
 u32 fd_description_count(void) {
     u32 count=0;

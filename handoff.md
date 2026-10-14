@@ -1,7 +1,18 @@
-# Handoff: NotFS v3, Atomic Rename, Process Composition, and Ring 3 HTTPS
+# Handoff: User-Space Shell (`/system/sh.elf`), NotFS v3, Atomic Rename, and Process Composition
 
 ## Current State & Recent Implementation
 
+- **User-Space Shell (`/system/sh.elf`), Raw TTY Mode, and Shell Parser (M3)**:
+  Added raw/no-echo mode on `stdin` via `SYS_FCNTL` (`NOTOS_F_GETTTY` /
+  `NOTOS_F_SETTTY`), pure shell command/pipeline parser (`shell_parse_core.*`,
+  tested under ASAN/UBSAN) supporting single/double quotes, backslash escapes,
+  per-job `$VAR`/`${VAR}` and `$?` expansion, pipelines (`|`), redirections
+  (`<`, `>`, `>>`), background jobs (`&`), and `;`, and `/system/sh.elf` with
+  `line_core.*` interactive editing, `Tab` completion, and builtins (`cd`,
+  `exit`, `export`, `unset`, `jobs`, `wait`). The built-in kernel shell stays
+  the default boot path (`USER_SHELL_DEFAULT ?= 0`), and `sh` launches
+  `/system/sh.elf` in the foreground. See [docs/UI.md](docs/UI.md) and
+  [docs/VFS.md](docs/VFS.md).
 - **NotFS v3, Atomic `rename`, `dirent` Wrappers, and Inode Recycling (M2)**:
   Upgraded persistent disk storage to dual-bank `NotFS v3` (48 nodes, 88 KiB
   payload, 96 KiB banks at 256-sector stride on a 256 KiB data disk, `mtime` via
@@ -33,9 +44,9 @@
   [docs/CURL_PORT.md](docs/CURL_PORT.md) and [docs/TLS.md](docs/TLS.md).
 - **Bootloader & Memory Layout**: Loads 512 KiB low (`0x10000..0x90000`) plus
   768 KiB high (`0x100000..0x1c0000`) verified by signatures at `0x8fffc` and
-  `0x1bfffc`. Embedded `curl` and CA blobs are mapped R/NX; kernel BSS spans
-  `0x1c0000` to `< 0x280000` and is reserved in the physical frame allocator.
-  Total bootable image size is 1.5 MiB.
+  `0x1bfffc`. Embedded `curl`, `sh`, and CA blobs are mapped R/NX; kernel BSS
+  spans `0x1c0000` to `< 0x280000` and is reserved in the physical frame
+  allocator. Total bootable image size is 1.5 MiB.
 - **VFS Execution & `SYS_EXEC` (`37`)**: `SYS_EXEC` validates and prepares the
   new ELF image, private PAE address space, and initial user stack before
   committing. Preserves PID, `cwd`, and open file descriptors except those
@@ -63,7 +74,7 @@
   (`Left`, `Right`, `Home`, `End`, `Backspace`, `Delete`), and `Tab` completion
   for shell commands and VFS paths across both PS/2 keyboard and serial CSI/SS3
   sequences outside IRQ context (`line_core.*` pure logic + `line_input.*`
-  adapter). See [docs/UI.md](docs/UI.md).
+  adapter and `/system/sh.elf`). See [docs/UI.md](docs/UI.md).
 
 ## Architectural Limits
 
@@ -72,8 +83,8 @@
   4 KiB kernel pipes, 64 KiB per `tmpfs` file (256 KiB global RAM quota), and
   88 KiB `NotFS v3` payload (48 nodes).
 - Default CPU budget is 250 CPL3 IRQ0 ticks per task (5-tick quantum); `/system/curl.elf`
-  receives 2,500 ticks for TLS handshakes and X.509 parsing, and `SYS_EXEC` does
-  not reset consumed ticks.
+  and `/system/sh.elf` receive 2,500 ticks, and `SYS_EXEC` does not reset
+  consumed ticks.
 - No `fork`, full POSIX compliance, threads/SMP, FPU/SSE, verified physical
   hardware, preemptive kernel, or user-space signal handlers (`SYS_KILL` is
   terminate-only).
@@ -84,11 +95,11 @@
 
 - Run `make` and `make test` for standard verification, or `make clean test` for
   a full clean rebuild matching CI.
-- All 23 native host unit test binaries (including `fs-unit`, `line-unit`,
-  `vfs-unit`, `poll-unit`, `elf-unit`, `cert-unit`, and `float-unit` under
-  ASAN/UBSAN) and all 26 QEMU system test suites (including `tests/pipeline.py`,
-  `tests/storage.py`, `tests/files.py`, and `tests/vfs.py`) pass (`make` and
-  `make test`).
+- All 24 native host unit test binaries (including `fs-unit`, `line-unit`,
+  `shell-parse-unit`, `vfs-unit`, `poll-unit`, `elf-unit`, `cert-unit`, and
+  `float-unit` under ASAN/UBSAN) and all 27 QEMU system test suites (including
+  `tests/shell.py`, `tests/pipeline.py`, `tests/storage.py`, `tests/files.py`,
+  and `tests/vfs.py`) pass (`make` and `make test`).
 - Upstream compiler warnings remain explicitly documented per policy: GCC warns
   on enum/bool conversions in curl's `transfer.c`, an unused function in curl's
   `url.c`, and `_set_tls` in Picolibc's `tls.c`. First-party code compiles

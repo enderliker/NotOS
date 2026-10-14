@@ -113,6 +113,17 @@ int main(void) {
     int separate=fd_open(&b,"/tmp/test",NOTOS_O_RDONLY,0);assert(separate==3);
     assert(fd_read(&b,separate,text,2)==2&&!memcmp(text,"ab",2));
     assert(fd_control(&a,d,NOTOS_F_SETFD,NOTOS_FD_CLOEXEC)==0 && fd_control(&a,f,NOTOS_F_GETFD,0)==0);
+    assert(fd_control(&a,0,NOTOS_F_GETTTY,0)==0 && fd_control(&a,0,NOTOS_F_SETTTY,NOTOS_TTY_RAW)==0);
+    assert(fd_control(&a,1,NOTOS_F_GETTTY,0)==(int)NOTOS_TTY_RAW);
+    assert(fd_control(&a,0,NOTOS_F_SETTTY,2)==-ERROR_INVALID_ARGUMENT);
+    assert(fd_control(&a,f,NOTOS_F_GETTTY,0)==-ERROR_INVALID_ARGUMENT);
+    assert(fd_control(&a,f,NOTOS_F_SETTTY,0)==-ERROR_INVALID_ARGUMENT);
+    assert(fd_control(&a,0,NOTOS_F_SETTTY,0)==0 && fd_control(&a,0,NOTOS_F_GETTTY,0)==0);
+    assert(fd_feed(&a,"hi\r\x04next\n",9,0)==0);
+    assert(fd_forward_tty(&a,&b,16)==3 && fd_read(&b,0,text,16)==3 && !memcmp(text,"hi\n",3));
+    assert(fd_forward_tty(&a,&b,16)==0 && b.input_eof==1 && fd_read(&b,0,text,16)==0);
+    b.input_eof=0;
+    assert(fd_read(&a,0,text,16)==5 && !memcmp(text,"next\n",5));
     assert(fd_control(&a,d,NOTOS_F_SETFL,NOTOS_O_APPEND)==0);
     assert(fd_seek(&a,f,0,NOTOS_SEEK_SET)==0 && fd_write(&a,f,"!",1)==1);
     struct notos_file_info info;assert(fd_stat(&a,f,&info)==0&&info.size==7&&info.links==1&&info.mtime==1735689600ULL);

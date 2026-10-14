@@ -8,7 +8,7 @@ struct fd_table {
     u16 slots[NOTOS_FD_COUNT];
     u8 descriptor_flags[NOTOS_FD_COUNT];
     u8 input[NOTOS_INPUT_BYTES];
-    u32 input_head,input_count,input_eof;
+    u32 input_head,input_count,input_eof,tty_mode;
 };
 int fd_table_init(struct fd_table *table);
 void fd_table_destroy(struct fd_table *table);
@@ -31,6 +31,7 @@ int fd_is_tty(struct fd_table *table,int fd);
 int fd_blocking_input(struct fd_table *table,int fd);
 int fd_blocking_output(struct fd_table *table,int fd);
 int fd_feed(struct fd_table *table,const void *buffer,u32 bytes,int eof);
+u32 fd_forward_tty(struct fd_table *parent,struct fd_table *child,u32 max_bytes);
 u32 fd_description_count(void);
 int fd_socket_open(struct fd_table *,u32 flags);
 int fd_socket_handle(struct fd_table *,int fd);

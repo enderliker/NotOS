@@ -12,7 +12,7 @@ descriptor slot.
 | --- | --- |
 | `/tmp` | In-memory `tmpfs` directories and files: up to 16 named entries, 24 total nodes, and 64 KiB per file (256 KiB / 64-frame global RAM quota; physical-frame-backed, not kernel heap) |
 | `/disk` | Persistent transactional `NotFS v3` on the secondary IDE disk: up to 48 nodes and 88 KiB (`90,112` bytes) total payload |
-| `/system` | Immutable embedded read-only/NX blobs: `curl.elf`, `libc.elf`, and `cacert.pem` |
+| `/system` | Immutable embedded read-only/NX blobs: `curl.elf`, `libc.elf`, `sh.elf`, and `cacert.pem` |
 | `/dev` | Per-process private `stdin`, shared `stdout`/`stderr`/`console`, and `null` |
 
 ## Path Resolution & Directories
@@ -80,10 +80,14 @@ Supported directory and metadata operations:
 - Every `write`, `ftruncate`, `mkdir`, `rmdir`, `unlink`, or `rename` on `/disk`
   publishes a transactional `NotFS v3` snapshot (see [STORAGE.md](STORAGE.md)).
 - **Per-process `stdin`**: Each process has a private 256-byte input queue fed
-  by `feed PID TEXT` (which appends `\n`) and closed by `feed-eof PID`. Blocking
-  reads suspend only the calling process (`TASK_WAIT_INPUT`); `O_NONBLOCK`
-  returns `-EAGAIN` when empty. Process `exit`, `kill`, and user faults close
-  all open descriptors and release any unlinked nodes.
+  by `feed PID TEXT` (which appends `\n`), closed by `feed-eof PID`, or fed
+  directly from PS/2 and `COM1` serial when running as the foreground shell
+  process. `SYS_FCNTL` (`24`) supports `NOTOS_F_GETTTY` (`5`) and
+  `NOTOS_F_SETTTY` (`6`) on `stdin` descriptors (`NOTOS_TTY_CANON` and
+  `NOTOS_TTY_ECHO`, default `NOTOS_TTY_DEFAULT = 3`). Blocking reads suspend
+  only the calling process (`TASK_WAIT_INPUT`); `O_NONBLOCK` returns `-EAGAIN`
+  when empty. Process `exit`, `kill`, and user faults close all open descriptors
+  and release any unlinked nodes.
 - **Unidirectional Kernel Pipes (`SYS_PIPE = 46`)**: Up to **16 active pipes**
   globally (`FILE_PIPE_MAX = 16`), each backed by a 4 KiB physical page
   (`FILE_PIPE_BYTES = 4096`) allocated from `physical_alloc()` and freed as soon

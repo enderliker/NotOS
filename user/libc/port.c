@@ -184,16 +184,21 @@ int fcntl(int fd,int command,...) {
     uint32_t number,argument=0;
     if (command==F_GETFL) number=NOTOS_F_GETFL;
     else if (command==F_GETFD) number=NOTOS_F_GETFD;
-    else if (command==F_SETFL || command==F_SETFD) {
+    else if (command==F_GETTTY) number=NOTOS_F_GETTTY;
+    else if (command==F_SETFL || command==F_SETFD || command==F_SETTTY) {
         va_list args;va_start(args,command);int value=va_arg(args,int);va_end(args);
         if (command==F_SETFL) {
             number=NOTOS_F_SETFL;
             if (value&~(O_ACCMODE|O_APPEND|O_NONBLOCK)) {errno=EINVAL;return -1;}
             if (open_flags(value,&argument)) return -1;
-        } else {
+        } else if (command==F_SETFD) {
             number=NOTOS_F_SETFD;
             if (value&~FD_CLOEXEC) {errno=EINVAL;return -1;}
             argument=value?NOTOS_FD_CLOEXEC:0;
+        } else {
+            number=NOTOS_F_SETTTY;
+            if (value<0 || ((uint32_t)value&~NOTOS_TTY_RAW)) {errno=EINVAL;return -1;}
+            argument=(uint32_t)value;
         }
     } else {errno=ENOTSUP;return -1;}
     int result=notos_checked(notos_raw_call(SYS_FD_CONTROL,(uint32_t)fd,number,argument));

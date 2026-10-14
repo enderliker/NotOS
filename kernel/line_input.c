@@ -1,6 +1,7 @@
 #include "line_input.h"
 #include "gui.h"
 #include "file_command.h"
+#include "process.h"
 #include "vfs.h"
 static struct line_editor editor;
 static void (*execute)(const char *);
@@ -31,7 +32,7 @@ void line_input_key(enum line_key key) {
     redraw(previous_length, previous_cursor);
 }
 static void complete(void) {
-    static const char *commands[] = {"help","about","clear","echo","run","run-user","exec","curl","spawn","spawn-elf","ps","kill","process-trace","cd","pwd","ls","cat","write","touch","rm","stat","df","mkfs","mkdir","rmdir","mem","heap","vfs","sockets","http","https","dns","int3","libc-run","elf-run","feed","feed-eof"};
+    static const char *commands[] = {"help","about","clear","echo","run","run-user","exec","curl","sh","spawn","spawn-elf","ps","kill","process-trace","cd","pwd","ls","cat","write","touch","rm","stat","df","mkfs","mkdir","rmdir","mem","heap","vfs","sockets","http","https","dns","int3","libc-run","elf-run","feed","feed-eof"};
     u32 start = editor.cursor;
     while (start && editor.text[start - 1] != ' ') start--;
     char prefix[NOTOS_PATH_BYTES];
@@ -118,12 +119,12 @@ void line_input_char(char character) {
     if (character == '\r' || character == '\n') {
         move_cursor((int)editor.length - (int)editor.cursor);
         console_putc('\n');
-        int extended = starts(editor.text, "curl ") || starts(editor.text, "spawn-elf ");
+        int extended = starts(editor.text, "curl ") || starts(editor.text, "spawn-elf ") || starts(editor.text, "sh ");
         if (!extended && editor.length >= 160) editor.overflow = 1;
         if (editor.overflow) console_puts("ERROR: input too long; discarded\n");
         else if (execute) execute(editor.text);
         line_submit(&editor);
-        console_puts("notos> ");
+        if (!process_foreground_active()) console_puts("notos> ");
     } else if (character == '\t') complete();
     else if (character == '\b' || character == 127) line_input_key(LINE_BACKSPACE);
     else if (character >= 32 && character <= 126) {

@@ -5,13 +5,14 @@
 | Command | Coverage |
 | --- | --- |
 | `make` | Builds `build/notos.img` and test fixture images with pinned dependencies |
-| `make test` | Runs all 23 native C unit tests and 26 full-system QEMU integration suites |
+| `make test` | Runs all 24 native C unit tests and 27 full-system QEMU integration suites |
 | `make clean test` | Full clean rebuild and complete test suite (used by GitHub Actions CI) |
 | `make test-online` | Optional live internet tests against public DNS, HTTP, and HTTPS (`example.com`) |
 
 Native host unit tests for parsers, memory allocators, VFS, NotFS v3, shell line
-editing, `poll`, X.509 certificate policy, and software `binary64` arithmetic
-compile with **AddressSanitizer and UndefinedBehaviorSanitizer (`ASAN/UBSAN`)**.
+editing, shell command/pipeline parsing, `poll`, X.509 certificate policy, and
+software `binary64` arithmetic compile with **AddressSanitizer and
+UndefinedBehaviorSanitizer (`ASAN/UBSAN`)**.
 In QEMU integration suites, HTTP, TCP, DNS, and TLS servers run on the host only
 as external network peers, while the entire client stack, TLS cryptography,
 libc, and kernel execute inside the NotOS guest.
@@ -261,4 +262,20 @@ QEMU 10.2.1/TCG):
   `rename()`/`EXDEV`, and Picolibc `opendir`/`readdir`/`rewinddir`/`closedir`
   with concurrent writers/readers and leak-free fault/kill recovery.
 
+### Milestone 3: User-Space Shell (`/system/sh.elf`), Raw TTY Mode, and Shell Parser
 
+Verified locally (`make clean test` with GCC 15.2.0, binutils 2.46, and QEMU
+10.2.1/TCG):
+- `tests/shell_parse_unit.c` and `tests/vfs_unit.c` (ASAN/UBSAN): Verify single
+  and double quoting, backslash escapes, `$VAR`/`${VAR}` and `$?` expansion,
+  elision of unquoted empty variables, pipelines (`|`), input/output/append
+  redirections (`<`, `>`, `>>`), background (`&`) and sequential (`;`) job lists,
+  syntax/overflow rejection, and `SYS_FCNTL` `NOTOS_F_GETTTY`/`NOTOS_F_SETTTY`
+  validation on `stdin`.
+- `tests/shell.py`: Launches `/system/sh.elf` in the foreground via `sh`,
+  verifies per-job `$VAR`/`$?` expansion, builtins (`cd`, `export`, `unset`,
+  `jobs`, `wait`, `exit`), `<`/`>`/`>>` redirections to `/tmp` and `/disk`,
+  multi-stage pipelines and exit-status propagation, background job `stdin`
+  closure (`NOTOS_SPAWN_FD_CLOSE`), 4-slot exhaustion recovery, and interactive
+  raw-mode `line_core` editing (`Tab` completion, cursor movement, and `Up`
+  history recall) with exact frame/heap/VFS/FD restoration.

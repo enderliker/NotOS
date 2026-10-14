@@ -19,6 +19,8 @@ int notos_exec(const char *path, const char *arguments);
 int notos_spawn(const char *path, char *const argv[], char *const envp[],
     const struct notos_fd_map *fd_map, uint32_t fd_map_count, uint32_t flags);
 int pipe2(int fds[2], int flags);
+#define F_GETTTY 100
+#define F_SETTTY 101
 /* Returns 1 for one entry, 0 at EOF, or -1 with errno. */
 int notos_readdir(int fd, struct notos_directory_entry *entry);
 static inline int notos_raw_call4(uint32_t number,uint32_t first,uint32_t second,uint32_t third,uint32_t fourth) {

@@ -48,9 +48,10 @@ a batch finishes or a background pulse yields back to the main event loop.
   transactional publishing (`fs.*`). The boot drive is never written.
 - `mouse_decode.*` / `mouse.*` / `gui.*`: Separates pure 3-byte PS/2 packet
   decoding from IRQ12 queueing and deferred VGA framebuffer rendering.
-- `line_core.*` / `line_input.*`: Separates pure command-line editing and
-  8-entry history from PS/2 keyboard, serial CSI/SS3 escape decoding, and VFS
-  `Tab` completion.
+- `line_core.*` / `line_input.*` / `shell_parse_core.*`: Separates pure
+  command-line editing (8-entry history, shared with `/system/sh.elf`) and pure
+  shell command/pipeline parsing (`shell_parse_core.*`) from PS/2 keyboard,
+  serial CSI/SS3 escape decoding, and VFS `Tab` completion.
 - `notlang_compile.*` / `notlang_command.*` / `user/notlang_vm.c`: Compiles
   NotLang 0.2 source into bounded bytecode (`notlang_bytecode.h`) and executes
   it inside an isolated ring 3 VM address space.
@@ -78,8 +79,8 @@ a batch finishes or a background pulse yields back to the main event loop.
   anonymous `mmap` (`0x08800000..0x08c00000`). Buffer validation walks 2 MiB PAE
   PDE boundaries, and teardown reclaims user frames by walking page tables.
 - `system_file.*` exposes immutable embedded images (`/system/curl.elf`,
-  `/system/libc.elf`, `/system/cacert.pem`), and `executable.*` loads VFS
-  binaries without duplicating `/system` blobs on the kernel heap.
+  `/system/libc.elf`, `/system/sh.elf`, `/system/cacert.pem`), and `executable.*`
+  loads VFS binaries without duplicating `/system` blobs on the kernel heap.
 - `SYS_EXEC` (`37`) prepares and validates the new ELF image, address space, and
   argument stack before committing, switches `CR3` before destroying the old
   address space, closes `FD_CLOEXEC` descriptors via `fd.*`, and preserves PID,

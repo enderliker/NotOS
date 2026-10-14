@@ -29,6 +29,7 @@
 #include "vfs.h"
 #include "fd.h"
 #include "platform_tls.h"
+#include "system_file.h"
 void console_putc(char c) {
     while(!(inb(0x3fd)&0x20)) {}
     outb(0x3f8,(u8)c);
@@ -61,8 +62,18 @@ static void clock_command(const char *kind,const char *argument) {
     console_puts("CLOCK: ");console_puts(kind);console_puts(" elapsed=");console_uint(after-before);
     console_puts(" ms ticks=");console_uint(after_ticks-ticks);console_putc('\n');
 }
+static void start_user_shell(const char *argument,int reprompt) {
+    u32 bytes=0;
+    const u8 *image=system_file_lookup("/system/sh.elf",&bytes);
+    if(!image) {console_puts("SH ERROR: /system/sh.elf missing\n");return;}
+    u32 pid=argument&&*argument?process_spawn_elf_split("sh.elf",image,bytes,argument)
+        :process_spawn_elf("sh.elf",image,bytes);
+    if(!pid) {console_puts("SH ERROR: spawn failed\n");return;}
+    process_quiet(pid);
+    process_set_foreground(pid,reprompt);
+}
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nrun-user PROGRAM  exec FILE\nnet  dns HOST  http HOST[:PORT]\ncurl [OPTIONS] URL (HTTP/HTTPS)\nhttps HOST[:PORT] [IP]  tls  tls-selftest\nnet-config IP GATEWAY DNS  net-drop LOSS\nsockets  socket-run MODE PORT  socket-drop syn/tx/rx\nsocket-run poll-basic/poll-stdin/poll-timer/poll-web PORT\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nlibc-test  libc-run test/exit/noentropy/files/stdin/disk/hold/fault/curl-file\nelf-run demo/nx-heap/nx-stack/stack-guard/readonly/sleep  elf-test\nmultitask-test  multitask-run SCENARIO\npwd  cd [PATH]  ls [PATH]  cat PATH\nwrite PATH TEXT  touch PATH  rm PATH  stat PATH  df\nmkdir PATH  rmdir PATH\nspawn-elf PATH [ARGUMENTS]\nmkfs (erases dedicated data disk)\nspawn worker/spin/fault  ps  kill PID\nprocess-trace on/off\nvfs  feed PID TEXT  feed-eof PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nrun-user PROGRAM  exec FILE\nnet  dns HOST  http HOST[:PORT]\ncurl [OPTIONS] URL (HTTP/HTTPS)\nhttps HOST[:PORT] [IP]  tls  tls-selftest\nnet-config IP GATEWAY DNS  net-drop LOSS\nsockets  socket-run MODE PORT  socket-drop syn/tx/rx\nsocket-run poll-basic/poll-stdin/poll-timer/poll-web PORT\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nlibc-test  libc-run test/exit/noentropy/files/stdin/disk/hold/fault/curl-file\nelf-run demo/nx-heap/nx-stack/stack-guard/readonly/sleep  elf-test\nmultitask-test  multitask-run SCENARIO\npwd  cd [PATH]  ls [PATH]  cat PATH\nwrite PATH TEXT  touch PATH  rm PATH  stat PATH  df\nmkdir PATH  rmdir PATH\nsh [ARGUMENTS]  spawn-elf PATH [ARGUMENTS]\nmkfs (erases dedicated data disk)\nspawn worker/spin/fault  ps  kill PID\nprocess-trace on/off\nvfs  feed PID TEXT  feed-eof PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
@@ -129,6 +140,8 @@ static void command(const char *s) {
     else if(equal(s,"fault heap-end")) heap_fault_guard_end();
     else if(equal(s,"libc-test")) libc_command("test");
     else if(starts(s,"libc-run ")) libc_command(s+9);
+    else if(equal(s,"sh")) start_user_shell(0,1);
+    else if(starts(s,"sh ")) start_user_shell(s+3,1);
     else if(starts(s,"spawn-elf ")) executable_spawn_command(s+10);
     else if(starts(s,"elf-run ")) elf_command(s+8);
     else if(equal(s,"elf-test")) console_puts(elf_selftest()?"ELF: load/W^X/BSS/stack/OOM rollback PASS\n":"ELF ERROR: selftest failed\n");
@@ -151,6 +164,9 @@ static void command(const char *s) {
     else if(file_command(s)) {}
     else if(*s) console_puts("ERROR: unknown command\n");
 }
+static void send_foreground_escape(const char *seq) {
+    while(*seq) process_foreground_input((u8)*seq++);
+}
 static void keyboard(void) {
     static int shift,caps,extended;
     static const char normal[128] = {
@@ -166,6 +182,16 @@ static void keyboard(void) {
     if(code==0xe0) {extended=1;return;}
     if(extended) {
         extended=0;
+        if(process_foreground_active()) {
+            if(code==75) send_foreground_escape("\x1b[D");
+            else if(code==77) send_foreground_escape("\x1b[C");
+            else if(code==72) send_foreground_escape("\x1b[A");
+            else if(code==80) send_foreground_escape("\x1b[B");
+            else if(code==71) send_foreground_escape("\x1b[H");
+            else if(code==79) send_foreground_escape("\x1b[F");
+            else if(code==83) send_foreground_escape("\x1b[3~");
+            return;
+        }
         if(code==75) line_input_key(LINE_LEFT);
         else if(code==77) line_input_key(LINE_RIGHT);
         else if(code==72) line_input_key(LINE_UP);
@@ -180,7 +206,7 @@ static void keyboard(void) {
     if(code&128) return;
     if(code==58) {caps=!caps;return;}
     if(code==59) {console_puts("\nF1: help/about/clear/echo/run\n");return;}
-    if(code==60) {gui_clear();line_input_clear();console_puts("notos> ");return;}
+    if(code==60) {gui_clear();line_input_clear();if(!process_foreground_active()) console_puts("notos> ");return;}
     char c=normal[code];
     if(c>='a'&&c<='z') {if((shift!=0)^caps) c-=32;}
     else if(shift) {
@@ -188,7 +214,10 @@ static void keyboard(void) {
         const char *b="!@#$%^&*()_+{}:\"<>?~|";
         for(unsigned i=0;a[i];i++) if(c==a[i]) {c=b[i];break;}
     }
-    if(c) line_input_char(c);
+    if(c) {
+        if(process_foreground_active()) process_foreground_input((u8)c);
+        else line_input_char(c);
+    }
 }
 void kernel_main(void) {
     outb(0x3f9,0);outb(0x3fb,0x80);outb(0x3f8,1);outb(0x3f9,0);
@@ -235,11 +264,18 @@ void kernel_main(void) {
     fs_init();
     file_command_init();
     net_init();
+#if defined(USER_SHELL_DEFAULT) && USER_SHELL_DEFAULT
+    start_user_shell(0,1);
+#else
     console_puts("notos> ");
+#endif
     for(;;) {
         net_poll(clock_ms());
-        for (unsigned budget=0;budget<160 && (inb(0x3fd)&1);++budget)
-            line_input_char((char)inb(0x3f8));
+        for (unsigned budget=0;budget<160 && (inb(0x3fd)&1);++budget) {
+            u8 b=inb(0x3f8);
+            if(process_foreground_active()) process_foreground_input(b);
+            else line_input_char((char)b);
+        }
         keyboard();
         mouse_poll();
         enum gui_action action=gui_next_action();

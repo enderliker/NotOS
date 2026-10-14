@@ -21,7 +21,10 @@
 #define NOTOS_F_SETFL 1u
 #define NOTOS_F_GETFD 2u
 #define NOTOS_F_SETFD 3u
+#define NOTOS_F_GETTTY 4u
+#define NOTOS_F_SETTTY 5u
 #define NOTOS_FD_CLOEXEC 1u
+#define NOTOS_TTY_RAW 1u
 #define NOTOS_SEEK_SET 0u
 #define NOTOS_SEEK_CUR 1u
 #define NOTOS_SEEK_END 2u

@@ -23,7 +23,7 @@ and are not part of the guest runtime.
 | Milestone | Implementation | Verification |
 | --- | --- | --- |
 | Bootloader | Custom 512-byte BIOS boot sector, raw image, A20, GDT, protected mode, and high-memory payload copy | Real C kernel boot and signature checks in QEMU |
-| Graphics & UI | VGA Mode 13h (320×200), PS/2 mouse, 8×8 cursor, toolbar, window minimize/restore, and shell line editing | Framebuffer pixel captures, QMP mouse/keyboard events, and CSI/PS/2 editing |
+| Graphics & UI | VGA Mode 13h (320×200), PS/2 mouse, 8×8 cursor, toolbar, window minimize/restore, kernel shell, and ring 3 shell (`/system/sh.elf`) | Framebuffer pixel captures, QMP mouse/keyboard events, CSI/PS/2 editing, quoting/expansion, pipelines, and redirections |
 | Language | NotLang 0.1 kernel interpreter and 0.2 ring 3 bytecode compiler/VM with nested `repeat` and source file `exec` | Arithmetic, loops, error isolation, resource cleanup, and execution across reboots |
 | Kernel Networking | RTL8139 PCI/DMA driver, ARP, IPv4, UDP/DNS, TCP/HTTP/HTTPS, exponential backoff retry, and `/24` static config | Local NAT, injected SYN/GET/SYN-ACK/response drops, public DNS/HTTP/HTTPS, TLS 1.2/1.3, X.509, AEAD tamper, and invalid certs |
 | Exceptions | Custom 256-entry IDT, uniform x86 trap frame, and fatal kernel panic screen | Recoverable `INT3` and real CPU faults (`#DE`, `#UD`, `#GP`, `#PF`) |
@@ -138,6 +138,7 @@ df
 feed 1 hello-vfs
 feed-eof 1
 elf-run demo
+sh
 spawn-elf /system/libc.elf test
 spawn worker
 spawn spin

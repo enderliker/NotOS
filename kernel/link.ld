@@ -6,7 +6,7 @@ SECTIONS {
     .text : { *(.text.entry) *(.text*) } :code
     . = ALIGN(4096);
     __text_end = .;
-    .rodata : { *(EXCLUDE_FILE (build/curl-blob.o build/system-ca.o) .rodata*) } :code
+    .rodata : { *(EXCLUDE_FILE (build/curl-blob.o build/system-ca.o build/sh-blob.o) .rodata*) } :code
     . = ALIGN(4096);
     __readonly_end = .;
     .data : { *(.data*) } :data
@@ -18,7 +18,11 @@ SECTIONS {
         build/curl-blob.o(.rodata.curlimage)
         . = ALIGN(4096);
     } :image
-    .systemca : AT(ADDR(.systemca) - 0x70000) { build/system-ca.o(.rodata.systemca) . = ALIGN(4096); } :image
+    .systemca : AT(ADDR(.systemca) - 0x70000) {
+        build/system-ca.o(.rodata.systemca)
+        build/sh-blob.o(.rodata.shimage)
+        . = ALIGN(4096);
+    } :image
     __curl_image_end = .;
     ASSERT(__curl_image_end <= 0x1bfffc, "Curl exceeds 768 KiB high image capacity")
     .high_check 0x1bfffc : AT(0x14fffc) { LONG(0x4e4f544f) } :image

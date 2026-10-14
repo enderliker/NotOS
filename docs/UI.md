@@ -42,11 +42,41 @@ keyboard** and **`COM1` serial CSI/SS3 escape sequences** outside IRQ context:
   and up to **320 characters** for `curl` and `spawn-elf` (whose arguments
   remain bounded to 256 bytes).
 
+## User-Space Shell (`/system/sh.elf` & `kernel/shell_parse_core.*`)
+
+In addition to the built-in kernel diagnostic shell (which remains the default
+boot shell unless built with `USER_SHELL_DEFAULT=1`), NotOS includes a real
+ring 3 interactive shell at `/system/sh.elf`, launched in the foreground via the
+kernel shell `sh` command:
+- **Raw/No-Echo TTY Mode (`SYS_FCNTL`)**: `NOTOS_F_GETTTY` (`5`) and
+  `NOTOS_F_SETTTY` (`6`) query and configure per-process `stdin` terminal flags
+  (`NOTOS_TTY_CANON` and `NOTOS_TTY_ECHO`, default `NOTOS_TTY_DEFAULT = 3`).
+  While `/system/sh.elf` runs in the foreground, the kernel routes PS/2 and
+  `COM1` serial characters directly into the foreground process's `stdin` queue,
+  and `sh.elf` compiles `line_core.*` directly into user space for 8-entry
+  history, cursor editing, and command/VFS `Tab` completion.
+- **Pure Shell Parser (`kernel/shell_parse_core.*`)**: Parses command lines up to
+  512 bytes into up to 8 sequential/background jobs (each with up to 4 pipeline
+  stages and 16 `argv` tokens) without dynamic allocation, supporting single
+  quotes (`'...'`), double quotes (`"..."`), backslash escapes (`\`), `$VAR`,
+  `${VAR}`, and `$?` expansion (re-evaluated before each top-level `;` or `&`
+  job), pipelines (`|`), input/output redirections (`<`, `>`, `>>`), background
+  execution (`&`), and sequential lists (`;`).
+- **Builtins & Execution**: Supports `cd`, `exit`, `export`, `unset`, `jobs`,
+  and `wait`. Background jobs (`&`) receive `stdin` closed (`NOTOS_SPAWN_FD_CLOSE`)
+  unless explicitly redirected via `<`. Multi-stage pipelines connect children
+  with `SYS_PIPE` (`46`) and `SYS_SPAWN` (`43`) and propagate the last stage's
+  exit status (`$?`), recovering cleanly when the 4-slot process table is
+  exhausted.
+
 ## Verification
 
-- `tests/mouse_unit.c` and `tests/line_unit.c` (ASAN/UBSAN): Test PS/2 3-byte
-  packet resynchronization/overflow and pure line editing, cursor movement,
-  draft preservation, and history rotation.
-- `tests/mouse.py` and `tests/continuation.py`: Verify QMP mouse movement/clicks,
-  toolbar actions, window minimize/restore, and PS/2 + serial CSI arrow/Home/End/
-  Delete/`Tab` completion in QEMU.
+- `tests/mouse_unit.c`, `tests/line_unit.c`, and `tests/shell_parse_unit.c`
+  (ASAN/UBSAN): Test PS/2 3-byte packet resynchronization/overflow, pure line
+  editing/history rotation, and shell quoting, expansion, pipelines,
+  redirections, and syntax error rejection.
+- `tests/mouse.py`, `tests/continuation.py`, and `tests/shell.py`: Verify QMP
+  mouse movement/clicks, toolbar actions, window minimize/restore, PS/2 + serial
+  CSI arrow/Home/End/Delete/`Tab` completion, and `/system/sh.elf` interactive
+  editing, builtins, pipelines, redirections to `/tmp` and `/disk`, background
+  jobs, and 4-slot exhaustion in QEMU.

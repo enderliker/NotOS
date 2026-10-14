@@ -14,7 +14,8 @@ build/entry.o: kernel/entry.S | build
 	$(CC) -m32 -c $< -o $@
 ELF_DEMOS := demo nx-heap nx-stack stack-guard readonly sleep
 ELF_DEMO_OBJS := $(addprefix build/elf-,$(addsuffix -blob.o,$(ELF_DEMOS)))
-KERNEL_OBJS := build/system-ca.o build/curl-blob.o build/socket-demo-blob.o build/libc-demo-blob.o $(ELF_DEMO_OBJS) build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
+USER_SHELL_DEFAULT ?= 0
+KERNEL_OBJS := build/system-ca.o build/curl-blob.o build/socket-demo-blob.o build/libc-demo-blob.o build/sh-blob.o $(ELF_DEMO_OBJS) build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
 build/notlang_vm.o: user/notlang_vm.c kernel/notlang_bytecode.h kernel/syscall_numbers.h kernel/base.h | build
 	$(CC) $(CFLAGS) -ffunction-sections -c $< -o $@
 build/notlang_vm.elf: build/notlang_vm.o user/link.ld
@@ -30,7 +31,7 @@ build/user_program.o: kernel/user_program.S kernel/syscall_numbers.h kernel/user
 build/isr.o: kernel/isr.S | build
 	$(CC) -m32 -c $< -o $@
 build/%.o: kernel/%.c $(wildcard kernel/*.h) | build
-	$(CC) $(CFLAGS) -Ikernel/freestanding -I$(BEARSSL_INC) $(MBEDTLS_FLAGS) $(LWIP_FLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -DUSER_SHELL_DEFAULT=$(USER_SHELL_DEFAULT) -Ikernel/freestanding -I$(BEARSSL_INC) $(MBEDTLS_FLAGS) $(LWIP_FLAGS) -c $< -o $@
 build/bearssl.ready: tools/fetch_bearssl.py | build
 	python3 tools/fetch_bearssl.py
 build/libbearssl.a: build/bearssl.ready tools/build_bearssl.py
@@ -86,9 +87,10 @@ build/utc-unit: tests/utc_unit.c kernel/utc.c kernel/platform_tls.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/utc_unit.c kernel/utc.c -o $@
 build/certificate-unit: tests/certificate_unit.c kernel/certificate_policy.c kernel/certificate_policy.h build/tls-fixtures.ready | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/certificate_unit.c kernel/certificate_policy.c -o $@
-test: build/fs-unit build/line-unit build/path-unit build/argument-unit build/float-unit build/poll-unit build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+test: build/fs-unit build/line-unit build/shell-parse-unit build/path-unit build/argument-unit build/float-unit build/poll-unit build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
 	./build/fs-unit
 	./build/line-unit
+	./build/shell-parse-unit
 	./build/path-unit
 	./build/argument-unit
 	./build/float-unit
@@ -121,6 +123,7 @@ test: build/fs-unit build/line-unit build/path-unit build/argument-unit build/fl
 	python3 tests/vfs.py
 	python3 tests/libc.py
 	python3 tests/pipeline.py
+	python3 tests/shell.py
 	python3 tests/curl.py
 	python3 tests/curl_https.py
 	python3 tests/elf.py
@@ -304,5 +307,20 @@ build/system-ca.o: trust/roots.pem | build
 
 build/line-unit: tests/line_unit.c kernel/line_core.c kernel/line_core.h kernel/base.h | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -no-pie tests/line_unit.c kernel/line_core.c -o $@
+build/shell-parse-unit: tests/shell_parse_unit.c kernel/shell_parse_core.c kernel/shell_parse_core.h kernel/base.h | build
+	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -no-pie tests/shell_parse_unit.c kernel/shell_parse_core.c -o $@
 build/fs-unit: tests/fs_unit.c kernel/fs.c kernel/fs_core.c kernel/fs_core.h kernel/fs.h kernel/disk.h kernel/platform_tls.h kernel/syscall_numbers.h kernel/file_abi.h kernel/base.h | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -no-pie tests/fs_unit.c kernel/fs.c kernel/fs_core.c -o $@
+
+build/sh-main.o: user/sh/main.c user/libc/os.h user/include/sys/_wait.h user/include/sys/dirent.h kernel/line_core.h kernel/shell_parse_core.h kernel/platform_abi.h kernel/file_abi.h kernel/process_abi.h kernel/syscall_numbers.h build/picolibc-built.ready
+	$(CC) $(LIBC_FLAGS) -c $< -o $@
+build/user-line-core.o: kernel/line_core.c kernel/line_core.h kernel/base.h | build
+	$(CC) $(CFLAGS) -c $< -o $@
+build/user-shell-parse.o: kernel/shell_parse_core.c kernel/shell_parse_core.h kernel/base.h | build
+	$(CC) $(CFLAGS) -c $< -o $@
+build/sh.elf: build/sh-main.o build/user-line-core.o build/user-shell-parse.o build/libc-port.o build/libc-start.o build/libc-crt.o build/user-integer-runtime.o user/elf_link.ld
+	$(LD) -m elf_i386 --gc-sections -z noexecstack -z max-page-size=16 -T user/elf_link.ld --Map=build/sh.map $(filter %.o,$^) build/sysroot/lib/notos/libc.a -o $@
+build/sh-blob.o: build/sh.elf
+	objcopy --strip-all $< build/sh-app.elf
+	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.shimage,alloc,load,readonly,data,contents --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=noload,readonly build/sh-app.elf $@
+
