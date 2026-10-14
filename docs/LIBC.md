@@ -67,20 +67,20 @@ cuando la llamada falla. No modifica timeval; redondea hacia arriba a ms y
 satura en INT_MAX sin overflow. `exceptfds` corresponde a POLLPRI, evento
 urgente que la pila actual no implementa. No hay pselect ni señales/EINTR.
 
-`mkdir` devuelve ENOTSUP para cualquier ruta. `/tmp` es un montaje plano y no
-se informa creación de subdirectorios. El port HTTP de curl y sus límites están
-en [CURL_PORT.md](CURL_PORT.md).
+`mkdir`, `rmdir`, `chdir` y `getcwd` usan syscalls de directorio reales.
+`notos_exec` usa argumentos separados por espacios y reemplaza la imagen.
+No hay execve/dirent POSIX completos; ver VFS.md y ELF.md.
 
 ## Límites explícitos
 
-- Desde 0.15 hay FDs por proceso, archivos tmpfs, snapshots NotFS read-only y open/read/write/close/seek/stat/dup/ftruncate/fcntl; `fopen` opera sobre ellos. Ver VFS.md para cuotas y operaciones ausentes; no es VFS POSIX completo.
+- Desde 0.15 hay FDs por proceso, archivos tmpfs, NotFS escribible y open/read/write/close/seek/stat/dup/ftruncate/fcntl; `fopen` opera sobre ellos. Ver VFS.md para cuotas y operaciones ausentes; no es VFS POSIX completo.
 - Stdin bloquea hasta datos/EOF entregados con feed/feed-eof al PID; NONBLOCK produce EAGAIN y stdio diferencia EOF de error. stdout/stderr comparten la consola y dup2 permite redirección a archivos. Desde 0.17 hay poll; no hay raw TTY/job control.
-- Desde 0.16 hay API BSD parcial TCP/IPv4 y getaddrinfo DNS; ver SOCKETS.md. Desde 0.17 hay poll de FDs (POLL.md); con adaptador `select`, sin señales, fork, ejecutables desde archivos, enlazado dinámico ni TLS de threads.
+- Desde 0.16 hay API BSD parcial TCP/IPv4 y getaddrinfo DNS; ver SOCKETS.md. Desde 0.17 hay poll de FDs (POLL.md); con adaptador `select`, sin señales, fork, enlazado dinámico ni TLS de threads.
 - FPU/MMX/SSE siguen rechazados por el kernel. No se declara `libm`, formato float general ni conformidad C/POSIX completa. Los helpers binary64 descritos arriba tienen cobertura específica. La configuración selecciona stdio entero; el archive upstream contiene componentes adicionales no preparados para este runtime.
 - `mmap`/`munmap` básicos del kernel siguen disponibles por ABI, pero no se presenta un wrapper POSIX completo. El asignador comprobado usa `sbrk`.
 - Solo QEMU/TCG y hardware emulado del proyecto; no prueba en hardware físico ni auditoría de seguridad.
 
-Curl upstream 8.11.1 HTTP-only ya se ejecuta con esta libc. HTTPS en curl requiere un backend de usuario separado; ver [CURL_PORT.md](CURL_PORT.md).
+Curl upstream 8.11.1 HTTP/HTTPS se ejecuta con esta libc y MbedTLS de usuario; ver [CURL_PORT.md](CURL_PORT.md).
 
 ## Pruebas
 
@@ -91,3 +91,8 @@ Cada terminación debe restaurar exactamente frames físicos y estado del heap k
 La batería de libc también comprueba select con intereses distintos, un FD en
 varios conjuntos, timeout, EBADF, EFAULT, timeval64 enorme y rechazo de mkdir.
 `tests/curl.py` verifica el cliente upstream y archivos binarios desde otro ELF.
+
+El ensayo individual mantiene una asignación de 3 MiB; los cuatro procesos
+concurrentes usan 2 MiB cada uno para caber en 16 MiB con la región estática
+ampliada. Ambos comprueban realloc de 5 MiB fallido sin perder datos, errno,
+heap privado y liberación exacta. No se modifica el límite de heap user (4 MiB).

@@ -107,3 +107,11 @@ void gui_pointer(int x,int y,unsigned buttons) {
 enum gui_action gui_next_action(void) {
     enum gui_action action=pending_action; pending_action=GUI_NONE; return action;
 }
+
+void gui_move_cursor(int distance) {
+    int position = (int)(row * COLS + col) + distance;
+    if (position < 0) position = 0;
+    if (position >= ROWS * COLS) position = ROWS * COLS - 1;
+    row = (unsigned)position / COLS;
+    col = (unsigned)position % COLS;
+}

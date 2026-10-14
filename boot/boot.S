@@ -1,20 +1,20 @@
-/* NotOS BIOS loader: load 512 KiB plus a 320 KiB high image, then enter 32-bit protected mode. */
+/* NotOS BIOS loader: load 512 KiB plus a 768 KiB high image, then enter 32-bit protected mode. */
 .section .text
 .code16
 .global _start
 _start:
     cli
-    xor %ax, %ax
-    mov %ax, %ds
-    mov %ax, %es
-    mov %ax, %ss
+    cld
+    xor %ebx, %ebx
+    mov %bx, %ds
+    mov %bx, %es
+    mov %bx, %ss
     mov $0x7c00, %sp
     sti
     mov %dl, drive
     /* BIOS E820 map: header at 0x5000, up to 64 entries of 24 bytes. */
-    movl $0, 0x5000
-    movl $0, 0x5004
-    xor %ebx, %ebx
+    movl %ebx, 0x5000
+    movl %ebx, 0x5004
     mov $0x5008, %di
 e820_next:
     movl $1, %es:20(%di)
@@ -28,7 +28,11 @@ e820_next:
     pop %di
     pop %es
     pop %ds
-    jc memory_error
+    jnc 1f
+    cmp $0x5008, %di
+    jne e820_done
+    jmp memory_error
+1:
     cmp $0x534d4150, %eax
     jne memory_error
     cmp $20, %ecx
@@ -69,7 +73,7 @@ load_chunk:
     addl $64, packet+8
     decw remaining
     jnz load_chunk
-    movw $10, remaining
+    movw $24, remaining
     movw $0x9000, packet+6
 load_high:
     movw $64, packet+2

@@ -15,7 +15,7 @@ ps
 
 `elf-run` arranca ELF32 estáticos **reales** compilados por separado y embebidos como archivos ELF, no código plano rebautizado. Se ejecutan en ring3, comparten el gestor de cuatro procesos con NotLang y son recolectados al terminar. La shell no espera a que acabe el proceso. Las variantes de fallo son diagnósticos intencionales: solo termina la tarea.
 
-No hay todavía un VFS de ejecutables binarios. `exec FILE` conserva su significado existente: compilar un archivo fuente NotLang. Curl upstream HTTP-only usa el mismo cargador; ver CURL_PORT.md.
+`spawn-elf PATH [ARGS]` carga ejecutables VFS y SYS_EXEC reemplaza el proceso. El comando shell `exec FILE` conserva su significado existente: compilar fuente NotLang. Curl HTTP/HTTPS usa el mismo cargador; ver CURL_PORT.md.
 
 ## Validación y carga
 
@@ -68,3 +68,23 @@ TASK_BLOCKED conserva el frame privado y no es seleccionado hasta vencer el time
 ## Startup y libc
 
 `process_spawn_elf_args` añade nombre y un argumento acotados al stack privado, seguido de argv NULL, envp vacío y auxv AT_NULL. ESP inicial alineado a 16 bytes; copy se realiza por aliases supervisor antes de ejecutar. El CRT separado conserva segmentos W^X y ejecuta arrays init/fini. La API `process_spawn_elf_split` admite hasta 256 bytes separados por espacios y 16 elementos de argv, incluido el nombre, conservando el mismo layout. Los excesos se rechazan y la creación revierte todos los recursos. Ver LIBC.md y CURL_PORT.md.
+
+## Ejecutables VFS y reemplazo
+
+`spawn-elf /system/libc.elf exec-source` lanza una imagen VFS. System proporciona
+ELFs inmutables; tmpfs/NotFS admiten imágenes hasta 64 KiB (NotFS 60 KiB). El
+parser ELF y sus límites/W^X siguen vigentes; una imagen se copia antes de cerrar
+su handle, y los blobs system se leen sin asignar una copia al heap kernel.
+
+`notos_exec(path, arguments)` usa SYS_EXEC=37, con cadena separada por espacios,
+256 bytes/16 elementos incluido argv[0] (basename), envp vacío y AT_NULL. Se
+preparan y validan imagen, espacio y stack antes de confirmar. Un fallo conserva
+PID, espacio, cwd, offsets y FDs. Al confirmar se cambia CR3 antes de destruir
+el espacio anterior, se reconstruye el frame en la pila kernel compartida y se
+cierran solo los slots CLOEXEC. El éxito no retorna a la imagen antigua.
+Los descriptores conservan sus referencias, flags y posiciones; no hay fork,
+execve POSIX, loader dinámico ni búsqueda PATH.
+
+El presupuesto normal conserva 250 ticks CPL3; curl embebido dispone de 2500
+para criptografía/CA/limpieza, con el mismo quantum de cinco ticks y cuatro slots.
+No equivale a tiempo de pared. No se elimina el límite para errores TLS.

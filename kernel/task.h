@@ -8,6 +8,7 @@ enum task_wait_kind {TASK_WAIT_TIMER,TASK_WAIT_INPUT,TASK_WAIT_CONNECT,TASK_WAIT
 
 /* Count IRQ0 samples delivered at CPL3, not exact CPU or wall time. */
 #define TASK_EXECUTION_BUDGET 250u
+#define TASK_TLS_EXECUTION_BUDGET 2500u
 #define TASK_KERNEL_STACK_BYTES 16384u
 #define TASK_STACK_CANARY 0x5354414bu
 
@@ -38,6 +39,8 @@ struct task_statistics {
 };
 
 struct task {
+    char cwd[NOTOS_PATH_BYTES];
+    u32 execution_budget;
     u32 id;
     enum task_state state;
     struct user_space space;
@@ -61,6 +64,8 @@ int task_create_elf(struct task *task,u32 id,const u8 *image,u32 bytes);
 int task_create(struct task *task, u32 id, const u8 *image, u32 bytes);
 /* Reject active tasks. Safe for zero-initialized and partially-created objects. */
 int task_destroy(struct task *task);
+/* Commit a prepared space; current CR3 is switched before releasing its old owner. */
+struct interrupt_frame *task_exec(struct task *task, struct user_space *replacement);
 int task_run_single(struct task *task);
 struct task *task_current(void);
 int task_context_valid(const struct task *task, const struct interrupt_frame *frame);

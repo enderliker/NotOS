@@ -3,8 +3,11 @@
 
 #define CURL_STATICLIB 1
 #define HTTP_ONLY 1
+#define USE_MBEDTLS 1
+#define CURL_CA_BUNDLE "/system/cacert.pem"
 
 /* Protocols disabled */
+#define CURL_DISABLE_NTLM 1
 #define CURL_DISABLE_FTP 1
 #define CURL_DISABLE_FILE 1
 #define CURL_DISABLE_LDAP 1

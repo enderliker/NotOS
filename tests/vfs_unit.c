@@ -26,7 +26,25 @@ void console_puts(const char *s) {(void)s;}
 void console_uint(u32 n) {(void)n;}
 static void empty(void) {struct vfs_counts c=vfs_counts();assert(!c.nodes&&!c.pages&&!c.files&&!c.references&&!fd_description_count());}
 int main(void) {
+    assert(vfs_mkdir("/tmp",0700)==-ERROR_EXISTS);
+    assert(vfs_mkdir("/tmp/tree",0700)==0);
+    assert(vfs_mkdir("/tmp/tree/child",0700)==0);
+    assert(vfs_rmdir("/tmp/tree")==-ERROR_NOT_EMPTY);
     struct fd_table a,b;assert(fd_table_init(&a)&&fd_table_init(&b));
+    int dir_fd=fd_open(&a,"/tmp/tree",NOTOS_O_RDONLY,0);
+    assert(dir_fd>=0 && vfs_counts().nodes==2 && vfs_counts().references==1);
+    struct notos_directory_entry dirent;struct notos_file_info dir_info;
+    assert(fd_readdir(&a,dir_fd,&dirent)==1 && !strcmp(dirent.name,"child"));
+    assert(vfs_rmdir("/tmp/tree/child")==0 && vfs_rmdir("/tmp/tree")==0);
+    assert(vfs_counts().nodes==1 && vfs_counts().references==1);
+    assert(fd_stat(&a,dir_fd,&dir_info)==0 && dir_info.links==0);
+    assert(fd_readdir(&a,dir_fd,&dirent)==-ERROR_NOT_FOUND);
+    assert(fd_close(&a,dir_fd)==0 && vfs_counts().nodes==0);
+    int root1=fd_open(&a,"/tmp",NOTOS_O_RDONLY,0);
+    int root2=fd_open(&b,"/tmp",NOTOS_O_RDONLY,0);
+    assert(root1>=0 && root2>=0 && vfs_counts().nodes==1 && vfs_counts().references==2);
+    assert(fd_close(&a,root1)==0 && fd_close(&b,root2)==0 && vfs_counts().nodes==0);
+    assert(vfs_unlink("/tmp")==-ERROR_IS_DIRECTORY);
     struct notos_pollfd watched[]={{0,NOTOS_POLLIN,99},{1,NOTOS_POLLOUT,99},{-1,0xffff,99},{15,0,99},{1,NOTOS_POLLIN,99}};
     assert(fd_poll(&a,watched,5)==2 && !watched[0].revents && watched[1].revents==NOTOS_POLLOUT
         && !watched[2].revents && watched[3].revents==NOTOS_POLLNVAL && !watched[4].revents);
@@ -71,7 +89,7 @@ int main(void) {
     for (int i=0;i<5;i++) {snprintf(name,sizeof(name),"/tmp/quota%d",i);vfs_unlink(name);fd_close(&a,files[i]);}
     f=fd_open(&a,"/disk/sample",NOTOS_O_RDONLY,0);assert(f>=0&&fd_read(&a,f,text,6)==6&&!memcmp(text,"disk\0!",6));
     struct notos_file_info disk;assert(fd_path_stat("/disk/sample",&disk)==0&&fd_stat(&a,f,&info)==0&&info.inode==disk.inode);
-    assert(fd_open(&a,"/disk/sample",NOTOS_O_WRONLY,0)==-ERROR_READ_ONLY);fd_close(&a,f);
+    int writable=fd_open(&a,"/disk/sample",NOTOS_O_WRONLY,0);assert(writable>=0);fd_close(&a,writable);fd_close(&a,f);
     assert(fd_read(&a,0,text,1)==-ERROR_AGAIN);
     assert(fd_feed(&a,"a\n",2,1)==0&&fd_read(&a,0,text,16)==2&&text[0]=='a'&&fd_read(&a,0,text,1)==0);
     assert(fd_read(&b,0,text,1)==-ERROR_AGAIN);
@@ -105,3 +123,20 @@ int socket_write(int h,const void *p,u32 n) {(void)h;(void)p;(void)n;return -ERR
 void socket_resolve_cancel(struct fd_table *t) {(void)t;}
 
 u16 socket_ready(int handle) {(void)handle;return NOTOS_POLLNVAL;}
+
+const u8 *system_file_lookup(const char *path,u32 *bytes) {(void)path;(void)bytes;return 0;}
+
+int fs_info(const char *name, struct notos_file_info *info) {
+    if (strcmp(name,"sample")) return -ERROR_NOT_FOUND;
+    *info=(struct notos_file_info){256,6,NOTOS_FILE_REGULAR,1,0644};return 0;
+}
+int fs_open_file(const char *name,u32 flags,u32 mode) {(void)flags;(void)mode;return strcmp(name,"sample")?-ERROR_NOT_FOUND:0;}
+int fs_read_range(const char *name,u32 offset,void *buffer,u32 bytes) {
+    assert(!strcmp(name,"sample"));if(offset>=6)return 0;if(bytes>6-offset)bytes=6-offset;
+    memcpy(buffer,"disk\0!"+offset,bytes);return (int)bytes;
+}
+int fs_write_range(const char *name,u32 inode,u32 offset,const void *buffer,u32 bytes) {(void)name;(void)inode;(void)offset;(void)buffer;(void)bytes;return -ERROR_UNSUPPORTED;}
+int fs_truncate_file(const char *name,u32 inode,u32 bytes) {(void)name;(void)inode;(void)bytes;return -ERROR_UNSUPPORTED;}
+int fs_remove(const char *name,int directory) {(void)name;(void)directory;return -ERROR_UNSUPPORTED;}
+int fs_mkdir(const char *name,u32 mode) {(void)name;(void)mode;return -ERROR_UNSUPPORTED;}
+int fs_entry(const char *name,u32 index,char child[24],struct notos_file_info *info) {(void)name;(void)index;(void)child;(void)info;return 0;}

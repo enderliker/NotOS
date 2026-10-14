@@ -7,8 +7,9 @@ _start:
     mov $__bss_start, %edi
     mov $__bss_end, %ecx
     sub %edi, %ecx
+    shr $2, %ecx
     xor %eax, %eax
-    rep stosb
+    rep stosl
     call kernel_main
 1:  cli
     hlt

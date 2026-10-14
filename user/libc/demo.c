@@ -73,11 +73,12 @@ static void multiplexing(void) {
     CHECK(select(65,0,0,0,0)==-1 && errno==EINVAL);
     CHECK(select(2,(fd_set *)0x08000000,0,0,0)==-1 && errno==EFAULT);
     CHECK(select(0,0,0,0,(struct timeval *)0x10000)==-1 && errno==EFAULT);
-    CHECK(mkdir("/tmp",0700)==-1 && errno==ENOTSUP);
-    CHECK(mkdir("/tmp/nested",0700)==-1 && errno==ENOTSUP);
-    puts("LIBC: select readiness/timeout/errors and mkdir rejection PASS");
+    CHECK(mkdir("/tmp",0700)==-1 && errno==EEXIST);
+    char directory[48];CHECK(snprintf(directory,sizeof(directory),"/tmp/nested-%d",(int)getpid())>0);
+    CHECK(!mkdir(directory,0700) && !rmdir(directory));
+    puts("LIBC: select readiness/timeout/errors and mkdir/rmdir PASS");
 }
-static void allocations(void) {
+static void allocations(int concurrent) {
     unsigned char *slots[32]={0};size_t sizes[32]={0};uint32_t seed=3;
     for (unsigned i=0;i<2500;i++) {
         seed=seed*1664525u+1013904223u;unsigned slot=seed%32;
@@ -97,9 +98,10 @@ static void allocations(void) {
     p=realloc(larger,128);CHECK(p && p[127]==0x39);free(p);
     volatile size_t huge=SIZE_MAX;errno=0;CHECK(!malloc(huge) && errno==ENOMEM);
     errno=0;CHECK(!calloc(huge,2) && errno==ENOMEM);
-    p=malloc(3u*1024u*1024u);CHECK(p);p[0]=0x17;p[3u*1024u*1024u-1]=0x23;
+    size_t pressure_bytes=(concurrent?2u:3u)*1024u*1024u;
+    p=malloc(pressure_bytes);CHECK(p);p[0]=0x17;p[pressure_bytes-1]=0x23;
     errno=0;CHECK(!realloc(p,5u*1024u*1024u) && errno==ENOMEM);
-    CHECK(p[0]==0x17 && p[3u*1024u*1024u-1]==0x23);free(p);free(0);
+    CHECK(p[0]==0x17 && p[pressure_bytes-1]==0x23);free(p);free(0);
     void *old=sbrk(0);CHECK(sbrk(INTPTR_MIN)==(void *)-1 && errno==ENOMEM && sbrk(0)==old);
     puts("LIBC: malloc/calloc/realloc/free/OOM PASS");
 }
@@ -202,12 +204,13 @@ static void input_test(void) {
 static void disk_test(void) {
     FILE *file=fopen("/disk/hello.txt","r");CHECK(file);
     puts("VFS: disk snapshot waiting");struct timespec delay={0,300000000};CHECK(!nanosleep(&delay,0));
-    char data[16]={0};CHECK(fread(data,1,9,file)==9 && !memcmp(data,"from-disk",9) && !fclose(file));
+    char data[16]={0};CHECK(fread(data,1,9,file)==9 && !memcmp(data,"new-data!",9) && !fclose(file));
     int fd=open("/disk/hello.txt",O_RDONLY);CHECK(fd==3);
     CHECK(read(fd,data,9)==9 && !memcmp(data,"new-data!",9));
     struct stat a,b;CHECK(!fstat(fd,&a) && !stat("/disk/hello.txt",&b) && a.st_ino==b.st_ino);
-    CHECK(!close(fd) && open("/disk/hello.txt",O_WRONLY)==-1 && errno==EROFS);
-    puts("VFS: NotFS read-only snapshots PASS");
+    CHECK(!close(fd));
+    fd=open("/disk/hello.txt",O_WRONLY);CHECK(fd==3 && !close(fd));
+    puts("VFS: NotFS coherent reads/writable open PASS");
 }
 static void curl_file(void) {
     FILE *file=fopen("/tmp/curl.bin","rb");CHECK(file);
@@ -229,9 +232,40 @@ static void held_file(int fault) {
     if (fault) __asm__ volatile("ud2");
     struct timespec delay={60,0};CHECK(!nanosleep(&delay,0));
 }
+static void exec_source(void) {
+    pid_t pid = getpid();
+    CHECK(!mkdir("/tmp/execdir", 0755) && !chdir("/tmp/execdir"));
+    int keep = open("state", O_CREAT | O_RDWR, 0600);
+    int drop = open("drop", O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+    CHECK(keep == 3 && drop == 4 && write(keep, &pid, sizeof(pid)) == sizeof(pid));
+    CHECK(notos_exec("/tmp/missing", "") == -1 && errno == ENOENT);
+    CHECK(fcntl(drop, F_GETFD) == FD_CLOEXEC);
+    CHECK(notos_exec("/system/libc.elf", (const char *)0x10000) == -1 && errno == EFAULT);
+    CHECK(notos_exec("state", "") == -1 && errno == ENOEXEC);
+    char too_many[33];for (unsigned i=0;i<32;i++) too_many[i]=(i&1)?' ':'x';too_many[32]=0;
+    CHECK(notos_exec("/system/libc.elf", too_many) == -1 && errno == EINVAL);
+    int directory = open(".", O_RDONLY);CHECK(directory == 5);
+    struct notos_directory_entry entry;
+    CHECK(notos_readdir(directory, (struct notos_directory_entry *)0x10000) == -1 && errno == EFAULT);
+    CHECK(notos_readdir(directory, &entry) == 1 && !strcmp(entry.name, "state"));
+    CHECK(notos_readdir(directory, &entry) == 1 && !strcmp(entry.name, "drop"));
+    CHECK(notos_readdir(directory, &entry) == 0 && !close(directory));
+    CHECK(notos_exec("/system/libc.elf", "exec-target") == -1);
+    CHECK(0);
+}
+static void exec_target(void) {
+    pid_t pid = 0;
+    CHECK(lseek(3, 0, SEEK_SET) == 0 && read(3, &pid, sizeof(pid)) == sizeof(pid) && pid == getpid());
+    CHECK(fcntl(4, F_GETFD) == -1 && errno == EBADF);
+    char cwd[64]; CHECK(getcwd(cwd, sizeof(cwd)) && !strcmp(cwd, "/tmp/execdir"));
+    CHECK(!unlink("state") && !unlink("drop") && !close(3) && !chdir("/") && !rmdir("/tmp/execdir"));
+    puts("EXEC: same PID, inherited offset/cwd, CLOEXEC and replacement PASS");
+}
 int main(int argc,char **argv) {
-    CHECK(constructed && argc==2 && argv && !strcmp(argv[0],"libc") && argv[2]==0);
+    CHECK(constructed && argc==2 && argv && (!strcmp(argv[0],"libc") || !strcmp(argv[0],"libc.elf")) && argv[2]==0);
     CHECK(!atexit(finishing));
+    if (!strcmp(argv[1],"exec-source")) {exec_source();return 0;}
+    if (!strcmp(argv[1],"exec-target")) {exec_target();return 0;}
     if (!strcmp(argv[1],"noentropy")) {
         char bytes[32];errno=0;CHECK(getentropy(bytes,sizeof(bytes))==-1 && errno==EIO);
         puts("LIBC: entropy unavailable FAIL-CLOSED PASS");return 0;
@@ -242,7 +276,7 @@ int main(int argc,char **argv) {
     if (!strcmp(argv[1],"stdin")) {input_test();return 0;}
     if (!strcmp(argv[1],"disk")) {disk_test();return 0;}
     if (!strcmp(argv[1],"hold") || !strcmp(argv[1],"fault")) {held_file(!strcmp(argv[1],"fault"));return 0;}
-    core();allocations();platform();multiplexing();
+    core();allocations(!strcmp(argv[1],"concurrent"));platform();multiplexing();
     errno=1000+(int)getpid();int marker=errno;struct timespec delay={0,200000000};
     CHECK(!nanosleep(&delay,0) && errno==marker);
     CHECK(write(2,"LIBC: stderr PASS\n",18)==18);

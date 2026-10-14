@@ -13,8 +13,8 @@ void pic_init(void) {
     write(MASTER+1,1);write(SLAVE+1,1);
     apply_masks();
 }
-void pic_unmask(unsigned irq) {if(irq<16) {masks&=(u16)~(1u<<irq);apply_masks();}}
-void pic_mask(unsigned irq) {if(irq<16) {masks|=(u16)(1u<<irq);apply_masks();}}
+void pic_unmask(unsigned irq) {if(irq<16) {u32 flags=irq_save();masks&=(u16)~(1u<<irq);apply_masks();irq_restore(flags);}}
+void pic_mask(unsigned irq) {if(irq<16) {u32 flags=irq_save();masks|=(u16)(1u<<irq);apply_masks();irq_restore(flags);}}
 void pic_eoi(unsigned irq) {
     /* Specific EOI: don't accidentally acknowledge an unrelated in-service IRQ. */
     if(irq>=8) {outb(SLAVE,(u8)(0x60|(irq-8)));outb(MASTER,0x62);}

@@ -14,7 +14,7 @@ build/entry.o: kernel/entry.S | build
 	$(CC) -m32 -c $< -o $@
 ELF_DEMOS := demo nx-heap nx-stack stack-guard readonly sleep
 ELF_DEMO_OBJS := $(addprefix build/elf-,$(addsuffix -blob.o,$(ELF_DEMOS)))
-KERNEL_OBJS := build/curl-blob.o build/socket-demo-blob.o build/libc-demo-blob.o $(ELF_DEMO_OBJS) build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
+KERNEL_OBJS := build/system-ca.o build/curl-blob.o build/socket-demo-blob.o build/libc-demo-blob.o $(ELF_DEMO_OBJS) build/entry.o build/isr.o build/user_entry.o build/user_program.o build/notlang_blob.o $(patsubst kernel/%.c,build/%.o,$(wildcard kernel/*.c))
 build/notlang_vm.o: user/notlang_vm.c kernel/notlang_bytecode.h kernel/syscall_numbers.h kernel/base.h | build
 	$(CC) $(CFLAGS) -ffunction-sections -c $< -o $@
 build/notlang_vm.elf: build/notlang_vm.o user/link.ld
@@ -45,6 +45,11 @@ build/kernel.bin: build/kernel.elf
 	objcopy -O binary $< $@
 build/notos.img: build/boot.bin build/kernel.bin tools/image.py
 	python3 tools/image.py
+ifneq ($(wildcard build/tls-fixtures/valid.pem),)
+ifeq ($(shell openssl x509 -checkend 3600 -noout -in build/tls-fixtures/valid.pem >/dev/null 2>&1 || echo expired),expired)
+.PHONY: build/tls-fixtures.ready
+endif
+endif
 build/tls-fixtures.ready: tools/tls_fixtures.py | build
 	python3 tools/tls_fixtures.py
 build/test_trust_roots.h: build/tls-fixtures.ready tools/trust_der.py
@@ -81,7 +86,9 @@ build/utc-unit: tests/utc_unit.c kernel/utc.c kernel/platform_tls.h | build
 	gcc -std=c11 -Wall -Wextra -Werror tests/utc_unit.c kernel/utc.c -o $@
 build/certificate-unit: tests/certificate_unit.c kernel/certificate_policy.c kernel/certificate_policy.h build/tls-fixtures.ready | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/certificate_unit.c kernel/certificate_policy.c -o $@
-test: build/path-unit build/argument-unit build/float-unit build/poll-unit build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+test: build/fs-unit build/line-unit build/path-unit build/argument-unit build/float-unit build/poll-unit build/notos-socket-test.img all build/vfs-unit build/wait-unit build/elf-unit build/tls-port-unit build/integer-unit build/notos-tls-test.img build/certificate-unit build/utc-unit build/notlang-unit build/mouse-unit build/lang-unit build/net-unit build/clock-unit build/physical-unit build/heap-unit build/user-unit build/scheduler-unit
+	./build/fs-unit
+	./build/line-unit
 	./build/path-unit
 	./build/argument-unit
 	./build/float-unit
@@ -114,6 +121,7 @@ test: build/path-unit build/argument-unit build/float-unit build/poll-unit build
 	python3 tests/vfs.py
 	python3 tests/libc.py
 	python3 tests/curl.py
+	python3 tests/curl_https.py
 	python3 tests/elf.py
 	python3 tests/user.py
 	python3 tests/multitask.py
@@ -123,6 +131,7 @@ test: build/path-unit build/argument-unit build/float-unit build/poll-unit build
 	python3 tests/wait.py
 	python3 tests/storage.py
 	python3 tests/files.py
+	python3 tests/continuation.py
 	python3 tests/tls_platform.py
 	python3 tests/https.py
 	python3 tests/network.py
@@ -131,6 +140,7 @@ test-online: all
 	python3 tests/https_online.py
 	python3 tests/sockets_online.py
 	python3 tests/poll_online.py
+	python3 tests/curl_online.py
 clean:
 	rm -rf build
 
@@ -197,7 +207,7 @@ build/libc-demo-blob.o: build/libc-demo.elf
 	objcopy --strip-all $< build/libc-app.elf
 	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.libcimage,alloc,load,readonly,data,contents --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=noload,readonly build/libc-app.elf $@
 
-build/vfs-unit: tests/vfs_unit.c kernel/vfs.c kernel/fd.c kernel/vfs.h kernel/fd.h kernel/file_abi.h kernel/syscall_numbers.h | build
+build/vfs-unit: tests/vfs_unit.c kernel/vfs.c kernel/fd.c kernel/vfs.h kernel/fd.h kernel/file_abi.h kernel/syscall_numbers.h kernel/system_file.h kernel/fs.h kernel/physical.h kernel/base.h | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -no-pie tests/vfs_unit.c kernel/vfs.c kernel/fd.c -o $@
 
 # lwIP's raw core and the separately linked Picolibc socket client.
@@ -236,17 +246,17 @@ build/poll-demo.o: user/poll_demo.c user/poll_demo.h user/libc/os.h user/include
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
 build/socket-demo.o: user/poll_demo.h
 
-# --- curl 8.11.1 HTTP-only port ---
+# --- curl 8.11.1 HTTP/HTTPS port ---
 build/curl.ready: tools/fetch_curl.py | build
 	python3 tools/fetch_curl.py
 
-build/libcurl.a build/libcurltool.a &: build/curl.ready tools/build_curl.py user/curl_port/curl_config.h build/picolibc-built.ready
+build/libcurl.a build/libcurltool.a &: build/curl.ready tools/build_curl.py user/curl_port/curl_config.h build/picolibc-built.ready build/mbedtls.ready user/curl_port/notos_user_mbedtls_config.h kernel/notos_mbedtls_config.h kernel/tls_platform_port.h
 	CC="$(CC)" python3 tools/build_curl.py
 
 build/libc-select.o: user/libc/select.c user/libc/os.h kernel/file_abi.h kernel/platform_abi.h kernel/syscall_numbers.h user/include/poll.h kernel/poll_abi.h build/picolibc-built.ready
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
 
-build/libc-mkdir.o: user/libc/mkdir.c build/picolibc-built.ready
+build/libc-mkdir.o: user/libc/mkdir.c user/libc/os.h kernel/syscall_numbers.h kernel/file_abi.h build/picolibc-built.ready
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
 
 build/user-float-runtime.o: user/float_runtime.c kernel/base.h | build
@@ -256,10 +266,11 @@ CURL_LIBC_OBJS := build/libc-port.o build/libc-start.o build/libc-crt.o \
     build/libc-socket.o build/libc-poll.o build/libc-select.o \
     build/libc-mkdir.o build/user-integer-runtime.o build/user-float-runtime.o
 
-build/curl.elf: build/libcurltool.a build/libcurl.a $(CURL_LIBC_OBJS) user/elf_link.ld build/picolibc-built.ready
+build/curl.elf: build/libcurltool.a build/libcurl.a build/libuser-mbedtls.a build/user-tls-port.o build/user-certificate-policy.o $(CURL_LIBC_OBJS) user/elf_link.ld build/picolibc-built.ready
 	$(LD) -m elf_i386 --gc-sections -z noexecstack -z max-page-size=16 \
 	  -T user/elf_link.ld --Map=build/curl.map \
-	  --whole-archive build/libcurltool.a --no-whole-archive build/libcurl.a $(CURL_LIBC_OBJS) \
+	  --wrap=mbedtls_ssl_config_defaults --wrap=mbedtls_ssl_conf_cert_profile --wrap=mbedtls_ssl_conf_verify --wrap=mbedtls_ssl_read \
+	  --whole-archive build/libcurltool.a --no-whole-archive build/libcurl.a $(CURL_LIBC_OBJS) build/user-tls-port.o build/user-certificate-policy.o build/libuser-mbedtls.a \
 	  build/sysroot/lib/notos/libc.a -o $@
 
 build/curl-blob.o: build/curl.elf
@@ -279,3 +290,18 @@ build/float-unit: tests/float_unit.c user/float_runtime.c | build
 
 build/path-unit: tests/path_unit.c kernel/path_core.c kernel/path_core.h kernel/file_abi.h kernel/base.h kernel/syscall_numbers.h | build
 	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/path_unit.c kernel/path_core.c -o $@
+
+USER_TLS_FLAGS := -Iuser/curl_port -I$(MBEDTLS_INC) -DMBEDTLS_CONFIG_FILE='"notos_user_mbedtls_config.h"'
+build/libuser-mbedtls.a: build/mbedtls.ready build/picolibc-built.ready tools/build_user_tls.py user/curl_port/notos_user_mbedtls_config.h kernel/notos_mbedtls_config.h kernel/tls_platform_port.h
+	CC="$(CC)" NOTOS_CFLAGS="$(CFLAGS)" python3 tools/build_user_tls.py
+build/user-tls-port.o: user/curl_port/tls_port.c user/curl_port/notos_user_mbedtls_config.h kernel/notos_mbedtls_config.h kernel/certificate_policy.h build/mbedtls.ready build/picolibc-built.ready
+	$(CC) $(LIBC_FLAGS) $(USER_TLS_FLAGS) -c $< -o $@
+build/user-certificate-policy.o: kernel/certificate_policy.c kernel/certificate_policy.h | build
+	$(CC) $(CFLAGS) -c $< -o $@
+build/system-ca.o: trust/roots.pem | build
+	objcopy -I binary -O elf32-i386 -B i386 --rename-section .data=.rodata.systemca,alloc,load,readonly,data,contents --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=noload,readonly $< $@
+
+build/line-unit: tests/line_unit.c kernel/line_core.c kernel/line_core.h kernel/base.h | build
+	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -no-pie tests/line_unit.c kernel/line_core.c -o $@
+build/fs-unit: tests/fs_unit.c kernel/fs.c kernel/fs_core.c kernel/fs_core.h kernel/fs.h kernel/disk.h kernel/syscall_numbers.h kernel/file_abi.h kernel/base.h | build
+	gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -no-pie tests/fs_unit.c kernel/fs.c kernel/fs_core.c -o $@

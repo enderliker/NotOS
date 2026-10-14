@@ -17,6 +17,11 @@ int vfs_stat(const char *path,struct notos_file_info *result);
 void vfs_node_info(const struct vfs_node *node,struct notos_file_info *result);
 /* Copy a linked tmpfs entry by slot; return 1 for present, 0 for absent. */
 int vfs_entry(u32 index, char name[24], u32 *bytes);
+int vfs_mkdir(const char *path, u32 mode);
+int vfs_rmdir(const char *path);
+/* Dense direct-child index; 1 entry, 0 EOF or a negative ABI error. */
+int vfs_directory_entry(const char *path, u32 index, struct notos_directory_entry *entry);
+int vfs_readdir(struct vfs_node *node, u32 index, struct notos_directory_entry *entry);
 void vfs_status(void);
 struct vfs_counts { u32 nodes,files,pages,references; };
 struct vfs_counts vfs_counts(void);

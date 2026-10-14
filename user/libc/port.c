@@ -17,6 +17,10 @@
 #define HEAP_LIMIT 0x08800000u
 static int translated_error(int error) {
     switch (error) {
+    case ERROR_BAD_EXECUTABLE:return ENOEXEC;
+    case ERROR_NOT_DIRECTORY:return ENOTDIR;
+    case ERROR_IS_DIRECTORY:return EISDIR;
+    case ERROR_NOT_EMPTY:return ENOTEMPTY;
     case ERROR_NOT_FOUND:return ENOENT;
     case ERROR_AGAIN:return EAGAIN;
     case ERROR_ACCESS:return EACCES;
@@ -124,7 +128,7 @@ off_t lseek(int fd,off_t offset,int whence) {
 static void convert_stat(struct stat *status,const struct notos_file_info *info) {
     *status=(struct stat){0};
     status->st_ino=info->inode;status->st_nlink=info->links;status->st_size=info->size;
-    status->st_mode=(info->kind==NOTOS_FILE_REGULAR?S_IFREG:info->kind==NOTOS_FILE_SOCKET?S_IFSOCK:S_IFCHR)|info->permissions;
+    status->st_mode=(info->kind==NOTOS_FILE_DIRECTORY?S_IFDIR:info->kind==NOTOS_FILE_REGULAR?S_IFREG:info->kind==NOTOS_FILE_SOCKET?S_IFSOCK:S_IFCHR)|info->permissions;
     status->st_blksize=4096;status->st_blocks=((info->size+4095)/4096)*8;
 }
 static int stat_output(struct stat *status) {
@@ -234,3 +238,16 @@ int getentropy(void *buffer,size_t bytes) {
 pid_t getpid(void) {return (pid_t)notos_checked(notos_raw_call(SYS_PID,0,0,0));}
 
 int notos_errno(int error) {return translated_error(error);}
+
+int chdir(const char *path) {return notos_checked(notos_raw_call(SYS_CHDIR, (uint32_t)path, 0, 0));}
+int rmdir(const char *path) {return notos_checked(notos_raw_call(SYS_RMDIR, (uint32_t)path, 0, 0));}
+char *getcwd(char *buffer, size_t bytes) {
+    if (!buffer || bytes > UINT32_MAX) {errno = EINVAL; return 0;}
+    return notos_checked(notos_raw_call(SYS_GETCWD, (uint32_t)buffer, (uint32_t)bytes, 0)) ? 0 : buffer;
+}
+int notos_exec(const char *path, const char *arguments) {
+    return notos_checked(notos_raw_call(SYS_EXEC, (uint32_t)path, (uint32_t)arguments, 0));
+}
+int notos_readdir(int fd, struct notos_directory_entry *entry) {
+    return notos_checked(notos_raw_call(SYS_READDIR, (uint32_t)fd, (uint32_t)entry, 0));
+}

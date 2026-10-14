@@ -416,3 +416,30 @@ make test-online para este avance ni se probó HTTPS en curl o hardware físico.
 El código propio mantiene Werror. Los avisos upstream de Picolibc _set_tls y
 curl transfer.c/url.c quedan visibles y documentados; no se modificaron fuentes
 ni versiones de dependencias. No se añadieron TODOs.
+
+## Continuación: cobertura nueva
+
+- `fs-unit` bajo ASAN/UBSAN recorre puntos de fallo de publicación y migración
+  v1/v2 conservando bancos anteriores; valida holes, tipos, padres y cuotas.
+- `line-unit`: edición/cursor/historial/borrador/overflow. `continuation.py`:
+  QEMU16/64MiB con mismo PID, CLOEXEC, cwd y offsets heredados, fallos de imagen,
+  argumentos/buffers, readdir sin consumir por EFAULT; serie/PS2/flechas/Home/End/
+  Delete/Tab. ELF real descargado por curl a tmpfs/NotFS y ejecutado tras reboot.
+- `curl_https.py`: TLS1.2/1.3 con CA explícita de fixture; producción rechaza esa
+  CA, `-k` no omite verificación, SAN/EKU/firma/clave/fechas inválidos y EOF sin
+  close_notify. QEMU16/64MiB; recursos vuelven al estado inicial.
+- `curl_online.py` separado: HTTP/HTTPS públicos y salida/limpieza tmpfs. No es
+  parte de make test local; se incluye en make test-online opcional.
+
+La ampliación estática requiere 2MiB por tarea en el escenario de cuatro
+allocators libc con16MiB; pruebas individuales conservan3MiB. Se mantiene el
+mismo límite user4MiB y realloc5MiB fallido sin perder datos.
+
+Validación observada: `make` y `make test` completos pasaron todas las unidades
+nativas (incluidas `fs-unit`, `line-unit` y `vfs-unit` bajo ASAN/UBSAN) y todas
+las suites QEMU (`smoke`, `exceptions`, `interrupts`, `physical`, `paging`,
+`heap`, `poll`, `sockets`, `vfs`, `libc`, `curl`, `curl_https`, `elf`, `user`,
+`multitask`, `notlang`, `mouse`, `process`, `wait`, `storage`, `files`,
+`continuation`, `tls_platform`, `https` y `network`). Validación adicional
+observada: `python3 tests/curl_online.py` pasó con HTTP y HTTPS públicos de
+example.com, salida a archivo y limpieza exacta.

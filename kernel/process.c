@@ -1,5 +1,6 @@
 /* Persistent process slots are owned by the event loop, never by an IRQ. */
 #include "process.h"
+#include "system_file.h"
 #include "poll_wait.h"
 #include "socket_stack.h"
 #include "task.h"
@@ -18,7 +19,7 @@ extern const u8 user_blob_start[], user_blob_end[];
 
 u32 process_spawn_image(const char *name, const u8 *code, u32 bytes,
     const u8 *data, u32 data_bytes) {
-    if (!name || length(name) >= PROCESS_NAME_BYTES || data_bytes > 4096
+    if (!name || !*name || length(name) >= PROCESS_NAME_BYTES || data_bytes > 4096
         || (data_bytes && !data)) return 0;
     unsigned index = 0;
     while (index < SCHEDULER_CAPACITY && slots[index].task.state != TASK_UNUSED) index++;
@@ -37,6 +38,7 @@ static u32 process_spawn_elf_arguments(const char *name,const u8 *image,u32 byte
     while (index<SCHEDULER_CAPACITY && slots[index].task.state!=TASK_UNUSED) index++;
     if (index==SCHEDULER_CAPACITY || !task_create_elf(&slots[index].task,next_pid,image,bytes)) return 0;
     slots[index].quiet = 0;
+    slots[index].task.execution_budget = system_file_execution_budget(image);
     struct user_space *space=&slots[index].task.space;
     int prepared=split?space_arguments_split(space,name,argument):space_arguments(space,name,argument);
     if (!prepared) {
@@ -61,6 +63,15 @@ void process_quiet(u32 pid) {
     for (unsigned i = 0; i < SCHEDULER_CAPACITY; i++) {
         if (slots[i].task.state != TASK_UNUSED && slots[i].task.id == pid) {
             slots[i].quiet = 1;
+            return;
+        }
+    }
+}
+void process_rename(u32 pid, const char *name) {
+    if (!name || !*name || length(name) >= PROCESS_NAME_BYTES) return;
+    for (unsigned i = 0; i < SCHEDULER_CAPACITY; i++) {
+        if (slots[i].task.state != TASK_UNUSED && slots[i].task.id == pid) {
+            for (unsigned j = 0; (slots[i].name[j] = name[j]); j++) {}
             return;
         }
     }
@@ -105,7 +116,8 @@ void process_poll(void) {
                 if (task->wait_kind==TASK_WAIT_CONNECT) socket_connect_timeout(handle);
             } else if (task->wait_kind==TASK_WAIT_CONNECT) result=socket_connected(handle);
             else if (task->wait_kind==TASK_WAIT_SEND) {
-                result=space_copy_from_user(&task->space,task->pending_buffer,buffer,bytes)?
+                if (!(socket_ready(handle) & (NOTOS_POLLOUT | NOTOS_POLLERR | NOTOS_POLLHUP))) result = -ERROR_AGAIN;
+                else result=space_copy_from_user(&task->space,task->pending_buffer,buffer,bytes)?
                     socket_write(handle,buffer,bytes):-ERROR_BAD_ADDRESS;
             } else {
                 result=socket_read(handle,buffer,bytes,task->pending_flags);

@@ -32,7 +32,7 @@ for ram in ('16M','64M'):
         assert b'LIBC: buffered outputLIBC: atexit PASS\n' in reply,reply
         # Four private libc data/errno/allocators in identical virtual regions.
         start=len(m.output)
-        m.p.stdin.write(b'libc-run test\n'*5);m.p.stdin.flush()
+        m.p.stdin.write(b'libc-run concurrent\n'*5);m.p.stdin.flush()
         m.expect('LIBC ERROR: invalid ELF, no slot or memory\nnotos> ',start)
         for pid in range(4,8):m.expect(f'PROCESS: pid={pid} exit=0',start,timeout=45)
         reply=bytes(m.output[start:])

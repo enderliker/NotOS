@@ -79,13 +79,13 @@ Cada tarea tiene PDPT y directorio privado, compartiendo exclusivamente los mape
 Las pruebas ejecutan saltos desde ring3 al dato/pila: #PF con error 21, sin terminar el kernel.
 
 El cargador lee 512 KiB hacia 0x10000..0x90000 y valida el sello 0x8fffc.
-Para curl añade diez lecturas de 32 KiB: cada bloque pasa por el buffer BIOS
-0x90000..0x98000 y se copia con INT 15h/AH=87 a 0x100000..0x150000. El sello
-alto está en 0x14fffc. Las transferencias BIOS no cruzan un límite de 64 KiB;
+Para curl y raíces añade veinticuatro lecturas de 32 KiB: cada bloque pasa por el buffer BIOS
+0x90000..0x98000 y se copia con INT 15h/AH=87 a 0x100000..0x1c0000. El sello
+alto está en 0x1bfffc. Las transferencias BIOS no cruzan un límite de 64 KiB;
 VGA y la pila inicial 0x9f000 quedan fuera de ambos destinos.
 
 La imagen ELF de curl ocupa la región alta de solo lectura/NX. BSS comienza
-en 0x150000, se borra en entry y debe terminar antes de 0x200000. El asignador
+en 0x1c0000, se borra en entry y debe terminar antes de 0x280000. El asignador
 reserva desde 0x100000 hasta el fin de BSS antes de entregar frames; el mapping
 supervisor incluye esa región reservada. Linker y generador comprueban las
 capacidades baja/alta y tamaño del archivo de disco. La protección R/NX no

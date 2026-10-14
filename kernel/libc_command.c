@@ -3,7 +3,7 @@
 #include "process.h"
 extern const u8 _binary_build_libc_app_elf_start[],_binary_build_libc_app_elf_end[];
 void libc_command(const char *mode) {
-    if (!equal(mode,"test") && !equal(mode,"exit") && !equal(mode,"noentropy") && !equal(mode,"files") && !equal(mode,"stdin")
+    if (!equal(mode,"concurrent") && !equal(mode,"test") && !equal(mode,"exit") && !equal(mode,"noentropy") && !equal(mode,"files") && !equal(mode,"stdin")
         && !equal(mode,"curl-file") && !equal(mode,"disk") && !equal(mode,"hold") && !equal(mode,"fault")) {
         console_puts("LIBC ERROR: choose test/exit/noentropy/files/stdin/disk/hold/fault/curl-file\n");return;
     }

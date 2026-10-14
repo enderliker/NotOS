@@ -115,8 +115,9 @@ int fd_seek(struct fd_table *table,int fd,int offset,u32 origin) {
     else if (origin==NOTOS_SEEK_CUR) base=file->offset;
     else if (origin==NOTOS_SEEK_END) {struct notos_file_info info;vfs_node_info(file->node,&info);base=info.size;}
     else return -ERROR_INVALID_ARGUMENT;
+    struct notos_file_info info;vfs_node_info(file->node,&info);
     long long position=(long long)base+offset;
-    if (position<0 || position>VFS_FILE_BYTES) return -ERROR_INVALID_ARGUMENT;
+    if (position<0 || position>(info.size>VFS_FILE_BYTES?info.size:VFS_FILE_BYTES)) return -ERROR_INVALID_ARGUMENT;
     file->offset=(u32)position;return (int)position;
 }
 int fd_truncate(struct fd_table *table,int fd,u32 bytes) {
@@ -217,5 +218,18 @@ int fd_poll(struct fd_table *table,struct notos_pollfd *fds,u32 count) {
         fds[i].revents=events&(fds[i].events|NOTOS_POLL_ALWAYS);
         if (fds[i].revents) result++;
     }
+    return result;
+}
+
+void fd_close_exec(struct fd_table *table) {
+    for (u32 i = 0; i < NOTOS_FD_COUNT; i++)
+        if (table->slots[i] && (table->descriptor_flags[i] & NOTOS_FD_CLOEXEC)) fd_close(table, (int)i);
+}
+int fd_readdir(struct fd_table *table, int fd, struct notos_directory_entry *entry) {
+    struct open_file *file = get(table, fd);
+    if (!file) return -ERROR_BAD_FD;
+    if (file->kind != FILE_REGULAR) return -ERROR_NOT_DIRECTORY;
+    int result = vfs_readdir(file->node, file->offset, entry);
+    if (result > 0) file->offset++;
     return result;
 }

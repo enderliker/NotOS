@@ -3,6 +3,6 @@
 #include "file_abi.h"
 /* Normalize a trusted path relative to cwd; output is unchanged on failure. */
 int path_resolve(const char *cwd, const char *input, char output[NOTOS_PATH_BYTES]);
-/* The shell navigates fixed mount roots; it does not create directories. */
+/* Recognize built-in mount roots; dynamic directories are validated by VFS. */
 int path_directory(const char *path);
 #endif

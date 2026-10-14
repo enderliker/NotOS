@@ -44,7 +44,7 @@ La documentación de límites es parte del contrato. Un prototipo que pasa estos
 
 ## TLS y memoria en 0.11
 
-PAE y NX reemplazan tablas de 32 bits: PDPT privado y directorio por tarea; región estática alta reservada explícitamente antes de asignar frames; BSS actual desde 0x150000. Texto RX, rodata R/NX, datos/pilas RW/NX.
+PAE y NX reemplazan tablas de 32 bits: PDPT privado y directorio por tarea; región estática alta reservada explícitamente antes de asignar frames; BSS actual desde 0x1c0000. Texto RX, rodata R/NX, datos/pilas RW/NX.
 `tls_profile.*` ahora configura MbedTLS 1.2/1.3; `tls.*` proporciona BIO no bloqueante, verifica el handshake y libera contextos/slots PSA.
 `certificate_policy.*` sigue aplicando SAN/EKU/límites sin borrar errores de MbedTLS. `x509_policy.*` es legado BearSSL, no se enlaza en el cliente actual.
 `tls_platform_port.*` adapta heap/RTC/DRBG; no es una libc POSIX. `integer_runtime.*` aporta división u64 probada para i386.
@@ -72,7 +72,7 @@ Los hooks no soportados no devuelven éxito ficticio. libc privada single-thread
 
 ## FDs, VFS y entrada en 0.15
 
-`vfs.*` posee nodos/frames, nombres tmpfs y snapshots read-only NotFS; `fd.*` posee descripciones abiertas, referencias, posición/flags y colas de entrada. `task.*` adquiere/libera la tabla de descriptores. Ni VFS ni FDs interpretan punteros de usuario o deciden planificación.
+`vfs.*` posee nodos/frames, nombres tmpfs y NotFS v2 escribible e imágenes system inmutables; `fd.*` posee descripciones abiertas, referencias, posición/flags y colas de entrada. `task.*` adquiere/libera la tabla de descriptores. Ni VFS ni FDs interpretan punteros de usuario o deciden planificación.
 
 `syscall.*` valida/copia rutas y buffers antes de llamar al backend. `file_abi.h` fija el wire independiente de Picolibc. `user/libc/port.c` traduce constantes/errores/stat y usa los hooks reales de stdio upstream. `process_poll` termina lecturas TASK_WAIT_INPUT mediante `space_copy_to_user` sobre aliases del espacio bloqueado, sin activar su CR3. Shell/IRQ no comparten datos de entrada entre PIDs.
 
@@ -95,9 +95,9 @@ strings y construye el stack ABI; `process.*` comparte creación y rollback
 para argumentos simples o separados. `curl_command.*` solo lanza el ELF
 upstream. `select` es un adaptador de libc sobre poll, no una syscall nueva.
 
-El cargador BIOS añade un bloque alto de 320 KiB usando un buffer temporal y
+El cargador BIOS añade un bloque alto de 768 KiB usando un buffer temporal y
 INT 15h/AH=87. El linker coloca el blob curl R/NX en 0x100000 y BSS desde
-0x150000; physical reserva toda la región estática antes de asignar frames.
+0x1c0000; physical reserva toda la región estática antes de asignar frames.
 La ejecución sigue ocurriendo en el espacio privado de usuario. Ver MEMORY.md,
 LIBC.md y CURL_PORT.md para contratos y límites.
 
@@ -105,6 +105,17 @@ LIBC.md y CURL_PORT.md para contratos y límites.
 
 `path_core.*` normaliza rutas kernel sin I/O ni asignación; tiene pruebas
 nativas con sanitizadores. `file_command.*` conserva cwd de la shell y adapta
-los comandos a tmpfs y NotFS, sin cambiar la ABI de aplicaciones. `vfs_entry`
+los comandos a tmpfs y NotFS, con resolución de rutas y cwd por proceso en la ABI incremental. `vfs_entry`
 expone copias de nombres enlazados para listado, sin transferir referencias.
 El lanzador conserva `data.img` fuera de los productos de construcción.
+
+## Continuación: TLS, exec y filesystem
+
+`system_file.*` expone blobs inmutables, `executable.*` adquiere/libera imágenes
+VFS y el lanzador. `syscall.*` copia rutas/argumentos y prepara espacio; `task.*`
+confirma cambio CR3/frame y aplica CLOEXEC con `fd.*` antes de destruir espacio.
+`fs_core.*` contiene CRC/validación/compactación sin I/O; `fs.*` publica dos bancos
+ATA y migra v1 con rollback. `vfs.*` conserva referencias y handles sin nombre.
+`line_core.*` edita sin plataforma; `line_input.*` interpreta CSI/completa/renderiza
+fuera de IRQ. El backend MbedTLS de curl se enlaza a Picolibc por separado del
+TLS kernel, con fuentes/versiones de terceros intactas.

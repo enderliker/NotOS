@@ -1,9 +1,6 @@
+#include "os.h"
 #include <sys/stat.h>
-#include <errno.h>
 
 int mkdir(const char *path, mode_t mode) {
-    (void)path;
-    (void)mode;
-    errno = ENOTSUP;
-    return -1;
+    return notos_checked(notos_raw_call(SYS_MKDIR, (uint32_t)path, (uint32_t)mode, 0));
 }

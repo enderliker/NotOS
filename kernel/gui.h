@@ -4,4 +4,5 @@
 enum gui_action { GUI_NONE, GUI_CLEAR, GUI_FILES, GUI_TASKS };
 void gui_pointer(int x, int y, unsigned buttons);
 enum gui_action gui_next_action(void);
+void gui_move_cursor(int distance);
 #endif

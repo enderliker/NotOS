@@ -3,7 +3,7 @@
 
 int path_directory(const char *path) {
     return equal(path, "/") || equal(path, "/tmp")
-        || equal(path, "/disk") || equal(path, "/dev");
+        || equal(path, "/disk") || equal(path, "/dev") || equal(path, "/system");
 }
 
 static int path_append(char *output, u32 *used, const char *input) {
@@ -33,7 +33,7 @@ static int path_append(char *output, u32 *used, const char *input) {
 }
 
 int path_resolve(const char *cwd, const char *input, char output[NOTOS_PATH_BYTES]) {
-    if (!cwd || !input || !output || !path_directory(cwd))
+    if (!cwd || !input || !output || cwd[0] != '/')
         return -ERROR_INVALID_ARGUMENT;
     char resolved[NOTOS_PATH_BYTES] = "/";
     u32 used = 1;

@@ -14,6 +14,10 @@ static void file_error(int error) {
     else if (error == -ERROR_NO_SPACE) console_puts("no space");
     else if (error == -ERROR_MEMORY) console_puts("out of memory");
     else if (error == -ERROR_NAME_TOO_LONG) console_puts("path too long");
+    else if (error == -ERROR_NOT_DIRECTORY) console_puts("not a directory");
+    else if (error == -ERROR_IS_DIRECTORY) console_puts("is a directory");
+    else if (error == -ERROR_NOT_EMPTY) console_puts("directory not empty");
+    else if (error == -ERROR_EXISTS) console_puts("already exists");
     else if (error == -ERROR_IO) console_puts("not mounted or I/O failure");
     else console_puts("invalid name");
     console_putc('\n');
@@ -25,27 +29,23 @@ void file_command_init(void) {
 }
 
 static void file_list(const char *path) {
-    if (equal(path, "/")) console_puts("tmp/\ndisk/\ndev/\n");
-    else if (equal(path, "/dev")) console_puts("stdin\nstdout\nstderr\nconsole\nnull\n");
-    else if (equal(path, "/disk")) {
-        fs_command("ls", "");
-        return;
-    } else if (equal(path, "/tmp")) {
-        for (u32 i = 0; i < VFS_NODE_COUNT; i++) {
-            char name[24];
-            u32 bytes;
-            if (!vfs_entry(i, name, &bytes)) continue;
-            console_puts("FILE: ");
-            console_puts(name);
-            console_puts(" bytes=");
-            console_uint(bytes);
-            console_putc('\n');
+    struct notos_file_info info;
+    int error = vfs_stat(path, &info);
+    if (error) {file_error(error); return;}
+    if (info.kind != NOTOS_FILE_DIRECTORY) {console_puts(path); console_putc('\n'); return;}
+    for (u32 index = 0;; index++) {
+        struct notos_directory_entry entry;
+        int result = vfs_directory_entry(path, index, &entry);
+        if (result < 0) {file_error(result); return;}
+        if (!result) break;
+        if (equal(path, "/") || equal(path, "/dev") || equal(path, "/system")) {
+            console_puts(entry.name);
+            if (entry.kind == NOTOS_FILE_DIRECTORY) console_putc('/');
+        } else {
+            console_puts("FILE: "); console_puts(entry.name);
+            if (entry.kind == NOTOS_FILE_DIRECTORY) console_putc('/');
+            console_puts(" bytes="); console_uint(entry.size);
         }
-    } else {
-        struct notos_file_info info;
-        int error = vfs_stat(path, &info);
-        if (error) { file_error(error); return; }
-        console_puts(path);
         console_putc('\n');
     }
     console_puts("FS: list complete\n");
@@ -68,6 +68,12 @@ static void file_cat(const char *path) {
 }
 
 static void file_write(const char *path, const char *text, int touch) {
+    if (starts(path, "/disk/") && !touch) {
+        int error = fs_replace(path + 6, text, length(text));
+        if (error) file_error(error);
+        else console_puts("FS: file updated\n");
+        return;
+    }
     struct vfs_node *node;
     u32 flags = NOTOS_O_WRONLY | NOTOS_O_CREAT;
     if (!touch) flags |= NOTOS_O_TRUNC;
@@ -79,34 +85,16 @@ static void file_write(const char *path, const char *text, int touch) {
     else console_puts("FS: file updated\n");
 }
 
-static void file_disk(const char *operation, const char *name, const char *text) {
-    if (equal(operation, "touch")) {
-        if (fs_file_size(name) >= 0) { console_puts("FS: file unchanged\n"); return; }
-        fs_command("write", name);
-        return;
-    }
-    char argument[192];
-    u32 used = length(name);
-    for (u32 i = 0; i <= used; i++) argument[i] = name[i];
-    if (equal(operation, "write")) {
-        u32 bytes = length(text);
-        if (bytes >= sizeof(argument) - used - 1) { file_error(-ERROR_NAME_TOO_LONG); return; }
-        argument[used++] = ' ';
-        for (u32 i = 0; i <= bytes; i++) argument[used + i] = text[i];
-    }
-    fs_command(operation, argument);
-}
-
 static void file_stat(const char *path) {
-    if (path_directory(path)) {
+    struct notos_file_info info;
+    int error = vfs_stat(path, &info);
+    if (error) { file_error(error); return; }
+    if (info.kind == NOTOS_FILE_DIRECTORY) {
         console_puts("STAT: directory ");
         console_puts(path);
         console_putc('\n');
         return;
     }
-    struct notos_file_info info;
-    int error = vfs_stat(path, &info);
-    if (error) { file_error(error); return; }
     console_puts("STAT: ");
     console_puts(path);
     console_puts(" bytes=");
@@ -122,14 +110,14 @@ static void file_space(void) {
     console_uint(counts.pages * 4096);
     console_puts(" capacity_bytes=");
     console_uint(VFS_PAGE_COUNT * 4096);
-    console_puts(" (shared with disk snapshots)\nDF: /disk sectors=");
+    console_puts(" (tmpfs and unlinked disk handles)\nDF: /disk sectors=");
     console_uint(disk_sectors());
     console_puts(fs_ready() ? " mounted=1" : " mounted=0");
-    console_puts(" files_capacity=8 file_bytes_max=1536\n");
+    console_puts(" nodes_capacity=24 payload_bytes=61440 file_bytes_max=61440\n");
 }
 
 int file_command(const char *line) {
-    char operation[8];
+    char operation[10];
     u32 used = 0;
     while (*line && *line != ' ' && used < sizeof(operation) - 1) operation[used++] = *line++;
     operation[used] = 0;
@@ -138,7 +126,8 @@ int file_command(const char *line) {
         || equal(operation, "ls") || equal(operation, "cat")
         || equal(operation, "write") || equal(operation, "touch")
         || equal(operation, "rm") || equal(operation, "stat")
-        || equal(operation, "df") || equal(operation, "mkfs");
+        || equal(operation, "df") || equal(operation, "mkfs")
+        || equal(operation, "mkdir") || equal(operation, "rmdir");
     if (!recognized) return 0;
     while (*line == ' ') line++;
     if (equal(operation, "pwd") || equal(operation, "df") || equal(operation, "mkfs")) {
@@ -166,11 +155,18 @@ int file_command(const char *line) {
     int error = path_resolve(cwd, target, path);
     if (error) { file_error(error); return 1; }
     if (equal(operation, "cd")) {
-        if (!path_directory(path)) { file_error(-ERROR_NOT_FOUND); return 1; }
+        struct notos_file_info info;
+        error = vfs_stat(path, &info);
+        if (error) {file_error(error); return 1;}
+        if (info.kind != NOTOS_FILE_DIRECTORY) {file_error(-ERROR_NOT_DIRECTORY); return 1;}
         for (u32 i = 0; (cwd[i] = path[i]); i++) {}
     } else if (equal(operation, "ls")) file_list(path);
     else if (equal(operation, "stat")) file_stat(path);
-    else if (starts(path, "/disk/")) file_disk(operation, path + 6, line);
+    else if (equal(operation, "mkdir") || equal(operation, "rmdir")) {
+        error = equal(operation, "mkdir") ? vfs_mkdir(path, 0755) : vfs_rmdir(path);
+        if (error) file_error(error);
+        else console_puts("FS: directory updated\n");
+    }
     else if (equal(operation, "cat")) file_cat(path);
     else if (equal(operation, "rm")) {
         error = vfs_unlink(path);
@@ -179,3 +175,6 @@ int file_command(const char *line) {
     } else file_write(path, line, equal(operation, "touch"));
     return 1;
 }
+
+int file_resolve(const char *input, char path[NOTOS_PATH_BYTES]) {return path_resolve(cwd, input, path);}
+const char *file_cwd(void) {return cwd;}

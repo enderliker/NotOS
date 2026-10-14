@@ -118,7 +118,7 @@ def check_binary(machine):
 def check_quiet_version(machine):
     start = len(machine.output)
     machine.command("curl --version", "Release-Date:")
-    machine.expect("Protocols: http\nFeatures: Largefile\n", start)
+    machine.expect("Protocols: http https\nFeatures:", start)
     deadline = time.monotonic() + 5
     while True:
         reply = machine.command("ps", "PROCESS: list complete\nnotos> ")
@@ -140,11 +140,13 @@ def main():
             assert snapshot(machine) == baseline
             machine.command("process-trace on", "PROCESS: trace on\nnotos> ")
             reply = run(machine, '--version')
-            assert b'curl 8.11.1 (notos) libcurl/8.11.1' in reply and b'Protocols: http\n' in reply, reply
+            assert b'curl 8.11.1 (notos) libcurl/8.11.1' in reply and b'Protocols: http https\n' in reply, reply
             run(machine, None, 2)
             run(machine, '   ', 2)
             run(machine, '--unsupported-option', 2)
-            run(machine, '-sS https://10.0.2.2/', 1)
+            with socketserver.TCPServer(('127.0.0.1', 0), HTTPHandler) as refused:
+                refused_port = refused.server_address[1]
+            run(machine, f'-sS --connect-timeout 1 https://10.0.2.2:{refused_port}/', 7)
             run(machine, '  --version  ')
             run(machine, '--version' + ' ' * (256 - len('--version')))
             run(machine, '--version ' + ' '.join(['x'] * 14))
@@ -192,7 +194,7 @@ def main():
             baseline = snapshot(machine)
             run(machine, f'-sS http://10.0.2.2:{peer.port}/', 7)
             assert snapshot(machine) == baseline
-        print(f'PASS: curl HTTP-only, arguments, binary tmpfs/upload, timeout/errors and cleanup on {memory}')
+        print(f'PASS: curl HTTP/HTTPS build, arguments, binary tmpfs/upload, timeout/errors and cleanup on {memory}')
     with DNS() as dns, HTTPPeer() as peer, Machine(network=True, image='build/notos-socket-test.img', logname='curl-dns') as machine:
         machine.command("process-trace on", "PROCESS: trace on\nnotos> ")
         machine.command('net-config 10.0.2.15 10.0.2.2 10.0.2.2', 'configuration applied\nnotos> ')

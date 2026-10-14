@@ -5,7 +5,7 @@ static struct page_entry root[4] __attribute__((aligned(4096)));
 static struct page_entry directories[4][512] __attribute__((aligned(4096)));
 static struct page_entry identity[PHYSICAL_LIMIT/(4096*512)][512] __attribute__((aligned(4096)));
 static struct page_entry window[2][512] __attribute__((aligned(4096)));
-extern char __readonly_start[],__readonly_end[],__text_end[],__kernel_static_start[],__curl_image_end[],__bss_end[];
+extern char __readonly_start[],__readonly_end[],__text_end[],__kernel_static_start[],__bss_start[],__bss_end[];
 static u32 control(void) {u32 v;__asm__ volatile("mov %%cr0,%0":"=r"(v));return v;}
 static void invalidate(u32 address) {__asm__ volatile("invlpg (%0)"::"r"(address):"memory");}
 static int cpu_nx(void) {
@@ -34,7 +34,7 @@ int paging_init(void) {
             int execute=address>=(u32)__readonly_start && address<(u32)__text_end;
             if (!address || address==0x90000 || (address>=0x100000 && !kernel_static && !physical_usable(address))) flags=0;
             else if (address>=(u32)__readonly_start && address<(u32)__readonly_end) flags=1;
-            else if (address>=(u32)__kernel_static_start && address<(u32)__curl_image_end) flags=1;
+            else if (address>=(u32)__kernel_static_start && address<(u32)__bss_start) flags=1;
             else if (address>=0xa0000 && address<0xc0000) flags|=0x18;
             if (flags) page_entry_set(&identity[table][i],address,flags,execute);
             else identity[table][i]=(struct page_entry){0,0};
@@ -63,8 +63,10 @@ int paging_map(u32 virtual_address,u32 physical,int writable) {
 }
 u32 paging_unmap(u32 address) {
     if (!in_window(address)) return 0;
-    u32 flags=irq_save();struct page_entry *entry=window_entry(address);u32 physical=entry->low&0xfffff000u;
-    *entry=(struct page_entry){0,0};invalidate(address);irq_restore(flags);return physical;
+    u32 flags=irq_save();struct page_entry *entry=window_entry(address);
+    if (!(entry->low&1)) {irq_restore(flags);return 0;}
+    u32 physical=entry->low&0xfffff000u;
+    page_entry_clear(entry);invalidate(address);irq_restore(flags);return physical;
 }
 u32 paging_current_root(void) {u32 value;__asm__ volatile("mov %%cr3,%0":"=r"(value));return value;}
 u32 paging_translate(u32 address) {

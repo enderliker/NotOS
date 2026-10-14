@@ -6,7 +6,7 @@ SECTIONS {
     .text : { *(.text.entry) *(.text*) } :code
     . = ALIGN(4096);
     __text_end = .;
-    .rodata : { *(EXCLUDE_FILE (build/curl-blob.o) .rodata*) } :code
+    .rodata : { *(EXCLUDE_FILE (build/curl-blob.o build/system-ca.o) .rodata*) } :code
     . = ALIGN(4096);
     __readonly_end = .;
     .data : { *(.data*) } :data
@@ -18,13 +18,14 @@ SECTIONS {
         build/curl-blob.o(.rodata.curlimage)
         . = ALIGN(4096);
     } :image
+    .systemca : AT(ADDR(.systemca) - 0x70000) { build/system-ca.o(.rodata.systemca) . = ALIGN(4096); } :image
     __curl_image_end = .;
-    ASSERT(__curl_image_end <= 0x14fffc, "Curl exceeds 320 KiB high image capacity")
-    .high_check 0x14fffc : AT(0xdfffc) { LONG(0x4e4f544f) } :image
-    . = 0x150000;
+    ASSERT(__curl_image_end <= 0x1bfffc, "Curl exceeds 768 KiB high image capacity")
+    .high_check 0x1bfffc : AT(0x14fffc) { LONG(0x4e4f544f) } :image
+    . = 0x1c0000;
     __bss_start = .;
-    .bss (NOLOAD) : AT(0xe0000) { *(.bss*) *(COMMON) } :state
+    .bss (NOLOAD) : AT(0x150000) { *(.bss*) *(COMMON) . = ALIGN(4); } :state
     __bss_end = .;
-    ASSERT(__bss_end < 0x200000, "Kernel BSS exceeds reserved physical region")
+    ASSERT(__bss_end < 0x280000, "Kernel BSS exceeds reserved physical region")
     /DISCARD/ : { *(.eh_frame*) *(.comment*) *(.note*) }
 }

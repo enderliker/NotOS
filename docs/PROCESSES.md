@@ -58,3 +58,12 @@ la configuración vive hasta reiniciar. `ps` sigue mostrando tareas activas.
 Las demos conservan sus reportes para diagnóstico. Los fallos user y los
 errores de limpieza se reportan incluso con la traza deshabilitada. No cambia
 la recolección de recursos ni convierte curl en un comando foreground.
+
+## Reemplazo ELF y cwd
+
+`spawn-elf PATH [ARGS]` lee VFS; `notos_exec` conserva PID, cwd y descripciones
+salvo CLOEXEC. Cancela consultas DNS de la imagen anterior y prepara nuevo
+espacio/stack antes de cambiar CR3. Un fallo no altera recursos del proceso.
+El presupuesto normal es 250 ticks; la imagen curl system recibe 2500 para TLS.
+Exec no reinicia el contador y solo puede elevar el límite hasta ese máximo.
+Ver ELF.md y VFS.md para contratos, syscalls y límites.

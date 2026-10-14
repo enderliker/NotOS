@@ -12,3 +12,18 @@ El event loop procesa hasta 128 bytes por vuelta. Cursor de 8×8 con respaldo de
 Las acciones de UI se ejecutan fuera de IRQ. No hay ratón USB, rueda, ventanas arbitrarias, arrastre, resolución configurable ni escritorio completo. El soporte comprobado es el PS/2 emulado por QEMU; no se afirma compatibilidad con hardware real.
 
 Tests nativos: sincronización, signo, botones y overflow. Test QMP: movimiento y clicks reales, toolbar, minimizar/restaurar, captura del framebuffer y convivencia con teclado/IRQ0/INT3.
+
+## Edición de shell
+
+Historial circular de ocho líneas, con borrador al navegar Up/Down; se omiten
+repeticiones consecutivas. Left/Right, Home/End, Backspace y Delete editan con
+cursor sin consumir datos de procesos. Tab completa comandos o componentes de
+rutas por prefijo común; muestra candidatos cuando no puede avanzar y añade
+`/` para un directorio único. Sin globbing, comillas ni escapes.
+
+`line_core.*` es lógica pura con tests ASAN/UBSAN. `line_input.*` adapta VGA,
+serie CSI/SS3 y listado VFS; las secuencias de control se interpretan en el
+loop, y IRQ solo encola. Límite de línea: 159 caracteres para comandos comunes,
+320 para curl/spawn-elf; sus argumentos permanecen limitados a 256 bytes.
+El renderizado conserva el texto pero no implementa una terminal ANSI general
+ni reconstruye líneas desplazadas fuera de la pantalla por salida background.

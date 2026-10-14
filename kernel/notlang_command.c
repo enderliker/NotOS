@@ -3,7 +3,7 @@
 #include "fs.h"
 extern const u8 _binary_build_notlang_vm_bin_start[], _binary_build_notlang_vm_bin_end[];
 void nl_command(const char *kind,const char *source) {
-    char file[FS_FILE_MAX+1];
+    static char file[FS_FILE_MAX+1];
     if (equal(kind,"exec")) {
         int bytes=fs_read_file(source,file,FS_FILE_MAX);
         if (bytes<0) {console_puts("NotLang ERROR: file unavailable\n");return;}

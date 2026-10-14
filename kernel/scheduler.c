@@ -177,7 +177,7 @@ struct interrupt_frame *scheduler_tick(struct interrupt_frame *frame) {
         return frame;
     }
     task->statistics.cpu_ticks++;
-    if (task->statistics.cpu_ticks >= TASK_EXECUTION_BUDGET) {
+    if (task->statistics.cpu_ticks >= task->execution_budget) {
         return task_finish(frame, 124, TASK_EXIT_BUDGET);
     }
     if (++runtime.slice_ticks < SCHEDULER_QUANTUM_TICKS) {

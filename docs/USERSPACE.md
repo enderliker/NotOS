@@ -65,7 +65,7 @@ A diferencia de `fault ...`, estas demos de fallo user deben regresar a la shell
 
 Pruebas de CPL/TSS/CR3 reales en QEMU, aislamiento de datos, fault recovery, buffers inválidos, salida normal, timeout y restauración exacta de frames. Las pruebas principales usan 32 MiB; se añaden arranque/roots privados/fault recovery con 16 y 64 MiB. La red HTTP se prueba en el mismo invitado después de una ejecución user y de un #GP recuperado.
 
-Hay multitarea preemptiva básica por lotes y gestor background, NotFS y exec de fuente NotLang en VM ring3. No hay ELF, señales, IPC, heap de aplicación, SMP, NX, ASLR ni pila alternativa para double fault. La demo usa un programa assembly incluido en el kernel, de hasta una página; `run` conserva el intérprete kernel y `run-user`/`exec` usan la VM aislada. No es una auditoría de seguridad, un sandbox de producción ni una promesa de recuperación ante cualquier fallo de hardware o del kernel.
+Hay multitarea preemptiva básica por lotes y gestor background, NotFS y exec de fuente NotLang en VM ring3. Hay ELF, heap de aplicación y NX según ELF.md; no hay señales, IPC, SMP, ASLR ni pila alternativa para double fault. La demo usa un programa assembly incluido en el kernel, de hasta una página; `run` conserva el intérprete kernel y `run-user`/`exec` usan la VM aislada. No es una auditoría de seguridad, un sandbox de producción ni una promesa de recuperación ante cualquier fallo de hardware o del kernel.
 
 ## Extensión ELF32
 

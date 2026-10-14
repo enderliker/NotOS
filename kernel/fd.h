@@ -11,6 +11,8 @@ struct fd_table {
 };
 int fd_table_init(struct fd_table *table);
 void fd_table_destroy(struct fd_table *table);
+void fd_close_exec(struct fd_table *table);
+int fd_readdir(struct fd_table *table, int fd, struct notos_directory_entry *entry);
 int fd_open(struct fd_table *table,const char *path,u32 flags,u32 mode);
 int fd_close(struct fd_table *table,int fd);
 int fd_read(struct fd_table *table,int fd,void *buffer,u32 bytes);

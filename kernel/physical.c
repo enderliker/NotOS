@@ -15,7 +15,7 @@ u32 physical_alloc(void) {u32 flags=irq_save();u32 p=frame_take(&pool);irq_resto
 int physical_free(u32 address) {u32 flags=irq_save();int ok=frame_release(&pool,address);irq_restore(flags);return ok;}
 int physical_usable(u32 address) {return frame_usable(&pool,address);}
 int physical_owned(u32 address) {u32 flags=irq_save();int ok=frame_owned(&pool,address);irq_restore(flags);return ok;}
-unsigned physical_available(void) {return pool.available;}
+unsigned physical_available(void) {u32 flags=irq_save();unsigned available=pool.available;irq_restore(flags);return available;}
 void physical_status(void) {
     console_puts("MEM: E820 entries=");console_uint(map_count);
     console_puts(" managed_frames=");console_uint(pool.total);

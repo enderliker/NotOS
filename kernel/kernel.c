@@ -23,14 +23,12 @@
 #include "socket_command.h"
 #include "curl_command.h"
 #include "argument_core.h"
+#include "executable.h"
+#include "line_input.h"
 #include "socket_stack.h"
 #include "vfs.h"
 #include "fd.h"
 #include "platform_tls.h"
-#define SHELL_LINE_BYTES 160u
-static char line[ARGUMENT_MAX_BYTES+sizeof("curl ")];
-static unsigned used;
-static int dropped;
 void console_putc(char c) {
     while(!(inb(0x3fd)&0x20)) {}
     outb(0x3f8,(u8)c);
@@ -64,7 +62,7 @@ static void clock_command(const char *kind,const char *argument) {
     console_puts(" ms ticks=");console_uint(after_ticks-ticks);console_putc('\n');
 }
 static void command(const char *s) {
-    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nrun-user PROGRAM  exec FILE\nnet  dns HOST  http HOST[:PORT]\ncurl [OPTIONS] URL (HTTP only)\nhttps HOST[:PORT] [IP]  tls  tls-selftest\nnet-config IP GATEWAY DNS  net-drop LOSS\nsockets  socket-run MODE PORT  socket-drop syn/tx/rx\nsocket-run poll-basic/poll-stdin/poll-timer/poll-web PORT\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nlibc-test  libc-run test/exit/noentropy/files/stdin/disk/hold/fault/curl-file\nelf-run demo/nx-heap/nx-stack/stack-guard/readonly/sleep  elf-test\nmultitask-test  multitask-run SCENARIO\npwd  cd [PATH]  ls [PATH]  cat PATH\nwrite PATH TEXT  touch PATH  rm PATH  stat PATH  df\nmkfs (erases dedicated data disk)\nspawn worker/spin/fault  ps  kill PID\nprocess-trace on/off\nvfs  feed PID TEXT  feed-eof PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
+    if(equal(s,"help")) console_puts("help  about  clear  echo TEXT\nrun PROGRAM  lang-reset\nrun-user PROGRAM  exec FILE\nnet  dns HOST  http HOST[:PORT]\ncurl [OPTIONS] URL (HTTP/HTTPS)\nhttps HOST[:PORT] [IP]  tls  tls-selftest\nnet-config IP GATEWAY DNS  net-drop LOSS\nsockets  socket-run MODE PORT  socket-drop syn/tx/rx\nsocket-run poll-basic/poll-stdin/poll-timer/poll-web PORT\nint3  irqs  irq-test  uptime\nsleep MS  busy MS\nmem  frame-test  vm  vm-test\nheap  heap-test  alloc BYTES  free SLOT\nring3-test  user-run SCENARIO\nlibc-test  libc-run test/exit/noentropy/files/stdin/disk/hold/fault/curl-file\nelf-run demo/nx-heap/nx-stack/stack-guard/readonly/sleep  elf-test\nmultitask-test  multitask-run SCENARIO\npwd  cd [PATH]  ls [PATH]  cat PATH\nwrite PATH TEXT  touch PATH  rm PATH  stat PATH  df\nmkdir PATH  rmdir PATH\nspawn-elf PATH [ARGUMENTS]\nmkfs (erases dedicated data disk)\nspawn worker/spin/fault  ps  kill PID\nprocess-trace on/off\nvfs  feed PID TEXT  feed-eof PID\nmouse  (click CLR/FILES/TASKS; titlebar toggles window)\nfault divide/opcode/gp/null/readonly/guard/unmapped/heap-end (HALTS)\n");
     else if(equal(s,"about")) console_puts("NotOS: own bootloader and kernel.\n32-bit x86; no Linux runtime.\n");
     else if(equal(s,"clear")) gui_clear();
     else if(starts(s,"echo ")) {console_puts(s+5);console_putc('\n');}
@@ -131,6 +129,7 @@ static void command(const char *s) {
     else if(equal(s,"fault heap-end")) heap_fault_guard_end();
     else if(equal(s,"libc-test")) libc_command("test");
     else if(starts(s,"libc-run ")) libc_command(s+9);
+    else if(starts(s,"spawn-elf ")) executable_spawn_command(s+10);
     else if(starts(s,"elf-run ")) elf_command(s+8);
     else if(equal(s,"elf-test")) console_puts(elf_selftest()?"ELF: load/W^X/BSS/stack/OOM rollback PASS\n":"ELF ERROR: selftest failed\n");
     else if(equal(s,"ring3-test")) user_command("demo");
@@ -151,34 +150,11 @@ static void command(const char *s) {
     else if(file_command(s)) {}
     else if(*s) console_puts("ERROR: unknown command\n");
 }
-static void input(char c) {
-    static int cr;
-    if(c=='\n' && cr) {cr=0;return;}
-    cr=(c=='\r');
-    if(c=='\n'||c=='\r') {
-        console_putc('\n');
-        if(dropped) { console_puts("ERROR: input too long; discarded\n"); dropped=0; }
-        else {
-            line[used]=0;
-            if(used>=SHELL_LINE_BYTES && !starts(line,"curl "))
-                console_puts("ERROR: input too long; discarded\n");
-            else command(line);
-        }
-        used=0;console_puts("notos> ");
-    } else if(dropped) {
-        return;
-    } else if(c=='\b'||c==127) {
-        if(used) {used--;console_putc('\b');console_putc(' ');console_putc('\b');}
-    } else if(c>=32 && c<=126) {
-        if(used<sizeof(line)-1) {line[used++]=c;console_putc(c);}
-        else dropped=1;
-    }
-}
 static void keyboard(void) {
     static int shift,caps,extended;
     static const char normal[128] = {
         [2]='1',[3]='2',[4]='3',[5]='4',[6]='5',[7]='6',[8]='7',[9]='8',[10]='9',[11]='0',
-        [12]='-',[13]='=',[14]='\b',[16]='q',[17]='w',[18]='e',[19]='r',[20]='t',
+        [12]='-',[13]='=',[14]='\b',[15]='\t',[16]='q',[17]='w',[18]='e',[19]='r',[20]='t',
         [21]='y',[22]='u',[23]='i',[24]='o',[25]='p',[26]='[',[27]=']',[28]='\n',
         [30]='a',[31]='s',[32]='d',[33]='f',[34]='g',[35]='h',[36]='j',[37]='k',[38]='l',
         [39]=';',[40]='\'', [41]='`',[43]='\\',[44]='z',[45]='x',[46]='c',[47]='v',
@@ -187,13 +163,23 @@ static void keyboard(void) {
     u8 code;
     if(!keyboard_next(&code)) return;
     if(code==0xe0) {extended=1;return;}
-    if(extended) {extended=0;return;}
+    if(extended) {
+        extended=0;
+        if(code==75) line_input_key(LINE_LEFT);
+        else if(code==77) line_input_key(LINE_RIGHT);
+        else if(code==72) line_input_key(LINE_UP);
+        else if(code==80) line_input_key(LINE_DOWN);
+        else if(code==71) line_input_key(LINE_HOME);
+        else if(code==79) line_input_key(LINE_END);
+        else if(code==83) line_input_key(LINE_DELETE);
+        return;
+    }
     if(code==42||code==54) {shift|=code==42?1:2;return;}
     if(code==170||code==182) {shift&=code==170?~1:~2;return;}
     if(code&128) return;
     if(code==58) {caps=!caps;return;}
     if(code==59) {console_puts("\nF1: help/about/clear/echo/run\n");return;}
-    if(code==60) {gui_clear();used=0;dropped=0;console_puts("notos> ");return;}
+    if(code==60) {gui_clear();line_input_clear();console_puts("notos> ");return;}
     char c=normal[code];
     if(c>='a'&&c<='z') {if((shift!=0)^caps) c-=32;}
     else if(shift) {
@@ -201,15 +187,16 @@ static void keyboard(void) {
         const char *b="!@#$%^&*()_+{}:\"<>?~|";
         for(unsigned i=0;a[i];i++) if(c==a[i]) {c=b[i];break;}
     }
-    if(c) input(c);
+    if(c) line_input_char(c);
 }
 void kernel_main(void) {
     outb(0x3f9,0);outb(0x3fb,0x80);outb(0x3f8,1);outb(0x3f9,0);
     outb(0x3fb,3);outb(0x3fa,0xc7);outb(0x3fc,0x0b);
     gui_init();
+    line_input_set_command(command);
     interrupts_init();
     arch_init();
-    if(*(volatile u32 *)0x8fffc!=0x4e4f544f || *(volatile u32 *)0x14fffc!=0x4e4f544f) {
+    if(*(volatile u32 *)0x8fffc!=0x4e4f544f || *(volatile u32 *)0x1bfffc!=0x4e4f544f) {
         console_puts("BOOT ERROR: final kernel chunk missing\n");
         for(;;) __asm__ volatile("cli; hlt");
     }
@@ -238,7 +225,7 @@ void kernel_main(void) {
     console_puts("IRQ: PIC remapped; PIT ~1000 Hz\n");
     console_puts(keyboard_ready?"KEYBOARD: IRQ1 ready\n":"KEYBOARD: unavailable; use serial\n");
     console_puts(mouse_ready?"MOUSE: IRQ12 ready\n":"MOUSE: unavailable\n");
-    console_puts("BOOT: 512 KiB loader + 320 KiB high image verified\n");
+    console_puts("BOOT: 512 KiB loader + 768 KiB high image verified\n");
     physical_status();
     paging_status();
     heap_status();
@@ -251,11 +238,11 @@ void kernel_main(void) {
     for(;;) {
         net_poll(clock_ms());
         for (unsigned budget=0;budget<160 && (inb(0x3fd)&1);++budget)
-            input((char)inb(0x3f8));
+            line_input_char((char)inb(0x3f8));
         keyboard();
         mouse_poll();
         enum gui_action action=gui_next_action();
-        if(action==GUI_CLEAR) {gui_clear();used=0;dropped=0;console_puts("\nUI: clear\nnotos> ");}
+        if(action==GUI_CLEAR) {gui_clear();line_input_clear();console_puts("\nUI: clear\nnotos> ");}
         else if(action==GUI_FILES) {console_puts("\nUI: files\n");file_command("ls");console_puts("notos> ");}
         else if(action==GUI_TASKS) {console_puts("\nUI: tasks\n");process_command("ps", "");console_puts("notos> ");}
         process_poll();

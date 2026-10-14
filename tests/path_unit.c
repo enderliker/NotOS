@@ -26,7 +26,8 @@ int main(void) {
     strcpy(result, "unchanged");
     assert(path_resolve("/", input, result) == -ERROR_NAME_TOO_LONG);
     assert(strcmp(result, "unchanged") == 0);
-    assert(path_resolve("/missing", "file", result) == -ERROR_INVALID_ARGUMENT);
+    check("/tmp/nested", "../file", "/tmp/file");
+    assert(path_resolve("relative", "file", result) == -ERROR_INVALID_ARGUMENT);
     assert(path_resolve(NULL, "file", result) == -ERROR_INVALID_ARGUMENT);
     assert(!path_directory("/tmp/file") && path_directory("/disk"));
     puts("PASS: shell path normalization, parent/root boundaries and overflow rollback");

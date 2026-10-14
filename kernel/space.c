@@ -47,7 +47,7 @@ static int map_page(struct user_space *space,u32 address,int writable,int execut
     u32 physical=zero_frame();
     if (!physical) {
         if (created) {
-            directory[index]=(struct page_entry){0,0};
+            page_entry_clear(&directory[index]);
             physical_free((u32)table);
         }
         return 0;
@@ -62,12 +62,12 @@ static void unmap_page(struct user_space *space,u32 address) {
     struct page_entry *entry=&table[(address>>12)&511];
     if (!(entry->low&1)) return;
     u32 physical=entry->low&~4095u;
-    *entry=(struct page_entry){0,0};
+    page_entry_clear(entry);
     invalidate_if_active(space,address);
     physical_free(physical);
     for (unsigned i=0;i<512;i++) if (table[i].low&1) return;
     struct page_entry *directory=(struct page_entry *)space->directory;
-    directory[(address>>21)&511]=(struct page_entry){0,0};
+    page_entry_clear(&directory[(address>>21)&511]);
     physical_free((u32)table);
 }
 static int map_range(struct user_space *space,u32 low,u32 high,int writable,int executable) {
@@ -155,7 +155,8 @@ int space_create_elf(struct user_space *space,const u8 *image,u32 bytes) {
     space->entry=plan.entry;
     space->stack_low=USER_STACK_BASE;
     space->stack_top=USER_STACK_LIMIT;
-    space->table=(u32)page_table(space,USER_BASE);
+    struct page_entry *table=page_table(space,USER_BASE);
+    space->table=(u32)(table?table:page_table(space,plan.entry));
     return 1;
 }
 int space_range(const struct user_space *space,u32 address,u32 bytes,int writable) {

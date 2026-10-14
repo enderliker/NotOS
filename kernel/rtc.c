@@ -16,6 +16,7 @@ static int decimal(u8 byte) {
     return (byte>>4)*10+(byte&15);
 }
 int rtc_utc(struct utc_time *time) {
+    if (!time) return 0;
     for (unsigned attempt=0;attempt<8;attempt++) {
         u8 a[8],b[8];
         if (!snapshot(a) || !snapshot(b)) continue;

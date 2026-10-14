@@ -11,7 +11,13 @@
 #include "platform_abi.h"
 #include "file_abi.h"
 #include "vfs.h"
+#include "path_core.h"
+#include "executable.h"
+#include "elf.h"
+#include "system_file.h"
+#include "argument_core.h"
 #include "platform_tls.h"
+#include "process.h"
 
 static void probe(struct task *task, struct interrupt_frame *frame) {
     const struct user_interrupt_tail *tail = (const struct user_interrupt_tail *)(frame + 1);
@@ -94,7 +100,10 @@ static int copy_string(struct task *task,u32 address,char *text,u32 capacity) {
     return -ERROR_NAME_TOO_LONG;
 }
 static int copy_path(struct task *task,u32 address,char path[NOTOS_PATH_BYTES]) {
-    return copy_string(task,address,path,NOTOS_PATH_BYTES);
+    char input[NOTOS_PATH_BYTES];
+    int error = copy_string(task,address,input,NOTOS_PATH_BYTES);
+    if (!error && !input[0]) return -ERROR_NOT_FOUND;
+    return error ? error : path_resolve(task->cwd, input, path);
 }
 static struct interrupt_frame *network_call(struct task *task,struct interrupt_frame *frame) {
     u32 number=frame->eax;int result;
@@ -150,7 +159,15 @@ static void path_call(struct task *task,struct interrupt_frame *frame) {
     if (error) {frame->eax=(u32)error;return;}
     if (number==SYS_FD_OPEN) frame->eax=(u32)fd_open(&task->files,path,frame->ecx,frame->edx);
     else if (number==SYS_PATH_UNLINK) frame->eax=(u32)(starts(path,"/dev/")?-ERROR_READ_ONLY:vfs_unlink(path));
-    else {
+    else if (number == SYS_MKDIR) frame->eax = (u32)vfs_mkdir(path, frame->ecx);
+    else if (number == SYS_RMDIR) frame->eax = (u32)vfs_rmdir(path);
+    else if (number == SYS_CHDIR) {
+        struct notos_file_info info;
+        error = vfs_stat(path, &info);
+        if (!error && info.kind != NOTOS_FILE_DIRECTORY) error = -ERROR_NOT_DIRECTORY;
+        if (!error) for (u32 i = 0; (task->cwd[i] = path[i]); i++) {}
+        frame->eax = (u32)error;
+    } else {
         struct notos_file_info info;
         if (!space_range(&task->space,frame->ecx,sizeof(info),1)) {frame->eax=(u32)-ERROR_BAD_ADDRESS;return;}
         error=fd_path_stat(path,&info);
@@ -200,6 +217,48 @@ static void random_bytes(struct task *task,struct interrupt_frame *frame) {
     frame->eax=0;
 }
 
+static struct interrupt_frame *execute_image(struct task *task, struct interrupt_frame *frame) {
+    char path[NOTOS_PATH_BYTES], arguments[ARGUMENT_MAX_BYTES + 1];
+    int error = copy_path(task, frame->ebx, path);
+    if (!error) error = copy_string(task, frame->ecx, arguments, sizeof(arguments));
+    if (error) {frame->eax = (u32)error; return frame;}
+    struct executable_image image;
+    error = executable_open(path, &image);
+    if (error) {frame->eax = (u32)error; return frame;}
+    struct user_space replacement = {0};
+    const char *name = path;
+    for (const char *cursor = path; *cursor; cursor++) if (*cursor == '/') name = cursor + 1;
+    struct elf_plan plan;
+    if (!elf_validate(image.bytes, image.size, &plan)) error = -ERROR_BAD_EXECUTABLE;
+    else if (!space_create_elf(&replacement, image.bytes, image.size)) error = -ERROR_MEMORY;
+    else if (!space_arguments_split(&replacement, name, arguments)) error = -ERROR_INVALID_ARGUMENT;
+    u32 budget = system_file_execution_budget(image.bytes);
+    executable_close(&image);
+    if (error) {
+        space_destroy(&replacement);
+        frame->eax = (u32)error;
+        return frame;
+    }
+    if (budget > task->execution_budget) task->execution_budget = budget;
+    process_rename(task->id, name);
+    return task_exec(task, &replacement);
+}
+static void directory_call(struct task *task, struct interrupt_frame *frame) {
+    if (frame->eax == SYS_GETCWD) {
+        u32 bytes = length(task->cwd) + 1;
+        if (frame->ecx < bytes) {frame->eax = (u32)-ERROR_NAME_TOO_LONG; return;}
+        if (!space_range(&task->space, frame->ebx, frame->ecx, 1)) {frame->eax = (u32)-ERROR_BAD_ADDRESS; return;}
+        space_copy_to_user(&task->space, frame->ebx, task->cwd, bytes);
+        frame->eax = 0;
+    } else {
+        struct notos_directory_entry entry;
+        if (!space_range(&task->space, frame->ecx, sizeof(entry), 1)) {frame->eax = (u32)-ERROR_BAD_ADDRESS; return;}
+        int result = fd_readdir(&task->files, (int)frame->ebx, &entry);
+        if (result > 0) space_copy_to_user(&task->space, frame->ecx, &entry, sizeof(entry));
+        frame->eax = (u32)result;
+    }
+}
+
 struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     struct task *task = task_current();
     if (!task || (frame->cs & 3) != 3) {
@@ -208,13 +267,15 @@ struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     }
     task->statistics.syscalls++;
     switch (frame->eax) {
+    case SYS_EXEC:return execute_image(task, frame);
+    case SYS_GETCWD:case SYS_READDIR:directory_call(task, frame);break;
     case SYS_POLL:return poll_wait_start(task,frame);
     case SYS_EXIT:
         return task_finish(frame, frame->ebx, TASK_EXIT_NORMAL);
     case SYS_YIELD:
         frame->eax = 0;
         return scheduler_yield(frame);
-    case SYS_FD_OPEN:case SYS_PATH_STAT:case SYS_PATH_UNLINK:
+    case SYS_FD_OPEN:case SYS_PATH_STAT:case SYS_PATH_UNLINK:case SYS_MKDIR:case SYS_RMDIR:case SYS_CHDIR:
         path_call(task,frame);break;
     case SYS_SOCKET:case SYS_CONNECT:case SYS_GETOPT:case SYS_SETOPT:case SYS_SHUTDOWN:
     case SYS_ADDRESS:case SYS_RESOLVE:case SYS_RESOLVE_RESULT:return network_call(task,frame);

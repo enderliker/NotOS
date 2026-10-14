@@ -37,7 +37,7 @@ MbedTLS 3.6.5 (Apache-2.0) suministra TLS1.2/1.3 y X.509; BearSSL conserva solo 
 
 CMOS se lee con snapshots coherentes; formatos BCD/binario y 12/24 h, UTC 2000..2099. Clock ausente/inválido falla cerrado. Host/firmware/RTC pertenecen al límite de confianza; no hay tiempo autenticado ni protección contra rollback del host. El snapshot de raíces también requiere mantenimiento explícito.
 
-El cargador conserva 512 KiB bajos y añade 320 KiB altos para el ELF curl, con firmas 0x8fffc y 0x14fffc. BSS comienza en 0x150000; la región estática alta se reserva antes de asignar frames. Ver MEMORY.md. Límites de payload, readonly/BSS y guard de stack siguen comprobados por linker. CSPRNG y TLS son kernel no preemptivo; procesamiento criptográfico puede demorar el loop.
+El cargador conserva 512 KiB bajos y añade 768 KiB altos para el ELF curl, con firmas 0x8fffc y 0x1bfffc. BSS comienza en 0x1c0000; la región estática alta se reserva antes de asignar frames. Ver MEMORY.md. Límites de payload, readonly/BSS y guard de stack siguen comprobados por linker. CSPRNG y TLS son kernel no preemptivo; procesamiento criptográfico puede demorar el loop.
 
 ## Pruebas y límites
 
@@ -56,3 +56,13 @@ No revocación OCSP/CRL/CT, client certificates, session resumption, HTTP2, brow
 El backend se compila con cabeceras freestanding propias y configuración limitada. BIO no bloqueante devuelve WANT_READ/WANT_WRITE; TCP conserva sus retransmisiones cifradas. Se liberan cadena/contextos y slots PSA al terminar.
 RTC se convierte a epoch UTC de 64 bits y calendario sin libc del anfitrión. Fechas posteriores a 2038 se prueban explícitamente. RNG PSA consume la misma fuente fail-closed en bloques limitados; no existe fallback determinista.
 Las funciones de formato de diagnóstico no utilizadas fallan explícitamente; **no constituyen una libc para curl**. El cliente educativo sigue siendo `https`.
+
+## curl HTTPS en ring 3
+
+Curl integra otra construcción de MbedTLS 3.6.5 enlazada a Picolibc, sin
+fuentes upstream modificadas. `/system/cacert.pem` expone el bundle production
+como blob readonly. El adaptador de usuario registra SYS_ENTROPY como fuente
+fuerte, comprueba el reloj y aplica perfil de certificados estricto, sin permitir
+que el callback upstream borre errores con `-k`. Ver CURL_PORT.md para límites
+de CA, certificados cliente, cierre y cobertura; el cliente kernel conserva sus
+pruebas y contrato independientes.

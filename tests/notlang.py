@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory() as directory:
         execute(m,'run-user print 2147483647 + 1',4,65,['NotLang: integer overflow'])
         m.command('run-user print absent','NotLang COMPILE ERROR: undefined variable\nnotos> ')
         m.command('mkfs','FS: formatted dedicated data disk\nnotos> ')
-        m.command('write hello.nl let x = 40; print x + 2','FS: transaction committed\nnotos> ')
+        m.command('write hello.nl let x = 40; print x + 2','FS: file updated\nnotos> ')
         execute(m,'exec hello.nl',5,0,['USER OUT: 42\n'])
         assert re.search(rb'free_frames=(\d+)',m.command('mem','\nnotos> '))[1]==free
         m.command('heap-test','HEAP: split/coalesce/calloc/OOM selftest PASS\nnotos> ')

@@ -80,14 +80,14 @@ with tempfile.TemporaryDirectory() as directory:
     original=Path('build/notos.img').read_bytes()
     with Machine(data_disk=disk,logname='vfs-notfs') as m:
         m.command('mkfs','FS: formatted dedicated data disk\nnotos> ')
-        m.command('write hello.txt from-disk','FS: transaction committed\nnotos> ')
+        m.command('write hello.txt from-disk','FS: file updated\nnotos> ')
         baseline=snapshot(m);pid,start=launch(m,'disk')
         m.expect('VFS: disk snapshot waiting\n',start)
-        m.command('write hello.txt new-data!','FS: transaction committed\nnotos> ')
-        assert b'VFS: NotFS read-only snapshots PASS' in finish(m,pid,start)
+        m.command('write hello.txt new-data!','FS: file updated\nnotos> ')
+        assert b'VFS: NotFS coherent reads/writable open PASS' in finish(m,pid,start)
         assert snapshot(m)==baseline
     with Machine(data_disk=disk,logname='vfs-notfs-reboot') as m:
         m.command('cat hello.txt','\nnew-data!\nnotos> ')
         assert snapshot(m)
     assert Path('build/notos.img').read_bytes()==original
-    print('PASS: read-only NotFS mount, immutable open snapshots, new opens see updates, reboot persistence and boot image unchanged')
+    print('PASS: writable NotFS mount, existing opens see updates, reboot persistence and boot image unchanged')

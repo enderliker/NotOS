@@ -22,7 +22,9 @@ base_flags = [
     '-Iuser/include', '-Iuser/curl_port',
     '-I' + str(root / 'include'), '-I' + str(lib_root),
     '-DHAVE_CONFIG_H', '-DCURL_STATICLIB',
-    '-DHTTP_ONLY=1', '-D_POSIX_C_SOURCE=200809L', '-D_DEFAULT_SOURCE',
+    '-DHTTP_ONLY=1', '-DUSE_MBEDTLS', '-DMBEDTLS_FS_IO',
+    '-Ibuild/mbedtls/mbedtls-3.6.5/include',
+    '-DMBEDTLS_CONFIG_FILE="notos_user_mbedtls_config.h"', '-D_POSIX_C_SOURCE=200809L', '-D_DEFAULT_SOURCE',
     '-U__linux__', '-U__unix__', '-D__NOTOS__'
 ]
 
@@ -36,6 +38,11 @@ lib_sources = sorted(lib_root.glob('*.c')) + [
     lib_root / 'vauth/vauth.c',
     lib_root / 'vauth/digest.c',
     lib_root / 'vtls/vtls.c',
+    lib_root / 'vtls/mbedtls.c',
+    lib_root / 'vtls/cipher_suite.c',
+    lib_root / 'vtls/x509asn1.c',
+    lib_root / 'vtls/hostcheck.c',
+    lib_root / 'vtls/mbedtls_threadlock.c',
     lib_root / 'vquic/vquic.c',
 ]
 

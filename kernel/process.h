@@ -7,6 +7,8 @@ u32 process_spawn_elf_split(const char *name,const u8 *image,u32 bytes,const cha
 u32 process_spawn_elf(const char *name,const u8 *image,u32 bytes);
 /* Suppress routine completion output; faults and cleanup errors remain visible. */
 void process_quiet(u32 pid);
+/* Update the visible slot name when SYS_EXEC replaces a running task image. */
+void process_rename(u32 pid, const char *name);
 /* Whether shell-requested process diagnostics are enabled. */
 int process_trace_enabled(void);
 void process_poll(void);

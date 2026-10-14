@@ -1,4 +1,5 @@
 #include "task.h"
+#include "socket_stack.h"
 #include "heap.h"
 #include "scheduler.h"
 #include "clock.h"
@@ -34,6 +35,9 @@ static int finish_creation(struct task *task,u32 id) {
         kfree(task->kernel_stack);task->kernel_stack=0;
         space_destroy(&task->space);return 0;
     }
+    task->cwd[0] = '/';
+    task->cwd[1] = 0;
+    task->execution_budget = TASK_EXECUTION_BUDGET;
     task->id=id;
     task->state=TASK_READY;
     initialize_context(task);
@@ -66,12 +70,13 @@ int task_destroy(struct task *task) {
         return 0;
     }
     fd_table_destroy(&task->files);
-    if (task->kernel_stack && !kfree(task->kernel_stack)) {
-        return 0;
-    }
+    u8 *stack = task->kernel_stack;
     task->kernel_stack = 0;
     task->context = 0;
     task->state = TASK_UNUSED;
+    if (stack && !kfree(stack)) {
+        return 0;
+    }
     return 1;
 }
 
@@ -121,4 +126,19 @@ struct interrupt_frame *task_handle_fault(struct interrupt_frame *frame) {
         __asm__ volatile("mov %%cr2,%0" : "=r"(task->result.fault_address));
     }
     return task_finish(frame, 128 + frame->vector, TASK_EXIT_FAULT);
+}
+
+struct interrupt_frame *task_exec(struct task *task, struct user_space *replacement) {
+    struct user_space previous = task->space;
+    u32 flags = irq_save();
+    task->space = *replacement;
+    *replacement = (struct user_space){0};
+    __asm__ volatile("mov %0,%%cr3" :: "r"(task->space.root) : "memory");
+    initialize_context(task);
+    irq_restore(flags);
+    /* The old root is inactive; the kernel stack is shared supervisor memory. */
+    socket_resolve_cancel(&task->files);
+    fd_close_exec(&task->files);
+    space_destroy(&previous);
+    return task->context;
 }

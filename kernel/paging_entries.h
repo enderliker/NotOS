@@ -10,4 +10,9 @@ static inline void page_entry_set(struct page_entry *entry,u32 physical,u32 flag
     __asm__ volatile("" ::: "memory");
     entry->low=physical|flags;
 }
+static inline void page_entry_clear(struct page_entry *entry) {
+    entry->low=0;
+    __asm__ volatile("" ::: "memory");
+    entry->high=0;
+}
 #endif
