@@ -2,6 +2,10 @@
 
 ## Recently Completed Milestones
 
+- **System Power Control (`SYS_POWER = 50`, `reboot`, `poweroff`, `halt`) (M5)**:
+  Added `SYS_POWER` (`50`), NotFS `fs_sync` barrier, 8042/triple-fault `reboot`,
+  QEMU/Bochs ACPI `poweroff` (`0x604` / `0xB004`), and IRQ-masked `halt` with
+  multi-boot and clean-exit QEMU verification (`tests/power.py`).
 - **Multi-Call User Utilities (`/system/box.elf`), `ed`, and `SYS_PROCESS_LIST` (M4)**:
   Added `/system/box.elf` providing 24 user-space applets (`echo`, `cat`, `ls`,
   `cp`, `mv`, `rm`, `mkdir`, `rmdir`, `touch`, `head`, `tail`, `wc`, `grep` with
@@ -48,20 +52,16 @@
   IRQ context.
 - **Comprehensive Verification**: Native ASAN/UBSAN unit suites (`fs-unit`,
   `line-unit`, `shell-parse-unit`, `vfs-unit`, `poll-unit`, `elf-unit`,
-  `cert-unit`, `float-unit`) and 28 full-system QEMU test suites (see
+  `cert-unit`, `float-unit`) and 29 full-system QEMU test suites (see
   [TESTING.md](TESTING.md)).
 
 ## Next Planned Milestones
 
-1. **System Power Control (`SYS_POWER`)**:
-   - Add `SYS_POWER` (`50`) and kernel commands (`reboot`, `poweroff`, `halt`)
-     for clean reboot, ACPI poweroff, and halt after waiting for any in-flight
-     NotFS commit.
-2. **DHCP Network Configuration**:
+1. **DHCP Network Configuration**:
    - Enable lwIP DHCP client with 3-second boot discovery and deterministic
      static fallback (`10.0.2.15/24`), shared network configuration state, and
      configurable hostname (option 12).
-3. **Configurable CPU Budgets & Extended TLS Capabilities**:
+2. **Configurable CPU Budgets & Extended TLS Capabilities**:
    - Refine per-process CPU budget policies and support client certificates,
      explicit trust-store updates, and `CApath`.
 

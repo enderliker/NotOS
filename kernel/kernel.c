@@ -161,6 +161,9 @@ static void command(const char *s) {
     else if(equal(s,"ps")) process_command("ps", "");
     else if(starts(s,"spawn ")) process_command("spawn",s+6);
     else if(starts(s,"kill ")) process_command("kill",s+5);
+    else if(equal(s,"reboot")) (void)arch_power(NOTOS_POWER_REBOOT);
+    else if(equal(s,"poweroff")) (void)arch_power(NOTOS_POWER_POWEROFF);
+    else if(equal(s,"halt")) (void)arch_power(NOTOS_POWER_HALT);
     else if(file_command(s)) {}
     else if(*s) console_puts("ERROR: unknown command\n");
 }

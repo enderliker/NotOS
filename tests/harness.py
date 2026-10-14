@@ -16,7 +16,7 @@ def validate_logname(name):
     return name
 
 class Machine:
-    def __init__(self, network=False, logname="smoke", memory="32M", data_disk=None, entropy=True, rtc=None, image="build/notos.img", cpu="max", ready="notos> "):
+    def __init__(self, network=False, logname="smoke", memory="32M", data_disk=None, entropy=True, rtc=None, image="build/notos.img", cpu="max", ready="notos> ", allow_reboot=False):
         self.logname = validate_logname(logname)
         self.tmp = tempfile.TemporaryDirectory(prefix='notos-')
         self.output = bytearray()
@@ -26,7 +26,9 @@ class Machine:
         args = [os.environ.get('QEMU', 'qemu-system-i386'), '-machine', 'pc', '-cpu', cpu, '-m', memory,
                 '-drive', f'format=raw,file={image}', '-display', 'none',
                 '-qmp', f'unix:{monitor},server=on,wait=off',
-                '-serial', 'stdio', '-no-reboot']
+                '-serial', 'stdio']
+        if not allow_reboot:
+            args += ['-no-reboot']
         if entropy:
             seed = Path(self.tmp.name, 'entropy.bin')
             seed.write_bytes(os.urandom(64)); seed.chmod(0o600)
@@ -101,6 +103,21 @@ class Machine:
         self.p.stdin.write(text.encode()+b'\n')
         self.p.stdin.flush()
         return self.expect(expected,start,timeout)
+    def wait_exit(self, timeout=10):
+        deadline = time.monotonic() + timeout
+        while self.p.poll() is None:
+            if time.monotonic() > deadline:
+                raise AssertionError('Timed out waiting for QEMU exit\n' + self.output.decode(errors='replace'))
+            for key, _ in self.sel.select(.05):
+                block = os.read(key.fileobj.fileno(), 65536)
+                if block:
+                    self.output.extend(block)
+        while True:
+            block = os.read(self.p.stdout.fileno(), 65536)
+            if not block:
+                break
+            self.output.extend(block)
+        return self.p.returncode
     def screenshot(self, name='desktop'):
         path=str(Path('build',name+'.ppm').resolve())
         response=self.monitor('screendump '+path)

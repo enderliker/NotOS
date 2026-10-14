@@ -14,10 +14,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#ifndef SYS_POWER
-#define SYS_POWER 50
-#endif
-
 static const char *base_name(const char *path) {
     const char *base = path;
     for (const char *p = path; *p; p++) {
@@ -811,8 +807,10 @@ static int cmd_power(int argc, char **argv, uint32_t action, const char *name) {
     if (argc > 1 && strcmp(argv[1], "-n") == 0) {
         return 0;
     }
-    int r = notos_raw_call(SYS_POWER, action, 0, 0);
-    if (r < 0) {
+    if (argc > 1 && strcmp(argv[1], "-bad") == 0) {
+        action = 0;
+    }
+    if (notos_power(action) < 0) {
         box_err(name, "power control failed");
         return 1;
     }

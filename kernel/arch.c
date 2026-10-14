@@ -1,4 +1,8 @@
 #include "arch.h"
+#include "fs.h"
+#include "pic.h"
+#include "process_abi.h"
+#include "syscall_numbers.h"
 struct descriptor {u16 limit,base_low;u8 base_mid,access,granularity,base_high;} __attribute__((packed));
 struct pointer {u16 limit;u32 base;} __attribute__((packed));
 struct tss32 {
@@ -35,4 +39,36 @@ void arch_init(void) {
     entry(5,(u32)&tss,sizeof(tss)-1,0x89,0);
     const struct pointer p={sizeof(gdt)-1,(u32)gdt};gdt_load(&p);
     __asm__ volatile("ltr %%ax" :: "a"((u16)0x28) : "memory");
+}
+static void serial_drain(void) {
+    for (unsigned i = 0; i < 65536; i++)
+        if ((inb(0x3fd) & 0x60) == 0x60) break;
+}
+int arch_power(u32 action) {
+    if (action != NOTOS_POWER_REBOOT && action != NOTOS_POWER_POWEROFF && action != NOTOS_POWER_HALT)
+        return -ERROR_INVALID_ARGUMENT;
+    fs_sync();
+    __asm__ volatile("cli" ::: "memory");
+    for (unsigned irq = 0; irq < 16; irq++) pic_mask(irq);
+    if (action == NOTOS_POWER_REBOOT) {
+        console_puts("POWER: rebooting\n");
+        serial_drain();
+        for (unsigned i = 0; i < 65536; i++)
+            if (!(inb(0x64) & 2)) break;
+        outb(0x64, 0xfe);
+        for (unsigned i = 0; i < 65536; i++) __asm__ volatile("pause");
+        /* Deliberate triple-fault fallback if 8042 reset line is unavailable. */
+        const struct pointer zero_idt = {0, 0};
+        __asm__ volatile("lidt (%0); int3" :: "r"(&zero_idt) : "memory");
+    }
+    if (action == NOTOS_POWER_POWEROFF) {
+        console_puts("POWER: powering off\n");
+        serial_drain();
+        /* QEMU PIIX4 and Bochs ACPI PM1a_CNT_BLK shutdown ports. */
+        outw(0x604, 0x2000);
+        outw(0xb004, 0x2000);
+    }
+    console_puts("POWER: system halted\n");
+    serial_drain();
+    for (;;) __asm__ volatile("cli; hlt");
 }

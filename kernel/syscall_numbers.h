@@ -91,5 +91,6 @@
 #define SYS_KILL 47
 #define SYS_RENAME 48
 #define SYS_PROCESS_LIST 49
+#define SYS_POWER 50
 #endif
 

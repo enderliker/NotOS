@@ -125,6 +125,7 @@ test: build/fs-unit build/line-unit build/shell-parse-unit build/path-unit build
 	python3 tests/pipeline.py
 	python3 tests/shell.py
 	python3 tests/utilities.py
+	python3 tests/power.py
 	python3 tests/curl.py
 	python3 tests/curl_https.py
 	python3 tests/elf.py

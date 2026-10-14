@@ -107,6 +107,8 @@ configuration change triggers a clean sysroot rebuild.
 | `46` | `SYS_PIPE` | `fds_out[2]`, `flags` (`O_NONBLOCK \| O_CLOEXEC`) | `0` or negative error |
 | `47` | `SYS_KILL` | `pid`, `sig` (`0..31`) | `0` or negative error |
 | `48` | `SYS_RENAME` | `old_path`, `new_path` | `0` or negative error (`-ERROR_CROSS_DEVICE` across FS) |
+| `49` | `SYS_PROCESS_LIST` | `entries_out`, `capacity` (`0..64`) | Entry count or negative error |
+| `50` | `SYS_POWER` | `action` (`1` reboot, `2` poweroff, `3` halt) | Does not return on valid action, or `-ERROR_INVALID_ARGUMENT` |
 
 `SYS_TIME` writes a fixed 12-byte wire structure (`u32 seconds_low`,
 `u32 seconds_high`, `u32 nanoseconds`) using bytewise copy so unaligned user

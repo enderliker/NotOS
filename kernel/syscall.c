@@ -391,6 +391,7 @@ struct interrupt_frame *syscall_dispatch(struct interrupt_frame *frame) {
     case SYS_KILL:return kill_call(task, frame);
     case SYS_RENAME:rename_call(task, frame);break;
     case SYS_PROCESS_LIST:list_processes(task, frame);break;
+    case SYS_POWER:frame->eax = (u32)arch_power(frame->ebx);break;
     case SYS_GETCWD:case SYS_READDIR:directory_call(task, frame);break;
     case SYS_POLL:return poll_wait_start(task,frame);
     case SYS_EXIT:

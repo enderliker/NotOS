@@ -9,4 +9,6 @@ void arch_select_kernel_stack(u32 low, u32 top);
 void arch_reset_kernel_stack(void);
 void arch_run_context(struct interrupt_frame *frame, u32 root);
 void arch_return_to_caller(void) __attribute__((noreturn));
+/* Synchronizes storage and transitions system power state (reboot/poweroff/halt). */
+int arch_power(u32 action);
 #endif

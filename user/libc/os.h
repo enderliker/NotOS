@@ -25,6 +25,8 @@ int pipe2(int fds[2], int flags);
 int notos_readdir(int fd, struct notos_directory_entry *entry);
 /* Copies up to capacity active or zombie process descriptors; returns count or -1 with errno. */
 int notos_process_list(struct notos_process_info *entries, uint32_t capacity);
+/* Requests a system power state transition (NOTOS_POWER_REBOOT/POWEROFF/HALT). */
+int notos_power(uint32_t action);
 static inline int notos_raw_call4(uint32_t number,uint32_t first,uint32_t second,uint32_t third,uint32_t fourth) {
     uint32_t result;
     __asm__ volatile("int $0x80":"=a"(result):"a"(number),"b"(first),"c"(second),"d"(third),"S"(fourth):"memory","cc");

@@ -8,6 +8,7 @@
 #define FS_DISK_SECTORS 512u
 void fs_init(void);
 int fs_ready(void);
+void fs_sync(void);
 int fs_file_size(const char *name);
 int fs_file_inode(const char *name);
 void fs_command(const char *command, const char *argument);

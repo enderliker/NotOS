@@ -6,6 +6,7 @@
 #include "syscall_numbers.h"
 static struct fs_core_snapshot active, staging;
 static int mounted;
+static volatile int committing;
 static u32 bank;
 static void copy(void *destination, const void *source, u32 bytes) {
     u8 *output = destination;
@@ -25,24 +26,30 @@ static int publish(void) {
     u32 next = mounted ? bank ^ 1u : 0;
     u32 base = next * FS_BANK_STRIDE;
     u8 invalid[512] = {0};
+    committing = 1;
     staging.magic = FS_CORE_MAGIC;
     staging.version = 3;
     staging.generation = mounted ? active.generation + 1 : 1;
     staging.checksum = fs_core_crc(&staging, sizeof(staging));
-    if (!fs_core_valid(&staging)) return 0;
+    if (!fs_core_valid(&staging)) { committing = 0; return 0; }
     u32 expected_generation = staging.generation;
     u32 expected_checksum = staging.checksum;
-    if (!disk_write(base, invalid) || !disk_flush()) return 0;
+    if (!disk_write(base, invalid) || !disk_flush()) { committing = 0; return 0; }
     for (u32 i = 1; i < FS_BANK_SECTORS; i++)
-        if (!disk_write(base + i, (u8 *)&staging + i * 512)) return 0;
-    if (!disk_flush() || !disk_write(base, &staging) || !disk_flush()) return 0;
+        if (!disk_write(base + i, (u8 *)&staging + i * 512)) { committing = 0; return 0; }
+    if (!disk_flush() || !disk_write(base, &staging) || !disk_flush()) { committing = 0; return 0; }
     staging.magic = 0;
     if (!read_bank(next, &staging) || staging.generation != expected_generation
-        || staging.checksum != expected_checksum) return 0;
+        || staging.checksum != expected_checksum) { committing = 0; return 0; }
     copy(&active, &staging, sizeof(active));
     bank = next;
     mounted = 1;
+    committing = 0;
     return 1;
+}
+void fs_sync(void) {
+    while (committing) __asm__ volatile("pause");
+    if (mounted) (void)disk_flush();
 }
 static int migrate_v2(void) {
     struct fs_v2_snapshot *first = (void *)&active, *second = (void *)&staging;

@@ -1,7 +1,15 @@
-# Handoff: Multi-Call Utilities (`/system/box.elf`), User-Space Shell (`/system/sh.elf`), NotFS v3, and Process Composition
+# Handoff: Power Control (`SYS_POWER`), Multi-Call Utilities (`/system/box.elf`), User-Space Shell (`/system/sh.elf`), NotFS v3, and Process Composition
 
 ## Current State & Recent Implementation
 
+- **System Power Control (`SYS_POWER = 50`, `reboot`, `poweroff`, `halt`) (M5)**:
+  Added `SYS_POWER` (`50`), libc `notos_power`, and kernel shell commands
+  `reboot`, `poweroff`, and `halt` backed by `arch_power`. Waits for any
+  in-flight NotFS commit (`fs_sync()`), masks PIC IRQs `0..15`, and performs
+  8042 reset (`0xFE` to port `0x64`) with a deliberate zero-IDT triple-fault
+  fallback on `NOTOS_POWER_REBOOT` (`1`), QEMU/Bochs ACPI shutdown (`0x2000` to
+  ports `0x604` then `0xB004`) with `cli; hlt` fallback on `NOTOS_POWER_POWEROFF`
+  (`2`), or immediate `cli; hlt` on `NOTOS_POWER_HALT` (`3`).
 - **Multi-Call User Utilities (`/system/box.elf`), `ed`, and `SYS_PROCESS_LIST` (M4)**:
   Added `/system/box.elf` providing 24 user-space applets (`echo`, `cat`, `ls`,
   `cp`, `mv`, `rm`, `mkdir`, `rmdir`, `touch`, `head`, `tail`, `wc`, `grep` with

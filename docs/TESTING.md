@@ -5,7 +5,7 @@
 | Command | Coverage |
 | --- | --- |
 | `make` | Builds `build/notos.img` and test fixture images with pinned dependencies |
-| `make test` | Runs all 24 native C unit tests and 28 full-system QEMU integration suites |
+| `make test` | Runs all 24 native C unit tests and 29 full-system QEMU integration suites |
 | `make clean test` | Full clean rebuild and complete test suite (used by GitHub Actions CI) |
 | `make test-online` | Optional live internet tests against public DNS, HTTP, and HTTPS (`example.com`) |
 
@@ -292,3 +292,15 @@ Verified locally (`make clean test` with GCC 15.2.0, binutils 2.46, and QEMU
   editor with `a`, `i`, `c`, `d`, `p`, `n`, `=`, `w`, `q`, and line addresses),
   verifying byte-exact `cp` and `mv` (including cross-filesystem `/tmp` <->
   `/disk` fallback) and exact kernel resource restoration.
+
+### Milestone 5: System Power Control (`SYS_POWER`, `reboot`, `poweroff`, `halt`)
+
+Verified locally (`make` and `make test` with GCC 15.2.0, binutils 2.46, and
+QEMU 10.2.1/TCG):
+- `tests/power.py`: Verifies `SYS_POWER` (`50`) invalid-action rejection
+  (`EINVAL`), NotFS persistence across both kernel `reboot` and user-space
+  `/system/box.elf reboot` (reaching the bootloader verification banner three
+  times in a single QEMU instance), IRQ-masked `halt` (`POWER: system halted`),
+  and clean QEMU process exit (`returncode == 0`) via ACPI shutdown ports on both
+  user-space and kernel `poweroff`.
+
